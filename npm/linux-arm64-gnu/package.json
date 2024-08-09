@@ -11,10 +11,12 @@
   "files": [
     "prosody.linux-arm64-gnu.node"
   ],
+  "description": "Javascript bindings for the Prosody Kafka client library",
   "license": "UNLICENSED",
   "engines": {
     "node": ">= 10"
   },
+  "repository": "https://github.com/RealGeeks/prosody-js",
   "libc": [
     "glibc"
   ]

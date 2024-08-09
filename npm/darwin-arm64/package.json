@@ -11,8 +11,10 @@
   "files": [
     "prosody.darwin-arm64.node"
   ],
+  "description": "Javascript bindings for the Prosody Kafka client library",
   "license": "UNLICENSED",
   "engines": {
     "node": ">= 10"
-  }
+  },
+  "repository": "https://github.com/RealGeeks/prosody-js"
 }
