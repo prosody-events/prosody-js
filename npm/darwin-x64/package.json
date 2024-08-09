@@ -1,0 +1,18 @@
+{
+  "name": "prosody-darwin-x64",
+  "version": "0.0.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "prosody.darwin-x64.node",
+  "files": [
+    "prosody.darwin-x64.node"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">= 10"
+  }
+}

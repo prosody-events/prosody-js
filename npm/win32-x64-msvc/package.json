@@ -1,0 +1,18 @@
+{
+  "name": "prosody-win32-x64-msvc",
+  "version": "0.0.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "prosody.win32-x64-msvc.node",
+  "files": [
+    "prosody.win32-x64-msvc.node"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">= 10"
+  }
+}

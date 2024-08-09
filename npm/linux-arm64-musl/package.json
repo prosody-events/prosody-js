@@ -1,0 +1,21 @@
+{
+  "name": "prosody-linux-arm64-musl",
+  "version": "0.0.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "prosody.linux-arm64-musl.node",
+  "files": [
+    "prosody.linux-arm64-musl.node"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">= 10"
+  },
+  "libc": [
+    "musl"
+  ]
+}
