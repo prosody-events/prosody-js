@@ -1,3 +1,3 @@
-# `prosody-darwin-x64`
+# `@realgeeks/prosody-darwin-x64`
 
-This is the **x86_64-apple-darwin** binary for `prosody`
+This is the **x86_64-apple-darwin** binary for `@realgeeks/prosody`

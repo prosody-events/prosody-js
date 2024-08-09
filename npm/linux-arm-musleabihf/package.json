@@ -1,5 +1,5 @@
 {
-  "name": "prosody-linux-arm-musleabihf",
+  "name": "@realgeeks/prosody-linux-arm-musleabihf",
   "version": "0.0.0",
   "os": [
     "linux"

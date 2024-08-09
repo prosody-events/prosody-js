@@ -1,3 +1,3 @@
-# `prosody-darwin-universal`
+# `@realgeeks/prosody-darwin-universal`
 
-This is the **universal-apple-darwin** binary for `prosody`
+This is the **universal-apple-darwin** binary for `@realgeeks/prosody`

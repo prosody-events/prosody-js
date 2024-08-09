@@ -1,3 +1,3 @@
-# `prosody-linux-x64-gnu`
+# `@realgeeks/prosody-linux-x64-gnu`
 
-This is the **x86_64-unknown-linux-gnu** binary for `prosody`
+This is the **x86_64-unknown-linux-gnu** binary for `@realgeeks/prosody`
