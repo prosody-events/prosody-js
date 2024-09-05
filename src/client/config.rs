@@ -7,7 +7,9 @@ use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
 use std::time::Duration;
 
-/// Configuration options for the Prosody client.
+/**
+ * Configuration options for the Prosody client.
+ */
 #[napi(object)]
 pub struct Configuration {
   /// Kafka servers for initial connection.
@@ -59,7 +61,9 @@ pub struct Configuration {
   pub failure_topic: Option<String>,
 }
 
-/// Enum representing the operating mode of the Prosody client.
+/**
+ * Enum representing the operating mode of the Prosody client.
+ */
 #[derive(Debug, Default)]
 #[napi(string_enum)]
 pub enum Mode {

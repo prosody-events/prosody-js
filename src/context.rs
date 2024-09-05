@@ -6,7 +6,9 @@
 use napi_derive::napi;
 use prosody::consumer::message::MessageContext;
 
-/// Wrapper around `MessageContext` for use in Node.js bindings.
+/**
+ * Wrapper around MessageContext for use in Node.js bindings.
+ */
 #[napi]
 pub struct Context {
   context: MessageContext,
@@ -23,19 +25,21 @@ impl Context {
     Self { context }
   }
 
-  /// Signals that the context should shut down.
-  ///
-  /// This method is asynchronous and should be awaited.
+  /**
+   * Signals that the context should shut down.
+   *
+   * This method is asynchronous and should be awaited.
+   */
   #[napi(writable = false)]
   pub async fn on_shutdown(&self) {
     self.context.on_shutdown().await;
   }
 
-  /// Checks if the context should shut down.
-  ///
-  /// # Returns
-  ///
-  /// `true` if the context should shut down, `false` otherwise.
+  /**
+   * Checks if the context should shut down.
+   *
+   * @returns true if the context should shut down, false otherwise.
+   */
   #[napi(getter, writable = false)]
   pub fn should_shutdown(&self) -> bool {
     self.context.should_shutdown()

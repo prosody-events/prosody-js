@@ -16,7 +16,9 @@ pub mod swappable;
 /// Global swappable logger instance.
 static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
 
-/// JavaScript-compatible logger structure.
+/**
+ * JavaScript-compatible logger structure.
+ */
 #[napi(object)]
 pub struct Logger {
   /// Function for logging error messages.
@@ -40,16 +42,12 @@ pub struct Logger {
   pub trace: JsFunction,
 }
 
-/// Initializes the logging system with a JavaScript logger.
-///
-/// # Arguments
-///
-/// * `env` - The Node-API environment.
-/// * `logger` - The JavaScript logger to use.
-///
-/// # Errors
-///
-/// Returns an error if the logger initialization or tracing setup fails.
+/**
+ * Initializes the logging system with a JavaScript logger.
+ *
+ * @param logger - The JavaScript logger to use.
+ * @throws Error if the logger initialization or tracing setup fails.
+ */
 #[napi]
 pub fn initialize(mut env: Env, logger: Logger) -> napi::Result<()> {
   // Set up the JavaScript logger
@@ -66,16 +64,12 @@ pub fn initialize(mut env: Env, logger: Logger) -> napi::Result<()> {
   Ok(())
 }
 
-/// Sets a new JavaScript logger.
-///
-/// # Arguments
-///
-/// * `env` - The Node-API environment.
-/// * `logger` - The new JavaScript logger to set.
-///
-/// # Errors
-///
-/// Returns an error if creating the new JavaScript logger fails.
+/**
+ * Sets a new JavaScript logger.
+ *
+ * @param logger - The new JavaScript logger to set.
+ * @throws Error if creating the new JavaScript logger fails.
+ */
 #[napi]
 pub fn set_logger(env: Env, logger: Logger) -> napi::Result<()> {
   LOGGER.set_logger(JsLogger::new(env, logger)?);
