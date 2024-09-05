@@ -15,18 +15,20 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-/// Represents a native handler for processing messages.
+/**
+ * Represents a native handler for processing messages.
+ */
 #[napi(object)]
 pub struct NativeHandler {
-  /// A JavaScript function to be called when a message is received.
-  ///
-  /// The function should take the following arguments:
-  /// - `err`: An `Error` object or `null`
-  /// - `context`: A `Context` object
-  /// - `message`: A `Message` object
-  /// - `otelContext`: A record of string key-value pairs representing the OpenTelemetry context
-  ///
-  /// The function should return a `Promise<void>`.
+  /**
+   * A function to be called when a message is received.
+   *
+   * @param err - An Error object if an error occurred, or null otherwise
+   * @param context - A Context object representing the message processing context
+   * @param message - A Message object containing the received Kafka message
+   * @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
+   * @returns A Promise that resolves when the message has been processed
+   */
   #[napi(
     ts_type = "(err: null | Error, context: Context, message: Message, otelContext: Record<string, string>) => Promise<void>"
   )]

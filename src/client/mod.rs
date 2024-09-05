@@ -20,7 +20,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
 
-/// A native client wrapper for the Prosody high-level client.
+/**
+ * A native client wrapper for the Prosody high-level client.
+ */
 #[napi]
 pub struct NativeClient {
   client: HighLevelClient<JsHandler>,
@@ -28,15 +30,12 @@ pub struct NativeClient {
 
 #[napi]
 impl NativeClient {
-  /// Creates a new `NativeClient` instance.
-  ///
-  /// # Arguments
-  ///
-  /// * `config` - The configuration for the client.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if the client creation fails.
+  /**
+   * Creates a new NativeClient instance.
+   *
+   * @param config - The configuration for the client.
+   * @throws Error if the client creation fails.
+   */
   #[allow(clippy::needless_pass_by_value)] // required by NAPI
   #[napi(constructor, writable = false)]
   pub fn new(config: Configuration) -> Result<Self> {
@@ -57,25 +56,24 @@ impl NativeClient {
     Ok(NativeClient { client })
   }
 
-  /// Gets the current state of the consumer.
+  /**
+   * Gets the current state of the consumer.
+   */
   #[napi(getter, writable = false)]
   pub fn consumer_state(&self) -> ConsumerState {
     self.client.consumer_state().deref().into()
   }
 
-  /// Sends a message to a specified topic.
-  ///
-  /// # Arguments
-  ///
-  /// * `topic` - The topic to send the message to.
-  /// * `key` - The key of the message.
-  /// * `payload` - The payload of the message.
-  /// * `otel_context` - The OpenTelemetry context for tracing.
-  /// * `on_abort` - A promise that resolves when the operation should be aborted.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if the send operation fails or is aborted.
+  /**
+   * Sends a message to a specified topic.
+   *
+   * @param topic - The topic to send the message to.
+   * @param key - The key of the message.
+   * @param payload - The payload of the message.
+   * @param otelContext - The OpenTelemetry context for tracing.
+   * @param onAbort - A promise that resolves when the operation should be aborted.
+   * @throws Error if the send operation fails or is aborted.
+   */
   #[napi(writable = false)]
   pub async fn send(
     &self,
@@ -109,15 +107,12 @@ impl NativeClient {
     }
   }
 
-  /// Subscribes to receive messages using the provided event handler.
-  ///
-  /// # Arguments
-  ///
-  /// * `event_handler` - The event handler to process received messages.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if the subscription fails.
+  /**
+   * Subscribes to receive messages using the provided event handler.
+   *
+   * @param eventHandler - The event handler to process received messages.
+   * @throws Error if the subscription fails.
+   */
   #[allow(clippy::needless_pass_by_value)] // required by NAPI
   #[napi(writable = false)]
   pub fn subscribe(&self, event_handler: NativeHandler) -> Result<()> {
@@ -131,11 +126,11 @@ impl NativeClient {
     Ok(())
   }
 
-  /// Unsubscribes from receiving messages.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if the unsubscribe operation fails.
+  /**
+   * Unsubscribes from receiving messages.
+   *
+   * @throws Error if the unsubscribe operation fails.
+   */
   #[napi(writable = false)]
   pub async fn unsubscribe(&self) -> Result<()> {
     self
@@ -146,7 +141,9 @@ impl NativeClient {
   }
 }
 
-/// Current state of the consumer.
+/**
+ * Current state of the consumer.
+ */
 #[derive(Debug)]
 #[napi(string_enum)]
 pub enum ConsumerState {
