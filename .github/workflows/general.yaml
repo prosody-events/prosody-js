@@ -42,16 +42,7 @@ jobs:
           cache: yarn
       - name: Install
         uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            .cargo-cache
-            target/
-          key: ''
+      - uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: |
           yarn install
