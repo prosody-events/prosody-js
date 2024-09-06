@@ -49,7 +49,7 @@ jobs:
       - name: Build and run tests
         run: |
           set -e
-            yarn test
+            yarn build:debug && yarn test
             ls -la
         env:
           PROSODY_BOOTSTRAP_SERVERS: localhost:9094
