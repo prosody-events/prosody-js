@@ -276,6 +276,7 @@ describe("ProsodyClient", () => {
 
         // Abort the controller immediately to ensure the send operation is aborted
         abortController.abort();
+        expect(abortController.signal.aborted).toBe(true);
 
         const sendPromise = client.send(
           topic,
