@@ -12,7 +12,6 @@ use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use prosody::high_level::HighLevelClient;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::future::Future;
 use std::ops::Deref;
 use tokio::select;
 use tracing::field::Empty;
