@@ -58,11 +58,19 @@ describe("ProsodyClient", () => {
     topic = generateTopicName();
     await admin.createTopic(topic, 4, 1);
 
-    client = new ProsodyClient({
-      bootstrapServers: BOOTSTRAP_SERVERS,
-      groupId: GROUP_NAME,
-      subscribedTopics: topic,
-    });
+    for (let i = 0; i < 5; i++) {
+      try {
+        client = new ProsodyClient({
+          bootstrapServers: BOOTSTRAP_SERVERS,
+          groupId: GROUP_NAME,
+          subscribedTopics: topic,
+        });
+        break;
+      } catch (err) {
+        if (i >= 4) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
     messageStream = createMessageStream();
   });
 
