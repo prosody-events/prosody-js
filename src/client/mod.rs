@@ -88,6 +88,7 @@ impl NativeClient {
     let span = info_span!("javascript-send", %topic, %key, aborted = Empty);
     span.set_parent(context);
 
+    // Delay send to ensure the biased select will not send if already aborted
     let send_future = async {
       self
         .client
