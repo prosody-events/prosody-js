@@ -24,9 +24,5 @@ jobs:
       - uses: de-vri-es/setup-git-credentials@v2
         with:
           credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
-      - name: Debug cargo-audit output
-        run: |
-          cargo audit --json > audit_result.json
-          cat audit_result.json
       - uses: actions-rust-lang/audit@v1
         name: Audit Rust Dependencies
