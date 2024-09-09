@@ -21,5 +21,9 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
+      - name: Debug cargo-audit output
+        run: |
+          cargo audit --json > audit_result.json
+          cat audit_result.json
       - uses: actions-rust-lang/audit@v1
         name: Audit Rust Dependencies
