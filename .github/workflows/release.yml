@@ -145,6 +145,20 @@ jobs:
           - '18'
           - '20'
     runs-on: ${{ matrix.settings.host }}
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -164,6 +178,8 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Test bindings
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         run: yarn test
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
@@ -176,6 +192,20 @@ jobs:
           - '18'
           - '20'
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -194,6 +224,8 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Test bindings
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
@@ -206,6 +238,20 @@ jobs:
           - '18'
           - '20'
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -226,6 +272,8 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Test bindings
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
@@ -238,6 +286,20 @@ jobs:
           - '18'
           - '20'
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -260,6 +322,8 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         with:
           image: node:${{ matrix.node }}-slim
           options: '--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build'
@@ -272,6 +336,20 @@ jobs:
     needs:
       - build
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -294,6 +372,8 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         with:
           image: node:lts-alpine
           options: '--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build'
@@ -311,6 +391,20 @@ jobs:
           - '18'
           - '20'
     runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: docker.io/bitnami/kafka:3.7
+        ports:
+          - "9094:9094"
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -332,6 +426,8 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
+        env:
+          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
         with:
           image: node:${{ matrix.node }}-bullseye-slim
           options: '--platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build'
