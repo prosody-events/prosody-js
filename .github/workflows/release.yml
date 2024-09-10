@@ -69,6 +69,9 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         if: ${{ !matrix.settings.docker }}
@@ -161,6 +164,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -208,6 +214,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -254,6 +263,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -302,6 +314,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -352,6 +367,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -407,6 +425,9 @@ jobs:
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -442,6 +463,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
