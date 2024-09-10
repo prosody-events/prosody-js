@@ -34,10 +34,12 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            setup: apt-get update && apt-get install -y build-essential cmake libssl-dev pkg-config
             build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            setup: apk add --no-cache musl-dev gcc g++ make cmake linux-headers
             build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
@@ -45,6 +47,7 @@ jobs:
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            setup: apt-get update && apt-get install -y build-essential cmake libssl-dev pkg-config
             build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
@@ -58,6 +61,9 @@ jobs:
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            setup: |
+              apk add --no-cache musl-dev gcc g++ make cmake linux-headers
+              rustup target add aarch64-unknown-linux-musl
             build: |-
               set -e &&
               rustup target add aarch64-unknown-linux-musl &&
@@ -125,6 +131,7 @@ jobs:
           options: '-v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro --user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
           run: |
             git config --global credential.helper store
+            ${{ matrix.settings.setup }}
             ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
