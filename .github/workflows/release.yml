@@ -122,7 +122,7 @@ jobs:
           image: ${{ matrix.settings.docker }}
           options: >-
             --user 0:0
-            -v ${{ github.workspace }}/.config/git/credentials:/root/.config/git/credentials:ro
+            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro
             -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db
             -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
             -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
