@@ -115,6 +115,8 @@ jobs:
           node-version: 20
           cache: yarn
           architecture: x86
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
