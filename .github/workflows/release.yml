@@ -33,91 +33,25 @@ jobs:
             target: x86_64-pc-windows-msvc
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-            setup: |
-              apt-get update && apt-get install -y \
-                build-essential \
-                cmake \
-                libssl-dev \
-                zlib1g-dev \
-                libzstd-dev \
-                liblz4-dev \
-                libsasl2-dev \
-                pkg-config \
-                python3 \
-                clang \
-                llvm-dev \
-                libclang-dev
             build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            setup: |
-              apk add --no-cache \
-                build-base \
-                cmake \
-                openssl-dev \
-                zlib-dev \
-                zstd-dev \
-                lz4-dev \
-                cyrus-sasl \
-                pkgconfig \
-                python3 \
-                clang \
-                clang-dev \
-                llvm-dev \
-                linux-headers
             build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            setup: |
-              apt-get update && apt-get install -y \
-                build-essential \
-                cmake \
-                libssl-dev \
-                zlib1g-dev \
-                libzstd-dev \
-                liblz4-dev \
-                libsasl2-dev \
-                pkg-config \
-                python3 \
-                clang \
-                llvm-dev \
-                libclang-dev
             build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            setup: apt-get update && apt-get install gcc-arm-linux-gnueabihf -y
             build: yarn build --target armv7-unknown-linux-gnueabihf
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             build: yarn build --target armv7-unknown-linux-musleabihf
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            setup: |
-              apk add --no-cache \
-                build-base \
-                cmake \
-                openssl-dev \
-                zlib-dev \
-                zstd-dev \
-                lz4-dev \
-                cyrus-sasl \
-                pkgconfig \
-                python3 \
-                clang \
-                clang-dev \
-                llvm-dev \
-                linux-headers
-            build: |-
-              set -e &&
-              rustup target add aarch64-unknown-linux-musl &&
-              yarn build --target aarch64-unknown-linux-musl
+            build: yarn build --target aarch64-unknown-linux-musl
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
@@ -130,13 +64,11 @@ jobs:
           credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
-        if: ${{ !matrix.settings.docker }}
         with:
           node-version: 20
           cache: yarn
-      - name: Install
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
@@ -167,28 +99,8 @@ jobs:
           node-version: 20
           cache: yarn
           architecture: x86
-      - name: Build in docker
-        uses: addnab/docker-run-action@v3
-        if: ${{ matrix.settings.docker }}
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
-        with:
-          image: ${{ matrix.settings.docker }}
-          options: >-
-            --user 0:0
-            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro
-            -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db
-            -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
-            -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
-            -v ${{ github.workspace }}:/build
-            -w /build
-          run: |
-            git config --global credential.helper store
-            ${{ matrix.settings.setup }}
-            ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
-        if: ${{ !matrix.settings.docker }}
         shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
