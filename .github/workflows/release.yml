@@ -35,14 +35,38 @@ jobs:
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             setup: |
-              apt-get update && apt-get install -y build-essential cmake libssl-dev pkg-config clang \
-                llvm-dev libclang-dev librdkafka-dev libsasl2-dev
+              apt-get update && apt-get install -y \
+                build-essential \
+                cmake \
+                libssl-dev \
+                zlib1g-dev \
+                libzstd-dev \
+                liblz4-dev \
+                libsasl2-dev \
+                pkg-config \
+                python3 \
+                clang \
+                llvm-dev \
+                libclang-dev
             build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             setup: |
-              apk add --no-cache build-base cmake linux-headers clang clang-dev llvm-dev
+              apk add --no-cache \
+                build-base \
+                cmake \
+                openssl-dev \
+                zlib-dev \
+                zstd-dev \
+                lz4-dev \
+                cyrus-sasl \
+                pkgconfig \
+                python3 \
+                clang \
+                clang-dev \
+                llvm-dev \
+                linux-headers
             build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
@@ -51,8 +75,19 @@ jobs:
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             setup: |
-              apt-get update && apt-get install -y build-essential cmake libssl-dev pkg-config clang \
-                llvm-dev libclang-dev librdkafka-dev libsasl2-dev
+              apt-get update && apt-get install -y \
+                build-essential \
+                cmake \
+                libssl-dev \
+                zlib1g-dev \
+                libzstd-dev \
+                liblz4-dev \
+                libsasl2-dev \
+                pkg-config \
+                python3 \
+                clang \
+                llvm-dev \
+                libclang-dev
             build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
@@ -65,7 +100,20 @@ jobs:
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             setup: |
-              apk add --no-cache build-base cmake linux-headers clang clang-dev llvm-dev
+              apk add --no-cache \
+                build-base \
+                cmake \
+                openssl-dev \
+                zlib-dev \
+                zstd-dev \
+                lz4-dev \
+                cyrus-sasl \
+                pkgconfig \
+                python3 \
+                clang \
+                clang-dev \
+                llvm-dev \
+                linux-headers
             build: |-
               set -e &&
               rustup target add aarch64-unknown-linux-musl &&
