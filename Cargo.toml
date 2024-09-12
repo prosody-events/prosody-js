@@ -26,7 +26,7 @@ napi = { version = "2.16", default-features = false, features = [
 ] }
 napi-derive = "2.16"
 opentelemetry = "0.24"
-prosody = { git = "https://github.com/RealGeeks/prosody.git", rev = "64ef2751e1677b223549c9040f0457f985a93dff" } # replace once we have a package manager
+prosody = { git = "https://github.com/RealGeeks/prosody.git", rev = "8e40a87c974a55f8b1a9c7d4edf18ff26d1f6570" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "1.0"
 tokio = "1.40"
