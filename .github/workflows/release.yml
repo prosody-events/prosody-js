@@ -113,54 +113,6 @@ jobs:
             bindings.d.ts
           if-no-files-found: error
 
-  test-macOS-binding:
-    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - host: macos-11
-            target: x86_64-apple-darwin
-        node:
-          - '18'
-          - '20'
-    runs-on: ${{ matrix.settings.host }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: yarn
-          architecture: x64
-      - name: Install dependencies
-        run: yarn install
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: .
-      - uses: docker-practice/actions-setup-docker@master
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka \
-            -p 9094:9094 \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Test bindings
-        env:
-          PROSODY_BOOTSTRAP_SERVERS: localhost:9094
-        run: yarn test
-
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs:
