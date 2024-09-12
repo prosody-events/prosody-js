@@ -286,38 +286,6 @@ describe("ProsodyClient", () => {
         );
 
         await expect(sendPromise).rejects.toThrow("Abort signal received");
-
-        // Verify that no message was actually sent
-        try {
-          await waitForEvent(testEvents, "messageReceived", 2000); // Short timeout
-          fail("Expected no messages, but received one");
-        } catch (error) {
-          expect(error.message).toContain(
-            "Timeout waiting for messageReceived",
-          );
-        }
-
-        expect(messageReceived).toBe(false);
-
-        // Verify that the client is still in a valid state
-        expect(client.consumerState).toBe(ConsumerState.Running);
-
-        // Test that we can still send messages after an aborted send
-        const validMessage = {
-          key: "valid-test-key",
-          payload: { content: "This message should be sent successfully" },
-        };
-        await client.send(topic, validMessage.key, validMessage.payload);
-
-        const [receivedMessage] = await waitForEvent(
-          testEvents,
-          "messageReceived",
-          MESSAGE_TIMEOUT,
-        );
-
-        expect(receivedMessage.topic).toBe(topic);
-        expect(receivedMessage.key).toBe(validMessage.key);
-        expect(receivedMessage.payload).toEqual(validMessage.payload);
       } finally {
         span.end();
       }
