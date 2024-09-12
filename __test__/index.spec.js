@@ -10,9 +10,10 @@ const provider = new NodeTracerProvider();
 const tracer = trace.getTracer("prosody-js-test");
 
 // Constants
-const GROUP_NAME = "test-group";
-const BOOTSTRAP_SERVERS = "localhost:9094";
 const MESSAGE_TIMEOUT = 5000;
+const GROUP_NAME = "test-group";
+const BOOTSTRAP_SERVERS =
+  process.env.PROSODY_BOOTSTRAP_SERVERS || "localhost:9094";
 
 // Helper functions
 const generateTopicName = () =>
