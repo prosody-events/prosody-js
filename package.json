@@ -52,7 +52,10 @@
     "version": "napi version"
   },
   "packageManager": "yarn@4.4.0",
-  "repository": "https://github.com/RealGeeks/prosody-js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RealGeeks/prosody-js.git"
+  },
   "description": "Javascript bindings for the Prosody Kafka client library",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
