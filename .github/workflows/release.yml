@@ -416,7 +416,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://npm.pkg.github.com'
+          registry-url: 'https://npm.pkg.github.com/realgeeks'
           cache: yarn
       - name: Install dependencies
         run: yarn install
@@ -436,6 +436,8 @@ jobs:
       - name: Publish
         run: |
           npm config set provenance true
-          echo "@realgeeks:registry=https://npm.pkg.github.com" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GH_NPM_TOKEN }}" >> .npmrc
+          echo "always-auth=true" > .npmrc
+          echo "@realgeeks:registry=https://npm.pkg.github.com/realgeeks" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}" >> .npmrc
+          echo "//npm.pkg.github.com/realgeeks/:_authToken=${GH_PACKAGES_TOKEN}" >> .npmrc
           npm publish --access public
