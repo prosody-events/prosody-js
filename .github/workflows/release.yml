@@ -147,8 +147,21 @@ jobs:
       - name: List packages
         run: ls -R .
         shell: bash
-      - name: Set up Docker
-        uses: docker-practice/actions-setup-docker@master
+      - name: Setup WSL (Windows)
+        if: runner.os == 'Windows'
+        uses: Vampire/setup-wsl@v3
+        with:
+          distribution: Ubuntu-22.04
+          update: true
+          additional-packages: docker.io
+      - name: Ensure Docker is running (Windows)
+        if: runner.os == 'Windows'
+        shell: wsl-bash {0}
+        run: |
+          sudo usermod -aG docker $USER
+          sudo service docker start
+          # Wait for Docker to be ready
+          timeout 60s bash -c 'until docker info >/dev/null 2>&1; do echo "Waiting for Docker to be ready..."; sleep 1; done'
       - name: Start Kafka container (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -165,18 +178,18 @@ jobs:
             docker.io/bitnami/kafka:3.7
       - name: Start Kafka container (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: wsl-bash {0}
         run: |
-          docker run -d --name kafka `
-            -p 9094:9094 `
-            -e KAFKA_CFG_NODE_ID=0 `
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker `
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 `
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094 `
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094 `
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT `
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER `
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT `
+          docker run -d --name kafka \
+            -p 9094:9094 \
+            -e KAFKA_CFG_NODE_ID=0 \
+            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
+            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
+            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094 \
+            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094 \
+            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
       - name: Test bindings
         env:
