@@ -53,5 +53,8 @@
   },
   "packageManager": "yarn@4.4.0",
   "repository": "https://github.com/RealGeeks/prosody-js",
-  "description": "Javascript bindings for the Prosody Kafka client library"
+  "description": "Javascript bindings for the Prosody Kafka client library",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
