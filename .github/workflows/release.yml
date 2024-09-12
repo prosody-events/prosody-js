@@ -436,8 +436,6 @@ jobs:
       - name: Publish
         run: |
           npm config set provenance true
-          echo "//npm.pkg.github.com/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+          echo "@realgeeks:registry=https://npm.pkg.github.com" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GH_NPM_TOKEN }}" >> .npmrc
           npm publish --access public
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
