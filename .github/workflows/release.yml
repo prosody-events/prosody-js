@@ -144,9 +144,6 @@ jobs:
         with:
           name: bindings-${{ matrix.settings.target }}
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Setup WSL (Windows)
         if: runner.os == 'Windows'
         uses: Vampire/setup-wsl@v3
@@ -154,14 +151,6 @@ jobs:
           distribution: Ubuntu-22.04
           update: true
           additional-packages: docker.io
-      - name: Ensure Docker is running (Windows)
-        if: runner.os == 'Windows'
-        shell: wsl-bash {0}
-        run: |
-          sudo usermod -aG docker $USER
-          sudo service docker start
-          # Wait for Docker to be ready
-          timeout 60s bash -c 'until docker info >/dev/null 2>&1; do echo "Waiting for Docker to be ready..."; sleep 1; done'
       - name: Start Kafka container (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -221,9 +210,6 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -273,9 +259,6 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-musl
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -316,9 +299,6 @@ jobs:
         with:
           name: bindings-aarch64-unknown-linux-gnu
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
@@ -349,7 +329,7 @@ jobs:
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -v ${{ github.workspace }}:/build -w /build \
             node:${{ matrix.node }}-slim \
-            sh -c "set -e && yarn test && ls -la"
+            sh -c "set -e && yarn test"
 
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
@@ -363,9 +343,6 @@ jobs:
         with:
           name: bindings-aarch64-unknown-linux-musl
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
@@ -416,9 +393,6 @@ jobs:
         with:
           name: bindings-armv7-unknown-linux-gnueabihf
           path: .
-      - name: List packages
-        run: ls -R .
-        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm"
@@ -448,7 +422,7 @@ jobs:
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -v ${{ github.workspace }}:/build -w /build \
             node:${{ matrix.node }}-bullseye-slim \
-            sh -c "set -e && yarn test && ls -la"
+            sh -c "set -e && yarn test"
 
   universal-macOS:
     name: Build universal macOS binary
