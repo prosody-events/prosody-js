@@ -9,7 +9,7 @@ license = "UNLICENSED"
 name = "prosody-js"
 readme = "Readme.md"
 repository = "https://github.com/RealGeeks/prosody-js"
-version = "0.0.1"
+version = "0.0.2"
 
 [lib]
 crate-type = ["cdylib"]
