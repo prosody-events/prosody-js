@@ -7,22 +7,12 @@ permissions:
   contents: write
   id-token: write
   packages: write
-  # Add pull-requests permission for Release Please
   pull-requests: write
 
 on:
   push:
     branches:
       - main
-    tags-ignore:
-      - '**'
-    paths-ignore:
-      - '**/*.md'
-      - LICENSE
-      - '**/*.gitignore'
-      - .editorconfig
-      - docs/**
-  pull_request: null
 
 jobs:
   release-please:
