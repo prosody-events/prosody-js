@@ -32,7 +32,6 @@ jobs:
           token: ${{ secrets.GH_ALL_REPOS_RW }}
 
   build:
-    name: Build
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     strategy:
