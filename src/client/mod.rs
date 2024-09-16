@@ -12,7 +12,6 @@ use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use prosody::high_level::HighLevelClient;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::future::Future;
 use std::ops::Deref;
 use tokio::select;
 use tracing::field::Empty;
@@ -88,6 +87,7 @@ impl NativeClient {
     let span = info_span!("javascript-send", %topic, %key, aborted = Empty);
     span.set_parent(context);
 
+    // Delay send to ensure the biased select will not send if already aborted
     let send_future = async {
       self
         .client

@@ -1,8 +1,15 @@
 {
   "name": "@realgeeks/prosody",
-  "version": "0.0.0",
+  "version": "0.0.3",
   "main": "index.js",
   "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "bindings.js",
+    "bindings.d.ts",
+    "README.md"
+  ],
   "napi": {
     "name": "prosody",
     "triples": {
@@ -45,6 +52,12 @@
     "version": "napi version"
   },
   "packageManager": "yarn@4.4.0",
-  "repository": "https://github.com/RealGeeks/prosody-js",
-  "description": "Javascript bindings for the Prosody Kafka client library"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RealGeeks/prosody-js.git"
+  },
+  "description": "Javascript bindings for the Prosody Kafka client library",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
