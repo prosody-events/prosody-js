@@ -135,7 +135,6 @@ impl MetadataVisitor {
 
     // Add standard metadata fields
     values.insert("module".into(), metadata.module_path().into());
-    values.insert("file".into(), metadata.file().into());
     values.insert("line".into(), metadata.line().into());
 
     Self {
