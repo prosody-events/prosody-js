@@ -7,7 +7,10 @@ permissions:
   contents: write
   id-token: write
   packages: write
-'on':
+  # Add pull-requests permission for Release Please
+  pull-requests: write
+
+on:
   push:
     branches:
       - main
@@ -20,8 +23,28 @@ permissions:
       - .editorconfig
       - docs/**
   pull_request: null
+
 jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release Please Action
+        id: release
+        uses: google-github-actions/release-please-action@v3
+        with:
+          release-type: node
+          package-name: prosody
+          token: ${{ secrets.GH_ALL_REPOS_RW }}
+
   build:
+    name: Build
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -404,12 +427,15 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     needs:
+      - release-please
+      - build
       - test-linux-x64-gnu-binding
       - test-linux-x64-musl-binding
       - test-linux-aarch64-gnu-binding
       - test-linux-aarch64-musl-binding
       - test-linux-arm-gnueabihf-binding
       - universal-macOS
+    if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
