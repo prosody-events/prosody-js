@@ -453,4 +453,4 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
         run: |
           npm config set provenance true
-          npm publish --access public
+          npm publish
