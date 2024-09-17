@@ -77,3 +77,80 @@ export declare class ProsodyClient {
  * @param logger - The new JavaScript logger to set.
  */
 export function setLogger(logger: Logger): void;
+
+/**
+ * Base class for event handler errors.
+ * Extends the standard Error class with an isPermanent property.
+ */
+export declare class EventHandlerError extends Error {
+  /**
+   * Creates a new EventHandlerError instance.
+   *
+   * @param message - The error message.
+   */
+  constructor(message: string);
+
+  /**
+   * Indicates whether the error is permanent.
+   * This getter must be implemented by subclasses.
+   *
+   * @throws {Error} Throws an error if not implemented by a subclass.
+   */
+  get isPermanent(): boolean;
+}
+
+/**
+ * Represents a transient error in event handling.
+ * Transient errors are temporary and can be retried.
+ */
+export declare class TransientError extends EventHandlerError {
+  /**
+   * Indicates that this error is not permanent.
+   *
+   * @returns Always returns false.
+   */
+  get isPermanent(): false;
+}
+
+/**
+ * Represents a permanent error in event handling.
+ * Permanent errors are not temporary and should not be retried.
+ */
+export declare class PermanentError extends EventHandlerError {
+  /**
+   * Indicates that this error is permanent.
+   *
+   * @returns Always returns true.
+   */
+  get isPermanent(): true;
+}
+
+/**
+ * Type definition for an error decorator function.
+ * This function is used to wrap a class method and handle specific error types.
+ */
+type ErrorDecorator = (
+  target: any,
+  key: string | symbol,
+  descriptor: PropertyDescriptor,
+) => PropertyDescriptor;
+
+/**
+ * Type definition for a function that creates an error decorator.
+ * It takes exception types as arguments and returns an ErrorDecorator.
+ */
+type ErrorDecoratorFactory = (
+  ...exceptionTypes: (new (...args: any[]) => Error)[]
+) => ErrorDecorator;
+
+/**
+ * Decorator factory for marking errors as transient.
+ * Methods decorated with this will have specified exceptions wrapped as TransientErrors.
+ */
+export declare const transient: ErrorDecoratorFactory;
+
+/**
+ * Decorator factory for marking errors as permanent.
+ * Methods decorated with this will have specified exceptions wrapped as PermanentErrors.
+ */
+export declare const permanent: ErrorDecoratorFactory;

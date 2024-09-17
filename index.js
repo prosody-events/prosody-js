@@ -50,6 +50,14 @@ class ProsodyClient {
     const { onMessage } = eventHandler;
 
     this.nativeClient.subscribe({
+      isPermanent: (err) => {
+        try {
+          return err instanceof EventHandlerError && err.isPermanent;
+        } catch {
+          return false;
+        }
+      },
+
       onMessage: async (err, context, message, carrier) => {
         if (err) throw err;
 
@@ -103,8 +111,65 @@ const onAbort = (signal) =>
       });
   });
 
-module.exports.ProsodyClient = ProsodyClient;
-module.exports.Mode = Mode;
-module.exports.ConsumerState = ConsumerState;
-module.exports.Context = Context;
-module.exports.setLogger = setLogger;
+// Define base error classes
+class EventHandlerError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = this.constructor.name;
+  }
+
+  get isPermanent() {
+    throw new Error("Subclasses must implement isPermanent");
+  }
+}
+
+class TransientError extends EventHandlerError {
+  get isPermanent() {
+    return false;
+  }
+}
+
+class PermanentError extends EventHandlerError {
+  get isPermanent() {
+    return true;
+  }
+}
+
+// Helper function to create error decorators
+function createErrorDecorator(ErrorClass) {
+  return function (...exceptionTypes) {
+    return function (target, key, descriptor) {
+      const originalMethod = descriptor.value;
+      descriptor.value = async function (...args) {
+        try {
+          return await originalMethod.apply(this, args);
+        } catch (error) {
+          if (exceptionTypes.some((type) => error instanceof type)) {
+            const wrapped = new ErrorClass(error.message);
+            wrapped.cause = error;
+            throw wrapped;
+          }
+          throw error;
+        }
+      };
+      return descriptor;
+    };
+  };
+}
+
+// Create transient and permanent decorators
+const transient = createErrorDecorator(TransientError);
+const permanent = createErrorDecorator(PermanentError);
+
+module.exports = {
+  ConsumerState,
+  Context,
+  EventHandlerError,
+  Mode,
+  PermanentError,
+  ProsodyClient,
+  TransientError,
+  permanent,
+  setLogger,
+  transient,
+};
