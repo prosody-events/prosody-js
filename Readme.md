@@ -124,6 +124,64 @@ const messageHandler = {
 client.subscribe(messageHandler);
 ```
 
+### Error Handling
+
+Prosody classifies errors as transient (temporary, can be retried) or permanent (won't be resolved by retrying). By
+default, all errors are considered transient.
+
+#### Using Decorators
+
+If you're using TypeScript or a JavaScript environment that supports decorators, you can use the `@permanent` decorator
+to classify exceptions that should not be retried:
+
+```javascript
+import {permanent, ProsodyClient} from '@realgeeks/prosody';
+
+class MyHandler {
+    @permanent(TypeError, AttributeError)
+    async onMessage(context, message, signal) {
+        // Your message handling logic here
+        // TypeError and AttributeError will be treated as permanent
+        // All other exceptions will be treated as transient (default behavior)
+    }
+}
+
+const client = new ProsodyClient(config);
+client.subscribe(new MyHandler());
+```
+
+#### Without Decorators
+
+If you're not using decorators, you can still classify errors as permanent by throwing a `PermanentError`:
+
+```javascript
+import {PermanentError, ProsodyClient} from '@realgeeks/prosody';
+
+const messageHandler = {
+    onMessage: async (context, message, signal) => {
+        try {
+            // Your message handling logic here
+        } catch (error) {
+            if (error instanceof TypeError || error instanceof AttributeError) {
+                throw new PermanentError(error.message);
+            }
+            // All other exceptions will be treated as transient (default behavior)
+            throw error;
+        }
+    }
+};
+
+const client = new ProsodyClient(config);
+client.subscribe(messageHandler);
+```
+
+#### Best Practices for Error Handling
+
+- Use permanent errors for issues like malformed data or business logic violations.
+- Use transient errors for temporary issues like network problems.
+- Be cautious with permanent errors as they prevent retries and can result in data loss.
+- Consider system reliability and data consistency when classifying errors.
+
 ## OpenTelemetry Tracing
 
 Prosody supports OpenTelemetry tracing, allowing you to monitor and analyze the performance of your Kafka-based
