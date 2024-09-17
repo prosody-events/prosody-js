@@ -111,7 +111,6 @@ const onAbort = (signal) =>
       });
   });
 
-// Define base error classes
 class EventHandlerError extends Error {
   constructor(message) {
     super(message);
@@ -137,22 +136,40 @@ class PermanentError extends EventHandlerError {
 
 // Helper function to create error decorators
 function createErrorDecorator(ErrorClass) {
-  return function (...exceptionTypes) {
-    return function (target, key, descriptor) {
-      const originalMethod = descriptor.value;
-      descriptor.value = async function (...args) {
-        try {
-          return await originalMethod.apply(this, args);
-        } catch (error) {
-          if (exceptionTypes.some((type) => error instanceof type)) {
-            const wrapped = new ErrorClass(error.message);
-            wrapped.cause = error;
-            throw wrapped;
-          }
-          throw error;
+  return function decorator(...exceptionTypes) {
+    return function (originalMethod, context) {
+      if (context.kind !== "method" && context.kind !== "function") {
+        throw new TypeError(
+          `@${ErrorClass.name} can only decorate methods or functions`,
+        );
+      }
+
+      function handleError(error) {
+        if (exceptionTypes.some((type) => error instanceof type)) {
+          const wrapped = new ErrorClass(error.message);
+          wrapped.cause = error;
+          return wrapped;
         }
-      };
-      return descriptor;
+        return error;
+      }
+
+      if (originalMethod.constructor.name === "AsyncFunction") {
+        return async function (...args) {
+          try {
+            return await originalMethod.apply(this, args);
+          } catch (error) {
+            throw handleError(error);
+          }
+        };
+      } else {
+        return function (...args) {
+          try {
+            return originalMethod.apply(this, args);
+          } catch (error) {
+            throw handleError(error);
+          }
+        };
+      }
     };
   };
 }

@@ -80,77 +80,54 @@ export function setLogger(logger: Logger): void;
 
 /**
  * Base class for event handler errors.
- * Extends the standard Error class with an isPermanent property.
+ * Provides a common interface for determining if an error is permanent.
  */
-export declare class EventHandlerError extends Error {
-  /**
-   * Creates a new EventHandlerError instance.
-   *
-   * @param message - The error message.
-   */
-  constructor(message: string);
-
-  /**
-   * Indicates whether the error is permanent.
-   * This getter must be implemented by subclasses.
-   *
-   * @throws {Error} Throws an error if not implemented by a subclass.
-   */
-  get isPermanent(): boolean;
+export abstract class EventHandlerError extends Error {
+  /** Indicates whether the error is permanent and should not be retried. */
+  abstract get isPermanent(): boolean;
 }
 
 /**
- * Represents a transient error in event handling.
- * Transient errors are temporary and can be retried.
+ * Represents a transient error that may be resolved by retrying.
  */
-export declare class TransientError extends EventHandlerError {
-  /**
-   * Indicates that this error is not permanent.
-   *
-   * @returns Always returns false.
-   */
+export class TransientError extends EventHandlerError {
+  /** @returns Always false, indicating the error is not permanent. */
   get isPermanent(): false;
 }
 
 /**
- * Represents a permanent error in event handling.
- * Permanent errors are not temporary and should not be retried.
+ * Represents a permanent error that should not be retried.
  */
-export declare class PermanentError extends EventHandlerError {
-  /**
-   * Indicates that this error is permanent.
-   *
-   * @returns Always returns true.
-   */
+export class PermanentError extends EventHandlerError {
+  /** @returns Always true, indicating the error is permanent. */
   get isPermanent(): true;
 }
 
-/**
- * Type definition for an error decorator function.
- * This function is used to wrap a class method and handle specific error types.
- */
-type ErrorDecorator = (
-  target: any,
-  key: string | symbol,
-  descriptor: PropertyDescriptor,
-) => PropertyDescriptor;
+/** Type alias for a constructor of an Error subclass. */
+type ErrorClass<T extends Error> = new (...args: any[]) => T;
 
 /**
- * Type definition for a function that creates an error decorator.
- * It takes exception types as arguments and returns an ErrorDecorator.
+ * Type for a decorator function that can be applied to both methods and standalone functions.
  */
-type ErrorDecoratorFactory = (
-  ...exceptionTypes: (new (...args: any[]) => Error)[]
-) => ErrorDecorator;
+type DecoratorFunction = (
+  target: Function,
+  context: ClassMethodDecoratorContext | ClassFieldDecoratorContext,
+) => Function | void;
 
 /**
  * Decorator factory for marking errors as transient.
- * Methods decorated with this will have specified exceptions wrapped as TransientErrors.
+ * Can be applied to both methods and standalone functions.
+ * @param exceptionTypes The error types to be treated as transient.
  */
-export declare const transient: ErrorDecoratorFactory;
+export declare function transient<E extends Error>(
+  ...exceptionTypes: ErrorClass<E>[]
+): DecoratorFunction;
 
 /**
  * Decorator factory for marking errors as permanent.
- * Methods decorated with this will have specified exceptions wrapped as PermanentErrors.
+ * Can be applied to both methods and standalone functions.
+ * @param exceptionTypes The error types to be treated as permanent.
  */
-export declare const permanent: ErrorDecoratorFactory;
+export declare function permanent<E extends Error>(
+  ...exceptionTypes: ErrorClass<E>[]
+): DecoratorFunction;
