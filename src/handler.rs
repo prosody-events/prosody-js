@@ -3,8 +3,8 @@
 use crate::context::Context;
 use crate::message::Message;
 use napi::bindgen_prelude::{Either3, Promise};
-use napi::threadsafe_function::ThreadSafeCallContext;
 use napi::threadsafe_function::ThreadsafeFunction;
+use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext};
 use napi::JsFunction;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
@@ -33,11 +33,21 @@ pub struct NativeHandler {
     ts_type = "(err: null | Error, context: Context, message: Message, otelContext: Record<string, string>) => Promise<void>"
   )]
   pub on_message: JsFunction,
+
+  /**
+   * Function that determines whether an error is permanent.
+   *
+   * @param err - An Error object to classify
+   * @returns A boolean that is true when the given error is permanent and false otherwise
+   */
+  #[napi(ts_type = "(err: Error) => boolean")]
+  pub is_permanent: JsFunction,
 }
 
 /// Handles the interaction between Rust and JavaScript for message processing.
 pub struct JsHandler {
   on_message: ThreadsafeFunction<(MessageContext, ConsumerMessage, HashMap<String, String>)>,
+  is_permanent: ThreadsafeFunction<napi::Error, ErrorStrategy::Fatal>,
   propagator: TextMapCompositePropagator,
 }
 
@@ -45,6 +55,7 @@ impl Clone for JsHandler {
   fn clone(&self) -> Self {
     Self {
       on_message: self.on_message.clone(),
+      is_permanent: self.is_permanent.clone(),
       propagator: new_propagator(),
     }
   }
@@ -64,18 +75,24 @@ impl JsHandler {
   pub fn new(event_handler: &NativeHandler, max_queue_size: usize) -> napi::Result<Self> {
     let on_message = event_handler
       .on_message
-      .create_threadsafe_function(max_queue_size, build_args)?;
+      .create_threadsafe_function(max_queue_size, build_on_message_args)?;
+
+    let is_permanent = event_handler
+      .is_permanent
+      .create_threadsafe_function(max_queue_size, build_is_permanent_args)?;
 
     Ok(Self {
       on_message,
+      is_permanent,
       propagator: new_propagator(),
     })
   }
 }
 
-type JsArgs = Vec<Either3<Context, Message, HashMap<String, String>>>;
+type OnMessageArgs = Vec<Either3<Context, Message, HashMap<String, String>>>;
+type IsPermanentArgs = Vec<napi::Error>;
 
-/// Builds the arguments for the JavaScript callback.
+/// Builds the arguments for the message JavaScript callback.
 ///
 /// # Arguments
 ///
@@ -85,9 +102,9 @@ type JsArgs = Vec<Either3<Context, Message, HashMap<String, String>>>;
 ///
 /// A `Result` containing a vector of arguments for the JavaScript callback.
 #[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
-fn build_args(
+fn build_on_message_args(
   ctx: ThreadSafeCallContext<(MessageContext, ConsumerMessage, HashMap<String, String>)>,
-) -> napi::Result<JsArgs> {
+) -> napi::Result<OnMessageArgs> {
   let (context_in, message_in, otel_context) = ctx.value;
   let message_in = message_in.into_value();
 
@@ -107,6 +124,22 @@ fn build_args(
     Either3::B(message),
     Either3::C(otel_context),
   ])
+}
+
+/// Builds the arguments for a JavaScript function to determine whether an error is permanent.
+///
+/// # Arguments
+///
+/// * `ctx` - The thread-safe call context containing the error to classify.
+///
+/// # Returns
+///
+/// A `Result` containing a vector of arguments for the JavaScript function.
+#[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
+fn build_is_permanent_args(
+  ctx: ThreadSafeCallContext<napi::Error>,
+) -> napi::Result<IsPermanentArgs> {
+  Ok(vec![ctx.value])
 }
 
 impl FallibleHandler for JsHandler {
@@ -132,22 +165,35 @@ impl FallibleHandler for JsHandler {
       .propagator
       .inject_context(&message.span().context(), &mut carrier);
 
-    self
+    let Err(error) = self
       .on_message
       .call_async::<Promise<()>>(Ok((context, message, carrier)))
       .await?
-      .await?;
+      .await
+    else {
+      return Ok(());
+    };
 
-    Ok(())
+    Err(
+      if self.is_permanent.call_async::<bool>(error.clone()).await? {
+        Self::Error::Permanent(error)
+      } else {
+        Self::Error::Js(error)
+      },
+    )
   }
 }
 
 /// Represents errors that can occur during JavaScript handler execution.
 #[derive(Debug, Error)]
 pub enum JsHandlerError {
-  /// Wraps a `napi::Error` that occurred during JavaScript execution.
+  /// Wraps an `napi::Error` that occurred during JavaScript execution.
   #[error(transparent)]
   Js(#[from] napi::Error),
+
+  /// Wraps an `napi::Error` that is marked as permanent.
+  #[error(transparent)]
+  Permanent(napi::Error),
 }
 
 impl ClassifyError for JsHandlerError {
@@ -159,6 +205,7 @@ impl ClassifyError for JsHandlerError {
   fn classify_error(&self) -> ErrorCategory {
     match self {
       JsHandlerError::Js(_) => ErrorCategory::Transient,
+      JsHandlerError::Permanent(_) => ErrorCategory::Permanent,
     }
   }
 }

@@ -120,7 +120,7 @@ impl NativeClient {
   #[allow(clippy::needless_pass_by_value)] // required by NAPI
   #[napi(writable = false)]
   pub fn subscribe(&self, event_handler: NativeHandler) -> Result<()> {
-    let handler = JsHandler::new(&event_handler, 0)?;
+    let handler = JsHandler::new(&event_handler, 8)?;
 
     self
       .client

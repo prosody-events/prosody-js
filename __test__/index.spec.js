@@ -1,6 +1,11 @@
 const { Readable } = require("stream");
 const { EventEmitter } = require("events");
-const { ConsumerState, ProsodyClient } = require("../index.js");
+const {
+  ConsumerState,
+  ProsodyClient,
+  permanent,
+  transient,
+} = require("../index.js");
 const { AdminClient } = require("../bindings.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { trace } = require("@opentelemetry/api");
@@ -286,6 +291,70 @@ describe("ProsodyClient", () => {
         );
 
         await expect(sendPromise).rejects.toThrow("Abort signal received");
+      } finally {
+        span.end();
+      }
+    });
+  });
+
+  it("handles transient errors with retry", async () => {
+    return tracer.startActiveSpan("test.transient_error", async (span) => {
+      try {
+        let messageCount = 0;
+        const retryEvent = new EventEmitter();
+
+        class TransientErrorHandler {
+          @transient(Error)
+          async onMessage(context, message) {
+            messageCount++;
+            if (messageCount === 1) {
+              throw new Error("Transient error occurred");
+            } else {
+              retryEvent.emit("retry");
+            }
+          }
+        }
+
+        client.subscribe(new TransientErrorHandler());
+
+        await client.send(topic, "test-key", {
+          content: "Trigger transient error",
+        });
+
+        await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
+      } finally {
+        span.end();
+      }
+    });
+  });
+
+  it("handles permanent errors without retry", async () => {
+    return tracer.startActiveSpan("test.permanent_error", async (span) => {
+      try {
+        let messageCount = 0;
+        const errorEvent = new EventEmitter();
+
+        class PermanentErrorHandler {
+          @permanent(Error)
+          async onMessage(_, message) {
+            messageCount++;
+            errorEvent.emit("error-event");
+            throw new Error("Permanent error occurred");
+          }
+        }
+
+        client.subscribe(new PermanentErrorHandler());
+
+        await client.send(topic, "test-key", {
+          content: "Trigger permanent error",
+        });
+
+        await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
+
+        // Wait a bit to allow for any potential retries
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+
+        expect(messageCount).toBe(1);
       } finally {
         span.end();
       }

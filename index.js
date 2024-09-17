@@ -50,6 +50,14 @@ class ProsodyClient {
     const { onMessage } = eventHandler;
 
     this.nativeClient.subscribe({
+      isPermanent: (err) => {
+        try {
+          return err instanceof EventHandlerError && err.isPermanent;
+        } catch {
+          return false;
+        }
+      },
+
       onMessage: async (err, context, message, carrier) => {
         if (err) throw err;
 
@@ -103,8 +111,82 @@ const onAbort = (signal) =>
       });
   });
 
-module.exports.ProsodyClient = ProsodyClient;
-module.exports.Mode = Mode;
-module.exports.ConsumerState = ConsumerState;
-module.exports.Context = Context;
-module.exports.setLogger = setLogger;
+class EventHandlerError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = this.constructor.name;
+  }
+
+  get isPermanent() {
+    throw new Error("Subclasses must implement isPermanent");
+  }
+}
+
+class TransientError extends EventHandlerError {
+  get isPermanent() {
+    return false;
+  }
+}
+
+class PermanentError extends EventHandlerError {
+  get isPermanent() {
+    return true;
+  }
+}
+
+// Helper function to create error decorators
+function createErrorDecorator(ErrorClass) {
+  return function decorator(...exceptionTypes) {
+    return function (originalMethod, context) {
+      if (context.kind !== "method" && context.kind !== "function") {
+        throw new TypeError(
+          `@${ErrorClass.name} can only decorate methods or functions`,
+        );
+      }
+
+      function handleError(error) {
+        if (exceptionTypes.some((type) => error instanceof type)) {
+          const wrapped = new ErrorClass(error.message);
+          wrapped.cause = error;
+          return wrapped;
+        }
+        return error;
+      }
+
+      if (originalMethod.constructor.name === "AsyncFunction") {
+        return async function (...args) {
+          try {
+            return await originalMethod.apply(this, args);
+          } catch (error) {
+            throw handleError(error);
+          }
+        };
+      } else {
+        return function (...args) {
+          try {
+            return originalMethod.apply(this, args);
+          } catch (error) {
+            throw handleError(error);
+          }
+        };
+      }
+    };
+  };
+}
+
+// Create transient and permanent decorators
+const transient = createErrorDecorator(TransientError);
+const permanent = createErrorDecorator(PermanentError);
+
+module.exports = {
+  ConsumerState,
+  Context,
+  EventHandlerError,
+  Mode,
+  PermanentError,
+  ProsodyClient,
+  TransientError,
+  permanent,
+  setLogger,
+  transient,
+};

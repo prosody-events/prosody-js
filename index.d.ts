@@ -77,3 +77,57 @@ export declare class ProsodyClient {
  * @param logger - The new JavaScript logger to set.
  */
 export function setLogger(logger: Logger): void;
+
+/**
+ * Base class for event handler errors.
+ * Provides a common interface for determining if an error is permanent.
+ */
+export abstract class EventHandlerError extends Error {
+  /** Indicates whether the error is permanent and should not be retried. */
+  abstract get isPermanent(): boolean;
+}
+
+/**
+ * Represents a transient error that may be resolved by retrying.
+ */
+export class TransientError extends EventHandlerError {
+  /** @returns Always false, indicating the error is not permanent. */
+  get isPermanent(): false;
+}
+
+/**
+ * Represents a permanent error that should not be retried.
+ */
+export class PermanentError extends EventHandlerError {
+  /** @returns Always true, indicating the error is permanent. */
+  get isPermanent(): true;
+}
+
+/** Type alias for a constructor of an Error subclass. */
+type ErrorClass<T extends Error> = new (...args: any[]) => T;
+
+/**
+ * Type for a decorator function that can be applied to both methods and standalone functions.
+ */
+type DecoratorFunction = (
+  target: Function,
+  context: ClassMethodDecoratorContext | ClassFieldDecoratorContext,
+) => Function | void;
+
+/**
+ * Decorator factory for marking errors as transient.
+ * Can be applied to both methods and standalone functions.
+ * @param exceptionTypes The error types to be treated as transient.
+ */
+export declare function transient<E extends Error>(
+  ...exceptionTypes: ErrorClass<E>[]
+): DecoratorFunction;
+
+/**
+ * Decorator factory for marking errors as permanent.
+ * Can be applied to both methods and standalone functions.
+ * @param exceptionTypes The error types to be treated as permanent.
+ */
+export declare function permanent<E extends Error>(
+  ...exceptionTypes: ErrorClass<E>[]
+): DecoratorFunction;
