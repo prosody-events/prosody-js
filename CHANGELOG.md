@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/RealGeeks/prosody-js/compare/v0.1.1...v0.1.2) (2024-09-17)
+
+
+### Bug Fixes
+
+* gh release flag ([#9](https://github.com/RealGeeks/prosody-js/issues/9)) ([b0d7633](https://github.com/RealGeeks/prosody-js/commit/b0d7633742899dfe7185c315c54fb587b5856cb6))
+
 ## [0.1.1](https://github.com/RealGeeks/prosody-js/compare/v0.1.0...v0.1.1) (2024-09-17)
 
 
