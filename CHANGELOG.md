@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/RealGeeks/prosody-js/compare/v0.1.2...v0.1.3) (2024-09-18)
+
+
+### Miscellaneous Chores
+
+* release 0.1.3 ([64f79dd](https://github.com/RealGeeks/prosody-js/commit/64f79dd8da27e9a0a1bd25ed1a6d26179e150a1b))
+
 ## [0.1.2](https://github.com/RealGeeks/prosody-js/compare/v0.1.1...v0.1.2) (2024-09-17)
 
 
