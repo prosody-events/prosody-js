@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/RealGeeks/prosody-js/compare/v0.1.3...v0.2.0) (2024-10-24)
+
+
+### Features
+
+* **consumer:** add health check probes and stall detection ([#15](https://github.com/RealGeeks/prosody-js/issues/15)) ([154fc1a](https://github.com/RealGeeks/prosody-js/commit/154fc1adb3d656c7444dc095304267289441c828))
+
 ## [0.1.3](https://github.com/RealGeeks/prosody-js/compare/v0.1.2...v0.1.3) (2024-09-18)
 
 
