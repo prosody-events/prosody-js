@@ -73,6 +73,58 @@ parameters can be set via environment variables (e.g., `PROSODY_BOOTSTRAP_SERVER
 
 Refer to the API documentation for detailed information on all parameters and their default values.
 
+## Liveness and Readiness Probes
+
+Prosody includes a built-in probe server for consumer-based applications that provides health check endpoints. The probe
+server is tied to the consumer's lifecycle and offers two main endpoints:
+
+1. `/readyz`: A readiness probe that checks if any partitions are assigned to the consumer. Returns a success status
+   only when the consumer has at least one partition assigned, indicating it's ready to process messages.
+
+2. `/livez`: A liveness probe that checks if any partitions have stalled (haven't processed a message within a
+   configured time threshold).
+
+Configure the probe server using either the client constructor:
+
+```javascript
+const client = new ProsodyClient({
+    bootstrapServers: "localhost:9092",
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+    probePort: 8000,  // Set to null to disable
+    stallThresholdMs: 15000  // 15 seconds before considering a partition stalled
+});
+```
+
+Or via environment variables:
+
+```bash
+PROSODY_PROBE_PORT=8000  # Set to 'none' to disable
+PROSODY_STALL_THRESHOLD=15s  # Default stall detection threshold
+```
+
+### Important Notes
+
+1. The probe server starts automatically when the consumer is subscribed and stops when unsubscribed.
+2. A partition is considered "stalled" if it hasn't processed a message within the `stallThreshold` duration.
+3. The stall threshold should be set based on your application's message processing latency and expected message
+   frequency.
+4. Setting the threshold too low might cause false positives, while setting it too high could delay detection of actual
+   issues.
+5. The probe server is only active when consuming messages (not for producer-only usage).
+
+You can monitor the stall state programmatically using the client's properties:
+
+```javascript
+// Get the number of partitions currently assigned to this consumer
+const partitionCount = client.assignedPartitionCount;
+
+// You can use these in your own health checks or monitoring
+if (client.isStalled) {
+    console.warn('Consumer has stalled partitions');
+}
+```
+
 ## Advanced Usage
 
 ### Pipeline Mode

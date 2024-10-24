@@ -32,6 +32,14 @@ class ProsodyClient {
     return this.nativeClient.consumerState;
   }
 
+  get assignedPartitionCount() {
+    return this.nativeClient.assignedPartitionCount;
+  }
+
+  get isStalled() {
+    return this.nativeClient.isStalled;
+  }
+
   async send(topic, key, payload, signal) {
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);

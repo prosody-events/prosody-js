@@ -70,6 +70,7 @@ describe("ProsodyClient", () => {
           bootstrapServers: BOOTSTRAP_SERVERS,
           groupId: GROUP_NAME,
           subscribedTopics: topic,
+          probePort: null,
         });
         break;
       } catch (err) {

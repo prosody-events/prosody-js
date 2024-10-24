@@ -131,6 +131,26 @@ impl NativeClient {
   }
 
   /**
+   * Returns the number of partitions assigned to the consumer.
+   *
+   * @return {number} The number of assigned partitions, or 0 if the consumer is not in the Running state
+   */
+  #[napi(getter, writable = false)]
+  pub fn assigned_partition_count(&self) -> u32 {
+    self.client.assigned_partition_count()
+  }
+
+  /**
+   * Checks if the consumer is stalled.
+   *
+   * @return {boolean} Whether the consumer is stalled, or false if the consumer is not in the Running state
+   */
+  #[napi(getter, writable = false)]
+  pub fn is_stalled(&self) -> bool {
+    self.client.is_stalled()
+  }
+
+  /**
    * Unsubscribes from receiving messages.
    *
    * @throws Error if the unsubscribe operation fails.
