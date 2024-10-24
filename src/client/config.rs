@@ -1,3 +1,4 @@
+use napi::bindgen_prelude::Null;
 use napi::Either;
 use napi_derive::napi;
 use prosody::consumer::failure::retry::RetryConfigurationBuilder;
@@ -33,11 +34,10 @@ pub struct Configuration {
   /// Max enqueued messages per key.
   pub max_enqueued_per_key: Option<u16>,
 
-  /// Timeout for partition shutdown in milliseconds.
-  /// During partition revocation, tasks are given 80% of this time
-  /// to finish before being cancelled. The remaining 20% is used to wait for the cancellation hooks
-  /// to complete.
-  pub partition_shutdown_timeout_ms: Option<u32>,
+  /// Threshold determining when message processing has stalled.
+  /// During partition revocation, tasks are given 80% of this time to finish before being
+  /// cancelled. The remaining 20% is used to wait for the cancellation hooks to complete.
+  pub stall_threshold_ms: Option<u32>,
 
   /// Time between message polls in milliseconds.
   pub poll_interval_ms: Option<u32>,
@@ -59,6 +59,9 @@ pub struct Configuration {
 
   /// Topic for failed messages in low-latency mode.
   pub failure_topic: Option<String>,
+
+  /// Port for the probe server. Set to null to disable.
+  pub probe_port: Option<Either<u16, Null>>,
 }
 
 /**
@@ -146,8 +149,8 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
     builder.max_enqueued_per_key(max_enqueued_per_key as usize);
   }
 
-  if let Some(timeout) = config.partition_shutdown_timeout_ms {
-    builder.partition_shutdown_timeout(Some(Duration::from_millis(u64::from(timeout))));
+  if let Some(timeout) = config.stall_threshold_ms {
+    builder.stall_threshold(Duration::from_millis(u64::from(timeout)));
   }
 
   if let Some(interval) = config.poll_interval_ms {
@@ -156,6 +159,13 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
   if let Some(interval) = config.commit_interval_ms {
     builder.commit_interval(Duration::from_millis(u64::from(interval)));
+  }
+
+  if let Some(probe_port) = config.probe_port {
+    builder.probe_port(match probe_port {
+      Either::A(port) => Some(port),
+      Either::B(_) => None,
+    });
   }
 
   builder

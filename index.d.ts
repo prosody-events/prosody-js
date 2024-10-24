@@ -41,6 +41,20 @@ export declare class ProsodyClient {
   get consumerState(): ConsumerState;
 
   /**
+   * Gets the number of partitions assigned to the consumer.
+   *
+   * @return The number of assigned partitions, or 0 if the consumer is not in the Running state
+   */
+  get assignedPartitionCount(): number;
+
+  /**
+   * Checks if the consumer is stalled.
+   *
+   * @return Whether the consumer is stalled, or false if the consumer is not in the Running state
+   */
+  get isStalled(): boolean;
+
+  /**
    * Sends a message to a specified Kafka topic.
    *
    * @param topic - The name of the topic to send the message to.

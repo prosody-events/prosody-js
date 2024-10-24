@@ -26,10 +26,10 @@ napi = { version = "2.16", default-features = false, features = [
 ] }
 napi-derive = "2.16"
 opentelemetry = "0.26"
-prosody = { git = "https://github.com/RealGeeks/prosody.git", rev = "e7a0f9c4bc867050e57eb464060bb2a9edec06cf" } # replace once we have a package manager
+prosody = { git = "https://github.com/RealGeeks/prosody.git", rev = "e975c86a5ec3f3ab31ceddd941683d1afe8b7712" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "1.0"
-tokio = "1.38"
+tokio = "1.41"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.27"
 tracing-subscriber = "0.3"
