@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/cincpro/prosody-js/compare/v0.2.0...v0.2.1) (2024-12-02)
+
+
+### Bug Fixes
+
+* fix ci and update deps ([#18](https://github.com/cincpro/prosody-js/issues/18)) ([8022d82](https://github.com/cincpro/prosody-js/commit/8022d82d059369c4d95cbb0091a70809bec807d2))
+
 ## [0.2.0](https://github.com/RealGeeks/prosody-js/compare/v0.1.3...v0.2.0) (2024-10-24)
 
 
