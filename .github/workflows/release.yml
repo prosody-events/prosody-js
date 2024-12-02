@@ -29,7 +29,7 @@ jobs:
         with:
           release-type: node
           package-name: prosody
-          token: ${{ secrets.GH_ALL_REPOS_RW }}
+          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
     needs: release-please
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: de-vri-es/setup-git-credentials@v2
         with:
-          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
+          credentials: https://rg-geekbot:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -374,7 +374,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: de-vri-es/setup-git-credentials@v2
         with:
-          credentials: https://rg-geekbot:${{ secrets.GH_ALL_REPOS_RW }}@github.com/
+          credentials: https://rg-geekbot:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
