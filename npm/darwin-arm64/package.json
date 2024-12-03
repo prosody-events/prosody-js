@@ -1,6 +1,6 @@
 {
-  "name": "@realgeeks/prosody-darwin-arm64",
-  "version": "0.0.0",
+  "name": "@cincpro/prosody-darwin-arm64",
+  "version": "0.2.1",
   "os": [
     "darwin"
   ],
@@ -16,5 +16,5 @@
   "engines": {
     "node": ">= 10"
   },
-  "repository": "https://github.com/RealGeeks/prosody-js"
+  "repository": "https://github.com/cincpro/prosody-js"
 }

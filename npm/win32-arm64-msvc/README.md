@@ -1,3 +1,3 @@
-# `@realgeeks/prosody-win32-arm64-msvc`
+# `@cincpro/prosody-win32-arm64-msvc`
 
-This is the **aarch64-pc-windows-msvc** binary for `@realgeeks/prosody`
+This is the **aarch64-pc-windows-msvc** binary for `@cincpro/prosody`

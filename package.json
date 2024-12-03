@@ -1,6 +1,6 @@
 {
-  "name": "@realgeeks/prosody",
-  "version": "0.2.2",
+  "name": "@cincpro/prosody",
+  "version": "0.2.0",
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
@@ -57,7 +57,7 @@
   "packageManager": "yarn@4.4.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RealGeeks/prosody-js.git"
+    "url": "git+https://github.com/cincpro/prosody-js.git"
   },
   "description": "Javascript bindings for the Prosody Kafka client library",
   "publishConfig": {

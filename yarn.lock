@@ -1329,6 +1329,25 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@cincpro/prosody@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@cincpro/prosody@workspace:."
+  dependencies:
+    "@babel/core": "npm:^7.26.0"
+    "@babel/plugin-proposal-decorators": "npm:^7.25.9"
+    "@babel/preset-env": "npm:^7.26.0"
+    "@napi-rs/cli": "npm:^2.18.4"
+    "@opentelemetry/api": "npm:^1.9.0"
+    "@opentelemetry/auto-instrumentations-node": "npm:^0.53.0"
+    "@opentelemetry/sdk-metrics": "npm:^1.28.0"
+    "@opentelemetry/sdk-node": "npm:^0.55.0"
+    "@opentelemetry/sdk-trace-base": "npm:^1.28.0"
+    "@opentelemetry/sdk-trace-node": "npm:^1.28.0"
+    jest: "npm:^29.7.0"
+    prettier: "npm:^3.4.1"
+  languageName: unknown
+  linkType: soft
+
 "@grpc/grpc-js@npm:^1.7.1":
   version: 1.12.3
   resolution: "@grpc/grpc-js@npm:1.12.3"
@@ -2747,25 +2766,6 @@ __metadata:
   checksum: 10c0/a3fe31fe3fa29aa3349e2e04ee13dc170cc6af7c23d92ad49e3eeaf79b9766264544d3da824dba93b7855bd6a2982fb40032ef40693da98a136d835752beb487
   languageName: node
   linkType: hard
-
-"@realgeeks/prosody@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "@realgeeks/prosody@workspace:."
-  dependencies:
-    "@babel/core": "npm:^7.26.0"
-    "@babel/plugin-proposal-decorators": "npm:^7.25.9"
-    "@babel/preset-env": "npm:^7.26.0"
-    "@napi-rs/cli": "npm:^2.18.4"
-    "@opentelemetry/api": "npm:^1.9.0"
-    "@opentelemetry/auto-instrumentations-node": "npm:^0.53.0"
-    "@opentelemetry/sdk-metrics": "npm:^1.28.0"
-    "@opentelemetry/sdk-node": "npm:^0.55.0"
-    "@opentelemetry/sdk-trace-base": "npm:^1.28.0"
-    "@opentelemetry/sdk-trace-node": "npm:^1.28.0"
-    jest: "npm:^29.7.0"
-    prettier: "npm:^3.4.1"
-  languageName: unknown
-  linkType: soft
 
 "@sinclair/typebox@npm:^0.27.8":
   version: 0.27.8

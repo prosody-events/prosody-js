@@ -1,3 +1,3 @@
-# `@realgeeks/prosody-linux-x64-musl`
+# `@cincpro/prosody-linux-x64-musl`
 
-This is the **x86_64-unknown-linux-musl** binary for `@realgeeks/prosody`
+This is the **x86_64-unknown-linux-musl** binary for `@cincpro/prosody`

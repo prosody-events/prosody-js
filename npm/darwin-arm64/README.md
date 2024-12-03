@@ -1,3 +1,3 @@
-# `@realgeeks/prosody-darwin-arm64`
+# `@cincpro/prosody-darwin-arm64`
 
-This is the **aarch64-apple-darwin** binary for `@realgeeks/prosody`
+This is the **aarch64-apple-darwin** binary for `@cincpro/prosody`
