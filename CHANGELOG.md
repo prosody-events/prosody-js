@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/cincpro/prosody-js/compare/v0.2.1...v0.2.2) (2024-12-02)
+
+
+### Bug Fixes
+
+* select correct zig version ([0914445](https://github.com/cincpro/prosody-js/commit/091444581eac9ae2a79e40d246b8a38d112af6a3))
+
 ## [0.2.1](https://github.com/cincpro/prosody-js/compare/v0.2.0...v0.2.1) (2024-12-02)
 
 
