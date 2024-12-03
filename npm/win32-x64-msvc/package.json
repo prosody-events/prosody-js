@@ -1,6 +1,6 @@
 {
   "name": "@cincpro/prosody-win32-x64-msvc",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "os": [
     "win32"
   ],
