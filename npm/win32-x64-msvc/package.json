@@ -1,5 +1,5 @@
 {
-  "name": "@realgeeks/prosody-win32-x64-msvc",
+  "name": "@cincpro/prosody-win32-x64-msvc",
   "version": "0.0.0",
   "os": [
     "win32"
@@ -16,5 +16,5 @@
   "engines": {
     "node": ">= 10"
   },
-  "repository": "https://github.com/RealGeeks/prosody-js"
+  "repository": "https://github.com/cincpro/prosody-js"
 }

@@ -1,51 +1,37 @@
 # Changelog
 
-## [0.2.2](https://github.com/cincpro/prosody-js/compare/v0.2.1...v0.2.2) (2024-12-02)
-
-
-### Bug Fixes
-
-* select correct zig version ([0914445](https://github.com/cincpro/prosody-js/commit/091444581eac9ae2a79e40d246b8a38d112af6a3))
-
-## [0.2.1](https://github.com/cincpro/prosody-js/compare/v0.2.0...v0.2.1) (2024-12-02)
-
-
-### Bug Fixes
-
-* fix ci and update deps ([#18](https://github.com/cincpro/prosody-js/issues/18)) ([8022d82](https://github.com/cincpro/prosody-js/commit/8022d82d059369c4d95cbb0091a70809bec807d2))
-
-## [0.2.0](https://github.com/RealGeeks/prosody-js/compare/v0.1.3...v0.2.0) (2024-10-24)
-
+## [0.2.0](https://github.com/cincpro/prosody-js/compare/v0.1.3...v0.2.0) (2024-10-24)
 
 ### Features
 
-* **consumer:** add health check probes and stall detection ([#15](https://github.com/RealGeeks/prosody-js/issues/15)) ([154fc1a](https://github.com/RealGeeks/prosody-js/commit/154fc1adb3d656c7444dc095304267289441c828))
+* **consumer:** add health check probes and stall
+  detection ([#15](https://github.com/cincpro/prosody-js/issues/15)) ([154fc1a](https://github.com/cincpro/prosody-js/commit/154fc1adb3d656c7444dc095304267289441c828))
 
-## [0.1.3](https://github.com/RealGeeks/prosody-js/compare/v0.1.2...v0.1.3) (2024-09-18)
-
+## [0.1.3](https://github.com/cincpro/prosody-js/compare/v0.1.2...v0.1.3) (2024-09-18)
 
 ### Miscellaneous Chores
 
-* release 0.1.3 ([64f79dd](https://github.com/RealGeeks/prosody-js/commit/64f79dd8da27e9a0a1bd25ed1a6d26179e150a1b))
+* release 0.1.3 ([64f79dd](https://github.com/cincpro/prosody-js/commit/64f79dd8da27e9a0a1bd25ed1a6d26179e150a1b))
 
-## [0.1.2](https://github.com/RealGeeks/prosody-js/compare/v0.1.1...v0.1.2) (2024-09-17)
-
-
-### Bug Fixes
-
-* gh release flag ([#9](https://github.com/RealGeeks/prosody-js/issues/9)) ([b0d7633](https://github.com/RealGeeks/prosody-js/commit/b0d7633742899dfe7185c315c54fb587b5856cb6))
-
-## [0.1.1](https://github.com/RealGeeks/prosody-js/compare/v0.1.0...v0.1.1) (2024-09-17)
-
+## [0.1.2](https://github.com/cincpro/prosody-js/compare/v0.1.1...v0.1.2) (2024-09-17)
 
 ### Bug Fixes
 
-* don’t try to create a gh release twice ([#6](https://github.com/RealGeeks/prosody-js/issues/6)) ([579dac7](https://github.com/RealGeeks/prosody-js/commit/579dac714d7e499db88d3cda53817fac76ed311d))
-* remove access public flag ([#8](https://github.com/RealGeeks/prosody-js/issues/8)) ([2fa41df](https://github.com/RealGeeks/prosody-js/commit/2fa41df3c7b54146c269e510a1bf0df8745e2b0b))
+* gh release
+  flag ([#9](https://github.com/cincpro/prosody-js/issues/9)) ([b0d7633](https://github.com/cincpro/prosody-js/commit/b0d7633742899dfe7185c315c54fb587b5856cb6))
 
-## [0.1.0](https://github.com/RealGeeks/prosody-js/compare/v0.0.0...v0.1.0) (2024-09-17)
+## [0.1.1](https://github.com/cincpro/prosody-js/compare/v0.1.0...v0.1.1) (2024-09-17)
 
+### Bug Fixes
+
+* don’t try to create a gh release
+  twice ([#6](https://github.com/cincpro/prosody-js/issues/6)) ([579dac7](https://github.com/cincpro/prosody-js/commit/579dac714d7e499db88d3cda53817fac76ed311d))
+* remove access public
+  flag ([#8](https://github.com/cincpro/prosody-js/issues/8)) ([2fa41df](https://github.com/cincpro/prosody-js/commit/2fa41df3c7b54146c269e510a1bf0df8745e2b0b))
+
+## [0.1.0](https://github.com/cincpro/prosody-js/compare/v0.0.0...v0.1.0) (2024-09-17)
 
 ### Features
 
-* add permanent error support ([#4](https://github.com/RealGeeks/prosody-js/issues/4)) ([96676d7](https://github.com/RealGeeks/prosody-js/commit/96676d7011d3f8cc724df0b8d39920582a111233))
+* add permanent error
+  support ([#4](https://github.com/cincpro/prosody-js/issues/4)) ([96676d7](https://github.com/cincpro/prosody-js/commit/96676d7011d3f8cc724df0b8d39920582a111233))

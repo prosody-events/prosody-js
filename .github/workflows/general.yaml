@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: de-vri-es/setup-git-credentials@v2
         with:
-          credentials: https://rg-geekbot:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
+          credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: de-vri-es/setup-git-credentials@v2
         with:
-          credentials: https://rg-geekbot:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
+          credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install udeps from crates.io
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: de-vri-es/setup-git-credentials@v2
         with:
-          credentials: https://rg-geekbot:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
+          credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check documentation
