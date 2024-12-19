@@ -47,10 +47,7 @@ jobs:
         run: |
           yarn install
       - name: Build and run tests
-        run: |
-          set -e
-            yarn build:debug && yarn test
-            ls -la
+        run: yarn build:debug && yarn test
         env:
           PROSODY_BOOTSTRAP_SERVERS: localhost:9094
 
