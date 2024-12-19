@@ -75,6 +75,8 @@ pub enum Mode {
   Pipeline,
   /// Low-latency mode for faster processing with potential trade-offs.
   LowLatency,
+  /// Best-effort mode for development or when messages can be discarded when processing fails
+  BestEffort,
 }
 
 impl From<Mode> for ProsodyMode {
@@ -82,6 +84,7 @@ impl From<Mode> for ProsodyMode {
     match value {
       Mode::Pipeline => ProsodyMode::Pipeline,
       Mode::LowLatency => ProsodyMode::LowLatency,
+      Mode::BestEffort => ProsodyMode::BestEffort,
     }
   }
 }
