@@ -132,23 +132,15 @@ if (client.isStalled) {
 Pipeline mode is the default mode. Ensures ordered processing, retrying failed operations indefinitely:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
+const {Mode, ProsodyClient} = require('@cincpro/prosody');
 
 // Initialize client in pipeline mode
 const client = new ProsodyClient({
     bootstrapServers: "localhost:9092",
-    mode: "pipeline",  // Explicitly set pipeline mode (this is the default)
+    mode: Mode.Pipeline,  // Explicitly set pipeline mode (this is the default)
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic"
 });
-
-const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Process the message
-    }
-};
-
-client.subscribe(messageHandler);
 ```
 
 ### Low-Latency Mode
@@ -156,24 +148,32 @@ client.subscribe(messageHandler);
 Prioritizes quick processing, sending persistently failing messages to a failure topic:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
+const {Mode, ProsodyClient} = require('@cincpro/prosody');
 
 // Initialize client in low-latency mode
 const client = new ProsodyClient({
     bootstrapServers: "localhost:9092",
-    mode: "low-latency",  // Set low-latency mode
+    mode: Mode.LowLatency,  // Set low-latency mode
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
     failureTopic: "failed-messages"  // Specify a topic for failed messages
 });
+```
 
-const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Process the message
-    }
-};
+### Best-Effort Mode
 
-client.subscribe(messageHandler);
+Optimized for development environments or services where message processing failures are acceptable:
+
+```javascript
+const {Mode, ProsodyClient} = require('@cincpro/prosody');
+
+// Initialize client in low-latency mode
+const client = new ProsodyClient({
+    bootstrapServers: "localhost:9092",
+    mode: Mode.BestEffort,  // Set low-latency mode
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+});
 ```
 
 ### Error Handling

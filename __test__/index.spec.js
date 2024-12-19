@@ -9,6 +9,7 @@ const {
 const { AdminClient } = require("../bindings.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { trace } = require("@opentelemetry/api");
+const { Mode } = require("../index");
 
 // OpenTelemetry SDK setup
 const provider = new NodeTracerProvider();
@@ -71,6 +72,7 @@ describe("ProsodyClient", () => {
           groupId: GROUP_NAME,
           subscribedTopics: topic,
           probePort: null,
+          mode: Mode.Pipeline,
         });
         break;
       } catch (err) {
