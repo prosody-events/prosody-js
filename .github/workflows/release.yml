@@ -11,29 +11,29 @@ permissions:
 
 on:
   push:
-#    branches:
-#      - main
+    branches:
+      - main
 
 jobs:
-  #  release-please:
-  #    name: Release Please
-  #    runs-on: ubuntu-22.04
-  #    outputs:
-  #      release_created: ${{ steps.release.outputs.release_created }}
-  #      tag_name: ${{ steps.release.outputs.tag_name }}
-  #    steps:
-  #      - uses: actions/checkout@v4
-  #      - name: Release Please Action
-  #        id: release
-  #        uses: google-github-actions/release-please-action@v3
-  #        with:
-  #          release-type: node
-  #          package-name: prosody
-  #          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-22.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release Please Action
+        id: release
+        uses: google-github-actions/release-please-action@v3
+        with:
+          release-type: node
+          package-name: prosody
+          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
-    #    needs: release-please
-    #    if: ${{ needs.release-please.outputs.release_created }}
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -414,7 +414,7 @@ jobs:
     name: Publish
     runs-on: ubuntu-22.04
     needs:
-      #      - release-please
+      - release-please
       - build
       - test-linux-x64-gnu-binding
       - test-linux-x64-musl-binding
@@ -422,7 +422,7 @@ jobs:
       - test-linux-aarch64-musl-binding
       - test-linux-arm-gnueabihf-binding
       - universal-macOS
-    # if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
