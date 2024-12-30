@@ -422,7 +422,7 @@ jobs:
       - test-linux-aarch64-musl-binding
       - test-linux-arm-gnueabihf-binding
       - universal-macOS
-    if: ${{ needs.release-please.outputs.release_created }}
+    # if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
