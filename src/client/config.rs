@@ -143,7 +143,7 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
     builder.group_id(group_id);
   }
 
-  if let Some(idempotence_cache_size) = &config.idempotence_cache_size {
+  if let Some(idempotence_cache_size) = config.idempotence_cache_size {
     builder.idempotence_cache_size(idempotence_cache_size as usize);
   }
 
