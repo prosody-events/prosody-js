@@ -25,6 +25,9 @@ pub struct Configuration {
   /// Consumer group name.
   pub group_id: Option<String>,
 
+  /// Size of LRU caches for deduplicating messages. Set to 0 to disable.
+  pub idempotence_cache_size: Option<u32>,
+
   /// Topics to subscribe to.
   pub subscribed_topics: Option<Either<String, Vec<String>>>,
 
@@ -135,6 +138,10 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
   if let Some(group_id) = &config.group_id {
     builder.group_id(group_id);
+  }
+
+  if let Some(idempotence_cache_size) = &config.idempotence_cache_size {
+    builder.idempotence_cache_size(idempotence_cache_size as usize);
   }
 
   if let Some(topics) = &config.subscribed_topics {

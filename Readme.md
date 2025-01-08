@@ -132,23 +132,11 @@ if (client.isStalled) {
 Pipeline mode is the default mode. Ensures ordered processing, retrying failed operations indefinitely:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
-
-// Initialize client in pipeline mode
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
     mode: "pipeline",  // Explicitly set pipeline mode (this is the default)
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic"
 });
-
-const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Process the message
-    }
-};
-
-client.subscribe(messageHandler);
 ```
 
 ### Low-Latency Mode
@@ -156,25 +144,67 @@ client.subscribe(messageHandler);
 Prioritizes quick processing, sending persistently failing messages to a failure topic:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
-
-// Initialize client in low-latency mode
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
     mode: "low-latency",  // Set low-latency mode
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
     failureTopic: "failed-messages"  // Specify a topic for failed messages
 });
-
-const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Process the message
-    }
-};
-
-client.subscribe(messageHandler);
 ```
+
+### Best-Effort Mode
+
+Optimized for development environments or services where message processing failures are acceptable:
+
+```javascript
+const client = new ProsodyClient({
+    mode: "best-effort",  // Set best-effort mode
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic"
+});
+```
+
+### Message Deduplication
+
+Prosody automatically deduplicates messages using the `id` field in their JSON payload. Consecutive messages with the
+same ID and key are processed only once.
+
+```javascript
+// Messages with IDs are deduplicated per key
+await client.send("my-topic", "key1", {
+    id: "msg-123",      // Message will be processed
+    content: "Hello!"
+});
+
+await client.send("my-topic", "key1", {
+    id: "msg-123",      // Message will be skipped (duplicate)
+    content: "Hello again!"
+});
+
+await client.send("my-topic", "key2", {
+    id: "msg-123",      // Message will be processed (different key)
+    content: "Hello!"
+});
+```
+
+Deduplication can be disabled by setting:
+
+```javascript
+const client = new ProsodyClient({
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+    idempotenceCacheSize: 0  // Disable deduplication
+});
+```
+
+Or via environment variable:
+
+```bash
+PROSODY_IDEMPOTENCE_CACHE_SIZE=0
+```
+
+Note that this deduplication is best-effort and not guaranteed. Because identifiers are cached ephemerally in memory,
+duplicates can still occur when instances rebalance or restart.
 
 ### Error Handling
 
