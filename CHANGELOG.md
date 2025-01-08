@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/cincpro/prosody-js/compare/v0.3.0...v0.4.0) (2025-01-08)
+
+
+### Features
+
+* Support message deduplication ([#29](https://github.com/cincpro/prosody-js/issues/29)) ([c59c7d1](https://github.com/cincpro/prosody-js/commit/c59c7d1448d221074a1b1556eaeea29a9f33860f))
+
 ## [0.3.0](https://github.com/cincpro/prosody-js/compare/v0.2.1...v0.3.0) (2024-12-19)
 
 
