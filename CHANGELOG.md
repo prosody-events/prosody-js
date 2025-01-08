@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/cincpro/prosody-js/compare/v0.2.1...v0.3.0) (2024-12-19)
+
+
+### Features
+
+* best effort mode ([#25](https://github.com/cincpro/prosody-js/issues/25)) ([1b3ada0](https://github.com/cincpro/prosody-js/commit/1b3ada0ed539eda5f2826b1112cc34449769173e))
+
 ## [0.2.1](https://github.com/cincpro/prosody-js/compare/v0.2.2...v0.2.1) (2024-12-03)
 
 ### Bug Fixes

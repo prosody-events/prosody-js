@@ -17,7 +17,7 @@ on:
 jobs:
   release-please:
     name: Release Please
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -44,25 +44,25 @@ jobs:
           - host: windows-latest
             build: yarn build --target x86_64-pc-windows-msvc
             target: x86_64-pc-windows-msvc
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             build: yarn build --target x86_64-unknown-linux-gnu
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             build: yarn build --target x86_64-unknown-linux-musl --zig
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             build: yarn build --target aarch64-unknown-linux-gnu --zig
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: armv7-unknown-linux-gnueabihf
             build: yarn build --target armv7-unknown-linux-gnueabihf
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: armv7-unknown-linux-musleabihf
             build: yarn build --target armv7-unknown-linux-musleabihf
-          - host: ubuntu-latest
+          - host: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             build: yarn build --target aarch64-unknown-linux-musl --zig
           - host: windows-latest
@@ -134,7 +134,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -181,7 +181,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -230,7 +230,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -274,7 +274,7 @@ jobs:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
       - build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -324,7 +324,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -412,7 +412,7 @@ jobs:
 
   publish:
     name: Publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs:
       - release-please
       - build
