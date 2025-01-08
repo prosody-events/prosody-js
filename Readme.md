@@ -133,7 +133,7 @@ Pipeline mode is the default mode. Ensures ordered processing, retrying failed o
 
 ```javascript
 const client = new ProsodyClient({
-    mode: "pipeline",  // Explicitly set pipeline mode (this is the default)
+    mode: Mode.Pipeline,  // Explicitly set pipeline mode (this is the default)
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic"
 });
@@ -145,7 +145,7 @@ Prioritizes quick processing, sending persistently failing messages to a failure
 
 ```javascript
 const client = new ProsodyClient({
-    mode: "low-latency",  // Set low-latency mode
+    mode: Mode.LowLatency,  // Set low-latency mode
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
     failureTopic: "failed-messages"  // Specify a topic for failed messages
@@ -158,7 +158,7 @@ Optimized for development environments or services where message processing fail
 
 ```javascript
 const client = new ProsodyClient({
-    mode: "best-effort",  // Set best-effort mode
+    mode: Mode.BestEffort,  // Set best-effort mode
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic"
 });
