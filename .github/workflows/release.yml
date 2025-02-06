@@ -1,8 +1,13 @@
 name: CI
+
 env:
   DEBUG: napi:*
   APP_NAME: prosody
   MACOSX_DEPLOYMENT_TARGET: '10.13'
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+
 permissions:
   contents: write
   id-token: write
