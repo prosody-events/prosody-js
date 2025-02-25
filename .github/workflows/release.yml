@@ -52,43 +52,53 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             build: yarn build --target x86_64-apple-darwin
+
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: yarn build --target x86_64-pc-windows-msvc
+
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: yarn build --target x86_64-unknown-linux-gnu
+
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: yarn build --target x86_64-unknown-linux-musl
+
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
+
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: yarn build --target aarch64-unknown-linux-gnu
+
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             setup: |
               sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: yarn build --target armv7-unknown-linux-gnueabihf
+
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             build: yarn build --target armv7-unknown-linux-musleabihf
+
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: |
-              set -e &&
-              rustup target add aarch64-unknown-linux-musl &&
+              set -e
+              rustup target add aarch64-unknown-linux-musl
               yarn build --target aarch64-unknown-linux-musl
+
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
+
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -137,10 +147,10 @@ jobs:
         if: ${{ matrix.settings.docker }}
         run: |
           docker pull ${{ matrix.settings.docker }}
-          #
-          # Install cross compilers, CMake, etc. for ring, rdkafka-sys, etc.
-          # Debian-based containers => apt-get, Alpine => apk
-          #
+
+          # We'll store the "build" command in a variable so we don't break the YAML parser.
+          BUILD_CMD="${{ matrix.settings.build }}"
+
           docker run --rm \
             --user 0:0 \
             -v /home/runner/.gitconfig:/root/.gitconfig:ro \
@@ -152,9 +162,8 @@ jobs:
             -w /build \
             -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
-            /bin/sh -c "
-              set -e
-              if echo '${{ matrix.settings.docker }}' | grep -q 'lts-debian'; then
+            /bin/sh -c "set -e && \
+              if echo '${{ matrix.settings.docker }}' | grep -q 'lts-debian'; then \
                 apt-get update && \
                 apt-get install -y \
                   build-essential \
@@ -162,18 +171,16 @@ jobs:
                   pkg-config \
                   gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
                   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-                  musl-tools
-              else
+                  musl-tools; \
+              else \
                 apk update && \
                 apk add --no-cache \
                   build-base \
                   cmake \
                   pkgconfig \
-                  musl-dev
-              fi
-
-              ${ { matrix.settings.build } }
-            "
+                  musl-dev; \
+              fi && \
+              $BUILD_CMD"
 
       # If building on host
       - name: Build
