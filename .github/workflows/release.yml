@@ -2,7 +2,7 @@ name: CI
 
 env:
   DEBUG: napi:*
-  APP_NAME: prosody
+  APP_NAME: prosody # (or update to your app’s name)
   MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -17,34 +17,35 @@ permissions:
 
 on:
   push:
-#    branches:
-#      - main
+    # branches:
+    #   - main
+  pull_request: null
 
 jobs:
   #  ###########################################################################
   #  # 1) Release-please job
   #  ###########################################################################
-  #  release-please:
-  #    name: Release Please
-  #    runs-on: ubuntu-latest
-  #    outputs:
-  #      release_created: ${{ steps.release.outputs.release_created }}
-  #      tag_name: ${{ steps.release.outputs.tag_name }}
-  #    steps:
-  #      - uses: google-github-actions/release-please-action@v3
-  #        id: release
-  #        with:
-  #          release-type: node
-  #          package-name: prosody
-  #          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+  # release-please:
+  #   name: Release Please
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     release_created: ${{ steps.release.outputs.release_created }}
+  #     tag_name: ${{ steps.release.outputs.tag_name }}
+  #   steps:
+  #     - uses: google-github-actions/release-please-action@v3
+  #       id: release
+  #       with:
+  #         release-type: node
+  #         package-name: prosody
+  #         token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   ###########################################################################
-  # 2) Build job using napi-rs patterns (no zig commands)
+  # 2) Build job using napi-rs patterns (without docker-run-action)
   ###########################################################################
   build:
     name: stable - ${{ matrix.settings.target }} - node@20
-    #    needs: release-please
-    #    if: ${{ needs.release-please.outputs.release_created }}
+    # needs: release-please
+    # if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,53 +53,43 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             build: yarn build --target x86_64-apple-darwin
-
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: yarn build --target x86_64-pc-windows-msvc
-
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: yarn build --target x86_64-unknown-linux-gnu
-
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: yarn build --target x86_64-unknown-linux-musl
-
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
-
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: yarn build --target aarch64-unknown-linux-gnu
-
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             setup: |
               sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: yarn build --target armv7-unknown-linux-gnueabihf
-
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             build: yarn build --target armv7-unknown-linux-musleabihf
-
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: |
-              set -e
-              rustup target add aarch64-unknown-linux-musl
+            build: |-
+              set -e &&
+              rustup target add aarch64-unknown-linux-musl &&
               yarn build --target aarch64-unknown-linux-musl
-
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
-
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -142,13 +133,14 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
-      # If building in Docker
+      # If building in Docker, use an explicit docker run command instead of docker-run-action
       - name: Docker build step
         if: ${{ matrix.settings.docker }}
         run: |
+          echo "Pulling ${{ matrix.settings.docker }}"
           docker pull ${{ matrix.settings.docker }}
 
-          # We'll store the "build" command in a variable so we don't break the YAML parser.
+          # Store the build command in a variable so we don’t break YAML parsing.
           BUILD_CMD="${{ matrix.settings.build }}"
 
           docker run --rm \
@@ -165,20 +157,12 @@ jobs:
             /bin/sh -c "set -e && \
               if echo '${{ matrix.settings.docker }}' | grep -q 'lts-debian'; then \
                 apt-get update && \
-                apt-get install -y \
-                  build-essential \
-                  cmake \
-                  pkg-config \
+                apt-get install -y build-essential cmake pkg-config \
                   gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-                  gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-                  musl-tools; \
+                  gcc-aarch64-linux-gnu g++-aarch64-linux-gnu musl-tools; \
               else \
                 apk update && \
-                apk add --no-cache \
-                  build-base \
-                  cmake \
-                  pkgconfig \
-                  musl-dev; \
+                apk add --no-cache build-base cmake pkgconfig musl-dev; \
               fi && \
               $BUILD_CMD"
 
@@ -196,11 +180,49 @@ jobs:
           if-no-files-found: error
 
   ###########################################################################
-  # 3) Test jobs (unchanged Kafka logic) – Linux only
+  # 3) Test jobs (unchanged Kafka logic) – Linux / macOS & Windows
   ###########################################################################
+  test-macOS-windows-binding:
+    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: x86_64-apple-darwin
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+        node:
+          - "18"
+          - "20"
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+          architecture: x64
+      - name: Install dependencies
+        run: yarn install
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: .
+      - name: List packages
+        run: ls -R .
+        shell: bash
+      - name: Test bindings
+        run: yarn test
+
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
-    needs: build
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
@@ -222,31 +244,16 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
+      - name: List packages
+        run: ls -R .
+        shell: bash
       - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-slim \
-            yarn test
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
 
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
-    needs: build
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
@@ -270,31 +277,16 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-musl
           path: .
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
+      - name: List packages
+        run: ls -R .
+        shell: bash
       - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-alpine \
-            yarn test
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
 
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
-    needs: build
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
@@ -309,6 +301,9 @@ jobs:
         with:
           name: bindings-aarch64-unknown-linux-gnu
           path: .
+      - name: List packages
+        run: ls -R .
+        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
@@ -319,38 +314,15 @@ jobs:
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
       - name: Setup and run tests
         run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-slim \
-            yarn test
+          docker run --rm --platform linux/arm64 -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
 
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
-    needs: build
+    needs:
+      - build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "18"
-          - "20"
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -358,6 +330,9 @@ jobs:
         with:
           name: bindings-aarch64-unknown-linux-musl
           path: .
+      - name: List packages
+        run: ls -R .
+        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
@@ -368,31 +343,14 @@ jobs:
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
       - name: Setup and run tests
         run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:lts-alpine \
-            yarn test
+          docker run --rm --platform linux/arm64 -v $(pwd):/build -w /build node:lts-alpine yarn test
 
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
-    needs: build
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
@@ -407,6 +365,9 @@ jobs:
         with:
           name: bindings-armv7-unknown-linux-gnueabihf
           path: .
+      - name: List packages
+        run: ls -R .
+        shell: bash
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm"
@@ -416,27 +377,9 @@ jobs:
         with:
           platforms: arm
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
       - name: Setup and run tests
         run: |
-          docker run --rm --platform linux/arm/v7 --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-bullseye-slim \
-            sh -c "set -e && yarn test"
+          docker run --rm --platform linux/arm/v7 -v $(pwd):/build -w /build node:${{ matrix.node }}-bullseye-slim sh -c "set -e && yarn test"
 
   ###########################################################################
   # 4) Universal macOS build
@@ -490,15 +433,15 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     needs:
-      #      - release-please
+      # - release-please
       - build
+      - test-macOS-windows-binding
       - test-linux-x64-gnu-binding
       - test-linux-x64-musl-binding
       - test-linux-aarch64-gnu-binding
       - test-linux-aarch64-musl-binding
       - test-linux-arm-gnueabihf-binding
       - universal-macOS
-    #      if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
 
@@ -528,10 +471,9 @@ jobs:
 
       - name: Move artifacts
         run: yarn artifacts
-
-#      - name: Publish
-#        env:
-#          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
-#        run: |
-#          npm config set provenance true
-#          npm publish --access public
+#     - name: Publish
+#       env:
+#         NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
+#       run: |
+#         npm config set provenance true
+#         npm publish --access public
