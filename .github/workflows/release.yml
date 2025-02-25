@@ -117,13 +117,10 @@ jobs:
         with:
           version: 0.13.0
 
+      # Install cargo-zigbuild
       - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
         if: ${{ contains(matrix.settings.target, 'musl') }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          tool: cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
 
       - name: Install dependencies
         run: yarn install
@@ -511,7 +508,6 @@ jobs:
 
       - name: Move artifacts
         run: yarn artifacts
-
 #      - name: Publish
 #        env:
 #          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
