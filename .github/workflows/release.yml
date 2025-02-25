@@ -137,8 +137,10 @@ jobs:
         if: ${{ matrix.settings.docker }}
         run: |
           docker pull ${{ matrix.settings.docker }}
-          # Mount full ~/.config/git *and* ~/.gitconfig for correct auth
-          # Also set CARGO_NET_GIT_FETCH_WITH_CLI so Cargo uses git CLI
+          #
+          # Install cross compilers, CMake, etc. for ring, rdkafka-sys, etc.
+          # Debian-based containers => apt-get, Alpine => apk
+          #
           docker run --rm \
             --user 0:0 \
             -v /home/runner/.gitconfig:/root/.gitconfig:ro \
@@ -150,7 +152,28 @@ jobs:
             -w /build \
             -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
-            /bin/sh -c "${{ matrix.settings.build }}"
+            /bin/sh -c "
+              set -e
+              if echo '${{ matrix.settings.docker }}' | grep -q 'lts-debian'; then
+                apt-get update && \
+                apt-get install -y \
+                  build-essential \
+                  cmake \
+                  pkg-config \
+                  gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+                  gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                  musl-tools
+              else
+                apk update && \
+                apk add --no-cache \
+                  build-base \
+                  cmake \
+                  pkgconfig \
+                  musl-dev
+              fi
+
+              ${ { matrix.settings.build } }
+            "
 
       # If building on host
       - name: Build
