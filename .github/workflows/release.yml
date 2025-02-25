@@ -133,21 +133,22 @@ jobs:
         run: yarn install
 
       # If building in Docker
-      - name: Build in docker
-        uses: addnab/docker-run-action@v3
+      - name: Docker build step
         if: ${{ matrix.settings.docker }}
-        with:
-          image: ${{ matrix.settings.docker }}
-          # Important! Mount your Git credentials so private repos can be fetched
-          options: >-
-            --user 0:0
-            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro
-            -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db
-            -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
-            -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
-            -v ${{ github.workspace }}:/build
-            -w /build
-          run: ${{ matrix.settings.build }}
+        run: |
+          # Pull the Docker image if not already pulled
+          docker pull ${{ matrix.settings.docker }}
+          # Now run your build command inside the container
+          docker run --rm \
+            --user 0:0 \
+            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro \
+            -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
+            -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
+            -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            ${{ matrix.settings.docker }} \
+            /bin/sh -c "${{ matrix.settings.build }}"
 
       # If building on host
       - name: Build
