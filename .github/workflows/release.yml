@@ -1,7 +1,7 @@
 name: CI
 
 env:
-  DEBUG: "napi:*"
+  DEBUG: napi:*
   APP_NAME: prosody
   MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
@@ -16,14 +16,13 @@ permissions:
 
 on:
   push:
-  #    branches:
-  #      - main
-  pull_request:
+#    branches:
+#      - main
 
 jobs:
-  #  ##################################################################
-  #  # 1) Release-please (generates version bumps & release notes)
-  #  ##################################################################
+  #  ###########################################################################
+  #  # 1) Release-please job
+  #  ###########################################################################
   #  release-please:
   #    name: Release Please
   #    runs-on: ubuntu-latest
@@ -38,11 +37,11 @@ jobs:
   #          package-name: prosody
   #          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
-  ##################################################################
-  # 2) Build (using new napi-rs pattern for all targets)
-  ##################################################################
+  ###########################################################################
+  # 2) Build job using napi-rs patterns (no zig commands)
+  ###########################################################################
   build:
-    name: Build native modules
+    name: stable - ${{ matrix.settings.target }} - node@20
     #    needs: release-please
     #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
@@ -51,123 +50,146 @@ jobs:
         settings:
           - host: macos-latest
             target: x86_64-apple-darwin
-            build: yarn build --platform --target x86_64-apple-darwin
+            build: yarn build --target x86_64-apple-darwin
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: yarn build --platform --target x86_64-pc-windows-msvc
+            build: yarn build --target x86_64-pc-windows-msvc
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            build: yarn build --platform --target x86_64-unknown-linux-gnu --zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build: yarn build --platform --target x86_64-unknown-linux-musl --zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
-            build: yarn build --platform --target aarch64-apple-darwin
+            build: yarn build --target aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            build: yarn build --platform --target aarch64-unknown-linux-gnu --zig
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            build: yarn build --platform --target aarch64-unknown-linux-musl -x
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            build: yarn build --platform --target armv7-unknown-linux-gnueabihf --zig
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-arm-linux-gnueabihf -y
+            build: yarn build --target armv7-unknown-linux-gnueabihf
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
-            build: yarn build --platform --target armv7-unknown-linux-musleabihf -x
+            build: yarn build --target armv7-unknown-linux-musleabihf
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            build: |
+              set -e &&
+              rustup target add aarch64-unknown-linux-musl &&
+              yarn build --target aarch64-unknown-linux-musl
           - host: windows-latest
             target: aarch64-pc-windows-msvc
-            build: yarn build --platform --target aarch64-pc-windows-msvc
+            build: yarn build --target aarch64-pc-windows-msvc
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
 
-      # Ensures private GitHub repos can be cloned by cargo or yarn
       - uses: de-vri-es/setup-git-credentials@v2
         with:
           credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
 
-      - name: Setup Node.js
+      # If not building in Docker, set up Node & Rust on host
+      - name: Setup node
         uses: actions/setup-node@v4
+        if: ${{ !matrix.settings.docker }}
         with:
           node-version: 20
           cache: yarn
 
-      - name: Install Rust (stable)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
 
       - name: Cache cargo
+        if: ${{ !matrix.settings.docker }}
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            ~/.napi-rs
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
 
-      - uses: goto-bus-stop/setup-zig@v2
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        with:
-          version: 0.13.0
-
-      # Install cargo-zigbuild
-      - name: Install cargo-zigbuild
-        if: ${{ contains(matrix.settings.target, 'musl') }}
-        run: cargo install cargo-zigbuild --locked
+      - name: Additional setup
+        if: ${{ matrix.settings.setup }}
+        run: ${{ matrix.settings.setup }}
+        shell: bash
 
       - name: Install dependencies
         run: yarn install
 
+      # If building in Docker
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          # Important! Mount your Git credentials so private repos can be fetched
+          options: >-
+            --user 0:0
+            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro
+            -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db
+            -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
+            -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
+            -v ${{ github.workspace }}:/build
+            -w /build
+          run: ${{ matrix.settings.build }}
+
+      # If building on host
       - name: Build
+        if: ${{ !matrix.settings.docker }}
         run: ${{ matrix.settings.build }}
+        shell: bash
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: "*.node"
+          path: ${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
-  ##################################################################
-  # 3) Test: Linux x64-gnu w/ Kafka integration
-  ##################################################################
+  ###########################################################################
+  # 3) Test jobs (unchanged Kafka logic) – Linux only
+  ###########################################################################
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
-        node: [ "18", "20" ]
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
+      - name: Setup node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: yarn
-
       - name: Install dependencies
         run: yarn install
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-
       - name: Create Docker network
         run: docker network create kafka-test-network
-
       - name: Start Kafka container
         run: |
           docker run -d --name kafka --network kafka-test-network \
@@ -180,7 +202,6 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-
       - name: Test bindings
         run: |
           docker run --rm --network kafka-test-network \
@@ -189,41 +210,34 @@ jobs:
             node:${{ matrix.node }}-slim \
             yarn test
 
-  ##################################################################
-  # 4) Test: Linux x64-musl w/ Kafka integration
-  ##################################################################
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
-        node: [ "18", "20" ]
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
+      - name: Setup node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: yarn
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.libc "musl"
           yarn install
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-musl
           path: .
-
       - name: Create Docker network
         run: docker network create kafka-test-network
-
       - name: Start Kafka container
         run: |
           docker run -d --name kafka --network kafka-test-network \
@@ -236,7 +250,6 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-
       - name: Test bindings
         run: |
           docker run --rm --network kafka-test-network \
@@ -245,42 +258,35 @@ jobs:
             node:${{ matrix.node }}-alpine \
             yarn test
 
-  ##################################################################
-  # 5) Test: Linux aarch64-gnu w/ Kafka integration
-  ##################################################################
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
-        node: [ "18", "20" ]
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-gnu
           path: .
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
           yarn install
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
       - name: Create Docker network
         run: docker network create kafka-test-network
-
       - name: Start Kafka container
         run: |
           docker run -d --name kafka --network kafka-test-network \
@@ -293,7 +299,6 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-
       - name: Setup and run tests
         run: |
           docker run --rm --platform linux/arm64 --network kafka-test-network \
@@ -302,42 +307,35 @@ jobs:
             node:${{ matrix.node }}-slim \
             yarn test
 
-  ##################################################################
-  # 6) Test: Linux aarch64-musl w/ Kafka integration
-  ##################################################################
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: [ "18", "20" ]
-    runs-on: ubuntu-latest
+        node:
+          - "18"
+          - "20"
     steps:
       - uses: actions/checkout@v4
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-musl
           path: .
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "musl"
           yarn install
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
       - name: Create Docker network
         run: docker network create kafka-test-network
-
       - name: Start Kafka container
         run: |
           docker run -d --name kafka --network kafka-test-network \
@@ -350,50 +348,42 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-
       - name: Setup and run tests
         run: |
           docker run --rm --platform linux/arm64 --network kafka-test-network \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-alpine \
+            node:lts-alpine \
             yarn test
 
-  ##################################################################
-  # 7) Test: Linux armv7-unknown-linux-gnueabihf w/ Kafka integration
-  ##################################################################
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
-        node: [ "18", "20" ]
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: bindings-armv7-unknown-linux-gnueabihf
           path: .
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm"
           yarn install
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
       - name: Create Docker network
-        run: docker network.create kafka-test-network
-
+        run: docker network create kafka-test-network
       - name: Start Kafka container
         run: |
           docker run -d --name kafka --network kafka-test-network \
@@ -406,27 +396,24 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-
       - name: Setup and run tests
         run: |
           docker run --rm --platform linux/arm/v7 --network kafka-test-network \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -v ${{ github.workspace }}:/build -w /build \
             node:${{ matrix.node }}-bullseye-slim \
-            yarn test
+            sh -c "set -e && yarn test"
 
-  ##################################################################
-  # 8) Build universal macOS binary (napi-rs pattern)
-  ##################################################################
+  ###########################################################################
+  # 4) Universal macOS build
+  ###########################################################################
   universal-macOS:
     name: Build universal macOS binary
     needs: build
-    #    if: ${{ needs.release-please.outputs.release_created }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      # We still set up credentials for any final merges, if needed
       - uses: de-vri-es/setup-git-credentials@v2
         with:
           credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
@@ -444,36 +431,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-apple-darwin
-          path: .
-          pattern: "*.node"
+          path: artifacts
 
       - name: Download macOS arm64 artifact
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
-          path: .
-          pattern: "*.node"
+          path: artifacts
 
-      - name: Download JS & TS bindings
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-apple-darwin
-          path: .
-          pattern: "bindings.*"
-
-      - name: Combine binaries (universalize)
-        run: yarn napi universalize
+      - name: Combine binaries
+        run: yarn universal
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-universal-apple-darwin
-          path: "*.node"
+          path: ${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
-  ##################################################################
-  # 9) Publish: runs after all builds & tests pass
-  ##################################################################
+  ###########################################################################
+  # 5) Publish job
+  ###########################################################################
   publish:
     name: Publish
     runs-on: ubuntu-latest
@@ -486,7 +464,7 @@ jobs:
       - test-linux-aarch64-musl-binding
       - test-linux-arm-gnueabihf-binding
       - universal-macOS
-    #    if: ${{ needs.release-please.outputs.release_created }}
+    #      if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
 
@@ -506,8 +484,17 @@ jobs:
         with:
           path: artifacts
 
+      # Optionally, pull down a single 'bindings.js' if needed
+      - name: Download bindings js and types
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: .
+          pattern: "bindings.*"
+
       - name: Move artifacts
         run: yarn artifacts
+
 #      - name: Publish
 #        env:
 #          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
