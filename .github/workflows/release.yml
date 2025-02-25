@@ -136,17 +136,19 @@ jobs:
       - name: Docker build step
         if: ${{ matrix.settings.docker }}
         run: |
-          # Pull the Docker image if not already pulled
           docker pull ${{ matrix.settings.docker }}
-          # Now run your build command inside the container
+          # Mount full ~/.config/git *and* ~/.gitconfig for correct auth
+          # Also set CARGO_NET_GIT_FETCH_WITH_CLI so Cargo uses git CLI
           docker run --rm \
             --user 0:0 \
-            -v /home/runner/.config/git/credentials:/root/.config/git/credentials:ro \
+            -v /home/runner/.gitconfig:/root/.gitconfig:ro \
+            -v /home/runner/.config/git:/root/.config/git:ro \
             -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
             -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
             -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
             -v ${{ github.workspace }}:/build \
             -w /build \
+            -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
             /bin/sh -c "${{ matrix.settings.build }}"
 
