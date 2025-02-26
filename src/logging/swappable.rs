@@ -5,8 +5,8 @@ use arc_swap::ArcSwapOption;
 use educe::Educe;
 use std::sync::Arc;
 use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
 
 /// A thread-safe, swappable logger that can be dynamically changed at runtime.
 ///

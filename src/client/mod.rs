@@ -1,6 +1,6 @@
 use crate::client::config::{
-  build_consumer_config, build_failure_topic_config, build_producer_config, build_retry_config,
-  Configuration,
+  Configuration, build_consumer_config, build_failure_topic_config, build_producer_config,
+  build_retry_config,
 };
 use crate::handler::JsHandler;
 use crate::handler::NativeHandler;
@@ -8,14 +8,14 @@ use napi::bindgen_prelude::Promise;
 use napi::{Error, Result, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
-use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use prosody::high_level::HighLevelClient;
+use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Deref;
 use tokio::select;
 use tracing::field::Empty;
-use tracing::{info_span, Instrument};
+use tracing::{Instrument, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
@@ -39,14 +39,14 @@ impl NativeClient {
   #[allow(clippy::needless_pass_by_value)] // required by NAPI
   #[napi(constructor, writable = false)]
   pub fn new(config: Configuration) -> Result<Self> {
-    let producer_config = build_producer_config(&config);
+    let mut producer_config = build_producer_config(&config);
     let consumer_config = build_consumer_config(&config);
     let retry_config = build_retry_config(&config);
     let failure_topic_config = build_failure_topic_config(&config);
 
     let client = HighLevelClient::new(
       config.mode.unwrap_or_default().into(),
-      &producer_config,
+      &mut producer_config,
       &consumer_config,
       &retry_config,
       &failure_topic_config,

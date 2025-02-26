@@ -1,9 +1,9 @@
-use napi::bindgen_prelude::Null;
 use napi::Either;
+use napi::bindgen_prelude::Null;
 use napi_derive::napi;
+use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::failure::retry::RetryConfigurationBuilder;
 use prosody::consumer::failure::topic::FailureTopicConfigurationBuilder;
-use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
 use std::time::Duration;

@@ -2,10 +2,10 @@
 
 use crate::context::Context;
 use crate::message::Message;
+use napi::JsFunction;
 use napi::bindgen_prelude::{Either3, Promise};
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext};
-use napi::JsFunction;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::consumer::failure::{ClassifyError, ErrorCategory, FallibleHandler};

@@ -12,8 +12,8 @@ use std::error::Error;
 use std::fmt::Debug;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Metadata, Subscriber};
-use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
 
 /// Type alias for the arguments passed to JavaScript logging functions.
 type LogArgs = (Option<String>, Value);
