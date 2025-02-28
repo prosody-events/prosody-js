@@ -31,6 +31,13 @@ pub struct Configuration {
   /// Topics to subscribe to.
   pub subscribed_topics: Option<Either<String, Vec<String>>>,
 
+  /// Allowed event type prefixes. All event types are allowed if unset.
+  pub allowed_event_types: Option<Either<String, Vec<String>>>,
+
+  /// Identifier for the producing system, used to prevent loops.
+  /// Defaults to the consumer group name.
+  pub source_system: Option<String>,
+
   /// Max number of uncommitted messages.
   pub max_uncommitted: Option<u16>,
 
@@ -112,6 +119,10 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
     builder.mock(mock);
   }
 
+  if let Some(source_system) = &config.source_system {
+    builder.source_system(source_system);
+  }
+
   if let Some(timeout) = config.send_timeout_ms {
     builder.send_timeout(Some(Duration::from_millis(u64::from(timeout))));
   }
@@ -149,6 +160,10 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
   if let Some(topics) = &config.subscribed_topics {
     builder.subscribed_topics(parse_string_or_vec(topics));
+  }
+
+  if let Some(allowed_event_types) = &config.allowed_event_types {
+    builder.allowed_events(parse_string_or_vec(allowed_event_types));
   }
 
   if let Some(max_uncommitted) = config.max_uncommitted {
