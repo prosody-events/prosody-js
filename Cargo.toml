@@ -2,7 +2,7 @@
 authors = ["Josh Griffith <joshua.griffith@realgeeks.com>"]
 categories = ["api-bindings", "asynchronous", "database"]
 description = "Javascript bindings for the Prosody Kafka client library"
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/cincpro/prosody-js"
 keywords = ["bindings", "client", "javascript", "kafka", "prosody"]
 license = "UNLICENSED"
@@ -25,13 +25,13 @@ napi = { version = "2.16", default-features = false, features = [
     "tokio_rt",
 ] }
 napi-derive = "2.16"
-opentelemetry = "0.27"
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "c028a352d10c40b4108a9bf349c62e04bc7b97a2" } # replace once we have a package manager
+opentelemetry = "0.28"
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "2c9d47758d09b7fe2efaccd8429e873bfaed22f3" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.41"
 tracing = { version = "0.1", features = ["log-always"] }
-tracing-opentelemetry = "0.28"
+tracing-opentelemetry = "0.29"
 tracing-subscriber = "0.3"
 
 [build-dependencies]

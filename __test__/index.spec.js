@@ -18,6 +18,7 @@ const tracer = trace.getTracer("prosody-js-test");
 // Constants
 const MESSAGE_TIMEOUT = 5000;
 const GROUP_NAME = "test-group";
+const SOURCE_NAME = "test-source";
 const BOOTSTRAP_SERVERS =
   process.env.PROSODY_BOOTSTRAP_SERVERS || "localhost:9094";
 
@@ -70,6 +71,7 @@ describe("ProsodyClient", () => {
         client = new ProsodyClient({
           bootstrapServers: BOOTSTRAP_SERVERS,
           groupId: GROUP_NAME,
+          sourceSystem: SOURCE_NAME,
           subscribedTopics: topic,
           probePort: null,
           mode: Mode.Pipeline,

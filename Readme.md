@@ -13,6 +13,8 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 - Efficient parallel processing with key-based ordering
 - Intelligent partition pausing for backpressure management
 - Mock Kafka broker support for testing
+- Event type filtering for selectively processing messages
+- Source system tracking to prevent message processing loops
 
 ## Installation
 
@@ -27,8 +29,17 @@ const {ProsodyClient} = require('@cincpro/prosody');
 
 // Initialize the client with Kafka bootstrap servers, consumer group, and topics
 const client = new ProsodyClient({
+    // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
     bootstrapServers: "localhost:9092",
+
+    // To allow loopbacks, the source_system must be different from the group_id.
+    // Normally, the source_system would be left unspecified, which would default to the group_id.
+    sourceSystem: "my-application-source",
+
+    // The group_id should be set to the name of your application
     groupId: "my-consumer-group",
+
+    // Topics the client should subscribe to
     subscribedTopics: "my-topic"
 });
 
@@ -66,6 +77,8 @@ The `ProsodyClient` constructor accepts these key parameters:
 - `bootstrapServers` (string | string[]): Kafka bootstrap servers (required)
 - `groupId` (string): Consumer group ID (required for consumption)
 - `subscribedTopics` (string | string[]): Topics to subscribe to (required for consumption)
+- `sourceSystem` (string): Identifier for the producing system to prevent loops (defaults to groupId)
+- `allowedEvents` (string | string[]): Prefixes of event types to process (processes all if unspecified)
 - `mode` (string): 'pipeline' (default) or 'low-latency'
 
 Additional optional parameters control behavior like message committal, polling intervals, and retry logic. Most
@@ -88,7 +101,6 @@ Configure the probe server using either the client constructor:
 
 ```javascript
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
     probePort: 8000,  // Set to null to disable
@@ -163,6 +175,70 @@ const client = new ProsodyClient({
     subscribedTopics: "my-topic"
 });
 ```
+
+## Event Type Filtering
+
+Prosody supports filtering messages based on event type prefixes, allowing your consumer to process only specific types
+of events:
+
+```javascript
+// Process only events with types starting with "user." or "account."
+const client = new ProsodyClient({
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+    allowedEvents: ["user.", "account."]
+});
+```
+
+Or via environment variables:
+
+```bash
+PROSODY_ALLOWED_EVENTS=user.,account.
+```
+
+### Matching Behavior
+
+Prefixes must match exactly from the start of the event type:
+
+✓ Matches:
+
+- `{"type": "user.created"}` matches prefix `user.`
+- `{"type": "account.deleted"}` matches prefix `account.`
+
+✗ No Match:
+
+- `{"type": "admin.user.created"}` doesn't match `user.`
+- `{"type": "my.account.deleted"}` doesn't match `account.`
+- `{"type": "notification"}` doesn't match any prefix
+
+If no prefixes are configured, all messages are processed. Messages without a `type` field are always processed.
+
+## Source System Deduplication
+
+Prosody prevents processing loops in distributed systems by tracking the source of each message:
+
+```javascript
+// Consumer and producer in one application
+const client = new ProsodyClient({
+    groupId: "my-service",                // Defaults to sourceSystem if not set
+    sourceSystem: "my-service-producer",  // Must differ from groupId to allow loopbacks
+    subscribedTopics: "my-topic"
+});
+```
+
+Or via environment variable:
+
+```bash
+PROSODY_SOURCE_SYSTEM=my-service-producer
+```
+
+### How It Works
+
+1. **Producers** add a `source-system` header to all outgoing messages.
+2. **Consumers** check this header on incoming messages.
+3. If a message's source system matches the consumer's group ID, the message is skipped.
+
+This prevents endless loops where a service consumes its own produced messages.
 
 ### Message Deduplication
 
@@ -326,7 +402,6 @@ const opentelemetry = require('@opentelemetry/api');
 const tracer = opentelemetry.trace.getTracer('my-service-name');
 
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic"
 });
@@ -407,7 +482,6 @@ const {ProsodyClient} = require('@cincpro/prosody');
 
 async function main() {
     const client = new ProsodyClient({
-        bootstrapServers: "localhost:9092",
         groupId: "my-consumer-group",
         subscribedTopics: "my-topic"
     });
