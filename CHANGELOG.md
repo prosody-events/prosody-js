@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/cincpro/prosody-js/compare/v0.5.0...v0.5.1) (2025-03-04)
+
+
+### Bug Fixes
+
+* deadlock ([#35](https://github.com/cincpro/prosody-js/issues/35)) ([e44fce3](https://github.com/cincpro/prosody-js/commit/e44fce384b76fd855c53acdd862eee621f461b36))
+
 ## [0.5.0](https://github.com/cincpro/prosody-js/compare/v0.4.0...v0.5.0) (2025-03-04)
 
 
