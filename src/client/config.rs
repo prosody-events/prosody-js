@@ -32,7 +32,7 @@ pub struct Configuration {
   pub subscribed_topics: Option<Either<String, Vec<String>>>,
 
   /// Allowed event type prefixes. All event types are allowed if unset.
-  pub allowed_event_types: Option<Either<String, Vec<String>>>,
+  pub allowed_events: Option<Either<String, Vec<String>>>,
 
   /// Identifier for the producing system, used to prevent loops.
   /// Defaults to the consumer group name.
@@ -162,7 +162,7 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
     builder.subscribed_topics(parse_string_or_vec(topics));
   }
 
-  if let Some(allowed_event_types) = &config.allowed_event_types {
+  if let Some(allowed_event_types) = &config.allowed_events {
     builder.allowed_events(parse_string_or_vec(allowed_event_types));
   }
 
