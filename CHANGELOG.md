@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/cincpro/prosody-js/compare/v0.4.0...v0.5.0) (2025-03-04)
+
+
+### Features
+
+* add event filtering, source tracking, and fix backpressure deadlock ([#33](https://github.com/cincpro/prosody-js/issues/33)) ([166cffa](https://github.com/cincpro/prosody-js/commit/166cffa5aa7dd7d6dc7d09ad9522ce4fc3b74336))
+
 ## [0.4.0](https://github.com/cincpro/prosody-js/compare/v0.3.0...v0.4.0) (2025-01-08)
 
 
