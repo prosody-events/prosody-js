@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/cincpro/prosody-js/compare/v0.5.1...v0.5.2) (2025-03-07)
+
+
+### Bug Fixes
+
+* group id and source system env var fallback ([#37](https://github.com/cincpro/prosody-js/issues/37)) ([d1e0f2a](https://github.com/cincpro/prosody-js/commit/d1e0f2abf2041bc5ef697acfb93b07cdc44f4594))
+
 ## [0.5.1](https://github.com/cincpro/prosody-js/compare/v0.5.0...v0.5.1) (2025-03-04)
 
 
