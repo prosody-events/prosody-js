@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/cincpro/prosody-js/compare/v0.5.2...v0.5.3) (2025-03-12)
+
+
+### Bug Fixes
+
+* always check for shutdown before retrying ([#39](https://github.com/cincpro/prosody-js/issues/39)) ([efcac0b](https://github.com/cincpro/prosody-js/commit/efcac0b7b4fbb4ee9fc08dcba133e5076326e9f2))
+
 ## [0.5.2](https://github.com/cincpro/prosody-js/compare/v0.5.1...v0.5.2) (2025-03-07)
 
 
