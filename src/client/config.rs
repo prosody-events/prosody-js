@@ -45,9 +45,12 @@ pub struct Configuration {
   pub max_enqueued_per_key: Option<u16>,
 
   /// Threshold determining when message processing has stalled.
-  /// During partition revocation, tasks are given 80% of this time to finish before being
-  /// cancelled. The remaining 20% is used to wait for the cancellation hooks to complete.
   pub stall_threshold_ms: Option<u32>,
+
+  /// Timeout to wait for in-flight tasks to complete during partition shutdown. During partition
+  /// revocation, tasks are given 80% of this time to finish before being cancelled. The remaining
+  /// 20% is used to wait for the cancellation hooks to complete.
+  pub shutdown_timeout_ms: Option<u32>,
 
   /// Time between message polls in milliseconds.
   pub poll_interval_ms: Option<u32>,
@@ -176,6 +179,10 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
   if let Some(timeout) = config.stall_threshold_ms {
     builder.stall_threshold(Duration::from_millis(u64::from(timeout)));
+  }
+
+  if let Some(timeout) = config.shutdown_timeout_ms {
+    builder.shutdown_timeout(Duration::from_millis(u64::from(timeout)));
   }
 
   if let Some(interval) = config.poll_interval_ms {
