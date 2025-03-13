@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/cincpro/prosody-js/compare/v0.5.3...v0.6.0) (2025-03-13)
+
+
+### Features
+
+* **consumer:** add shutdown timeout parameter ([#44](https://github.com/cincpro/prosody-js/issues/44)) ([90f72a8](https://github.com/cincpro/prosody-js/commit/90f72a83e913da0c9181216d94309541199d5068))
+
 ## [0.5.3](https://github.com/cincpro/prosody-js/compare/v0.5.2...v0.5.3) (2025-03-12)
 
 
