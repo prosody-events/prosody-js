@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/cincpro/prosody-js/compare/v0.6.0...v0.6.1) (2025-03-14)
+
+
+### Bug Fixes
+
+* respect stall threshold ([#46](https://github.com/cincpro/prosody-js/issues/46)) ([7ffee4e](https://github.com/cincpro/prosody-js/commit/7ffee4e236db8da582b86bf0aae1335b0c122bf2))
+
 ## [0.6.0](https://github.com/cincpro/prosody-js/compare/v0.5.3...v0.6.0) (2025-03-13)
 
 
