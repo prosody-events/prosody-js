@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/cincpro/prosody-js/compare/v0.6.1...v0.6.2) (2025-03-21)
+
+
+### Bug Fixes
+
+* **consumer:** multiple prosody fixes and max concurrency parameter ([#48](https://github.com/cincpro/prosody-js/issues/48)) ([42862da](https://github.com/cincpro/prosody-js/commit/42862da950f66f11afd62573d05611086af04873))
+
 ## [0.6.1](https://github.com/cincpro/prosody-js/compare/v0.6.0...v0.6.1) (2025-03-14)
 
 
