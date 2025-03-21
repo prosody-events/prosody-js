@@ -38,6 +38,9 @@ pub struct Configuration {
   /// Defaults to the consumer group name.
   pub source_system: Option<String>,
 
+  /// Maximum global concurrency limit.
+  pub max_concurrency: Option<u32>,
+
   /// Max number of uncommitted messages.
   pub max_uncommitted: Option<u16>,
 
@@ -47,9 +50,7 @@ pub struct Configuration {
   /// Threshold determining when message processing has stalled.
   pub stall_threshold_ms: Option<u32>,
 
-  /// Timeout to wait for in-flight tasks to complete during partition shutdown. During partition
-  /// revocation, tasks are given 80% of this time to finish before being cancelled. The remaining
-  /// 20% is used to wait for the cancellation hooks to complete.
+  /// Timeout to wait for in-flight tasks to complete during partition shutdown.
   pub shutdown_timeout_ms: Option<u32>,
 
   /// Time between message polls in milliseconds.
@@ -167,6 +168,10 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
   if let Some(allowed_event_types) = &config.allowed_events {
     builder.allowed_events(parse_string_or_vec(allowed_event_types));
+  }
+
+  if let Some(max_concurrency) = config.max_concurrency {
+    builder.max_concurrency(max_concurrency as usize);
   }
 
   if let Some(max_uncommitted) = config.max_uncommitted {
