@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/cincpro/prosody-js/compare/v0.6.2...v0.6.3) (2025-04-11)
+
+
+### Bug Fixes
+
+* prevent initializing the library more than once ([#50](https://github.com/cincpro/prosody-js/issues/50)) ([f3a6126](https://github.com/cincpro/prosody-js/commit/f3a6126260d7414291a545bd1078700b21c19b27))
+
 ## [0.6.2](https://github.com/cincpro/prosody-js/compare/v0.6.1...v0.6.2) (2025-03-21)
 
 
