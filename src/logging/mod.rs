@@ -8,7 +8,8 @@ use crate::logging::swappable::SwappableLogger;
 use napi::{Env, JsFunction};
 use napi_derive::napi;
 use prosody::tracing::initialize_tracing;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Once};
+use tracing::error;
 
 pub mod js;
 pub mod swappable;
@@ -46,22 +47,33 @@ pub struct Logger {
  * Initializes the logging system with a JavaScript logger.
  *
  * @param logger - The JavaScript logger to use.
- * @throws Error if the logger initialization or tracing setup fails.
  */
 #[napi]
-pub fn initialize(mut env: Env, logger: Logger) -> napi::Result<()> {
-  // Set up the JavaScript logger
-  LOGGER.set_logger(JsLogger::new(env, logger)?);
+pub fn initialize(mut env: Env, logger: Logger) {
+  // Only initialize once
+  static INIT: Once = Once::new();
 
-  // Initialize tracing with the global logger
-  initialize_tracing(Some(LOGGER.clone())).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  INIT.call_once(|| {
+    // Set up the JavaScript logger
+    match JsLogger::new(env, logger) {
+      Ok(logger) => LOGGER.set_logger(logger),
+      Err(error) => {
+        error!("failed to initialize logger: {error:#}");
+      }
+    }
 
-  // Add a cleanup hook to clear the logger when the environment is destroyed
-  env.add_env_cleanup_hook((), |()| {
-    LOGGER.clear_logger();
-  })?;
+    // Initialize tracing with the global logger
+    if let Err(error) = initialize_tracing(Some(LOGGER.clone())) {
+      error!("failed to initialize tracing: {error:#}");
+    }
 
-  Ok(())
+    // Add a cleanup hook to clear the logger when the environment is destroyed
+    if let Err(error) = env.add_env_cleanup_hook((), |()| {
+      LOGGER.clear_logger();
+    }) {
+      error!("failed to attach environment cleanup hook: {error:#}");
+    }
+  });
 }
 
 /**
