@@ -13,7 +13,6 @@ const { Mode } = require("../index");
 
 // OpenTelemetry SDK setup
 const provider = new NodeTracerProvider();
-const tracer = trace.getTracer("prosody-js-test");
 
 // Constants
 const MESSAGE_TIMEOUT = 5000;
@@ -54,11 +53,13 @@ const waitForMessages = (stream, count, timeout) =>
 
 describe("ProsodyClient", () => {
   let admin;
+  let tracer;
   let client;
   let topic;
   let messageStream;
 
   beforeAll(async () => {
+    tracer = trace.getTracer("prosody-js-test");
     admin = new AdminClient(BOOTSTRAP_SERVERS);
   });
 
