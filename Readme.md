@@ -220,8 +220,8 @@ Prosody prevents processing loops in distributed systems by tracking the source 
 ```javascript
 // Consumer and producer in one application
 const client = new ProsodyClient({
-    groupId: "my-service",                // Defaults to sourceSystem if not set
-    sourceSystem: "my-service-producer",  // Must differ from groupId to allow loopbacks
+    groupId: "my-service",
+    sourceSystem: "my-service-producer",  // Must differ from groupId to allow loopbacks; defaults to groupId
     subscribedTopics: "my-topic"
 });
 ```
