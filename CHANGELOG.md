@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/cincpro/prosody-js/compare/v0.6.3...v0.6.4) (2025-04-18)
+
+
+### Bug Fixes
+
+* export non-const enums in TS type stubs ([#54](https://github.com/cincpro/prosody-js/issues/54)) ([3f8d2b4](https://github.com/cincpro/prosody-js/commit/3f8d2b439b590e168d4615846a627342154482f7))
+* use JS to destructure setLogger ([#56](https://github.com/cincpro/prosody-js/issues/56)) ([f02bc80](https://github.com/cincpro/prosody-js/commit/f02bc809905d7d5df171dfdb48f72177c456fceb))
+
 ## [0.6.3](https://github.com/cincpro/prosody-js/compare/v0.6.2...v0.6.3) (2025-04-11)
 
 
