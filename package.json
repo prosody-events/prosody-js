@@ -47,8 +47,8 @@
   },
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --js bindings.js --dts bindings.d.ts --platform --release",
-    "build:debug": "napi build --js bindings.js --dts bindings.d.ts --platform",
+    "build": "napi build --js bindings.js --dts bindings.d.ts --platform --no-const-enum --release",
+    "build:debug": "napi build --js bindings.js --dts bindings.d.ts --platform --no-const-enum",
     "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
     "test": "yarn run jest",
     "universal": "napi universal",
