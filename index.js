@@ -10,7 +10,7 @@ const {
   ConsumerState,
   Context,
   initialize,
-  setLogger,
+  setLogger: setLoggerInternal,
 } = require("./bindings");
 
 const defaultLogger = {
@@ -22,6 +22,22 @@ const defaultLogger = {
 };
 
 initialize(defaultLogger);
+
+/**
+ * Sets a new JavaScript logger.
+ *
+ * @param logger - The new JavaScript logger to set.
+ * @throws Error if creating the new JavaScript logger fails.
+ */
+function setLogger(logger) {
+  setLoggerInternal({
+    info: (msg, meta) => logger.info(msg, meta),
+    error: (msg, meta) => logger.error(msg, meta),
+    debug: (msg, meta) => logger.debug(msg, meta),
+    warn: (msg, meta) => logger.warn(msg, meta),
+    trace: (msg, meta) => logger.trace(msg, meta),
+  });
+}
 
 class ProsodyClient {
   constructor(config) {
