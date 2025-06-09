@@ -10,9 +10,21 @@ const { AdminClient } = require("../bindings.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { trace } = require("@opentelemetry/api");
 const { Mode } = require("../index");
+const opentelemetry = require("@opentelemetry/api");
+const { NodeSDK } = require("@opentelemetry/sdk-node");
+const {
+  OTLPTraceExporter,
+} = require("@opentelemetry/exporter-trace-otlp-http");
 
-// OpenTelemetry SDK setup
-const provider = new NodeTracerProvider();
+const sdk = new NodeSDK({
+  traceExporter: new OTLPTraceExporter(),
+  serviceName: "prosody-js-test",
+});
+
+sdk.start();
+
+// Creates a tracer from the global tracer provider
+const tracer = opentelemetry.trace.getTracer("prosody-js-test");
 
 // Constants
 const MESSAGE_TIMEOUT = 5000;
@@ -87,6 +99,7 @@ describe("ProsodyClient", () => {
   });
 
   afterEach(async () => {
+    await new Promise((r) => setTimeout(r, 20000));
     if (client.consumerState === ConsumerState.Running) {
       await client.unsubscribe();
       await admin.deleteTopic(topic);
