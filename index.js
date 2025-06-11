@@ -71,7 +71,7 @@ class ProsodyClient {
 
   subscribe(eventHandler) {
     const tracer = trace.getTracer("prosody");
-    const { onMessage } = eventHandler;
+    const { onMessage, onTimer } = eventHandler;
 
     this.nativeClient.subscribe({
       isPermanent: (err) => {
@@ -106,6 +106,39 @@ class ProsodyClient {
 
             // process message
             await onMessage(context, message, controller.signal);
+          } catch (error) {
+            span.recordException(error);
+            throw error;
+          } finally {
+            span.end();
+          }
+        });
+      },
+
+      onTimer: async (err, context, timer, carrier) => {
+        if (err) throw err;
+
+        // Create a new context from the record
+        const ctx = propagation.extract(otelContext.active(), carrier);
+        await otelContext.with(ctx, async () => {
+          const span = tracer.startSpan("javascript-timer");
+          try {
+            // register an abort controller to signal partition shutdown
+            const controller = new AbortController();
+
+            // signal abort controller on shutdown
+            context
+              .onShutdown()
+              .then(() => {
+                controller.abort("partition revoked");
+                span.setAttribute("aborted", true);
+              })
+              .catch((error) => {
+                span.recordException(error);
+              });
+
+            // process timer
+            await onTimer(context, timer, controller.signal);
           } catch (error) {
             span.recordException(error);
             throw error;

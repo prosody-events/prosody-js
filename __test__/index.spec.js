@@ -99,7 +99,6 @@ describe("ProsodyClient", () => {
   });
 
   afterEach(async () => {
-    await new Promise((r) => setTimeout(r, 20000));
     if (client.consumerState === ConsumerState.Running) {
       await client.unsubscribe();
       await admin.deleteTopic(topic);

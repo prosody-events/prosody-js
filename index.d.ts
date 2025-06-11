@@ -5,6 +5,7 @@ import type {
   Logger,
   Message,
   Mode,
+  Timer,
 } from "./bindings";
 
 export { Configuration, ConsumerState, Context, Logger, Message, Mode };
@@ -21,6 +22,20 @@ export interface EventHandler {
   onMessage: (
     context: Context,
     message: Message,
+    signal: AbortSignal,
+  ) => Promise<void>;
+
+  /**
+   * Callback function to handle timers.
+   *
+   * @param context - The context of the message processing.
+   * @param timer - The triggered timer.
+   * @param signal - An AbortSignal that can be used to cancel the message processing.
+   * @returns A promise that resolves when the timer has been processed.
+   */
+  onTimer: (
+    context: Context,
+    message: Timer,
     signal: AbortSignal,
   ) => Promise<void>;
 }
