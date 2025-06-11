@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/cincpro/prosody-js/compare/v0.6.4...v0.7.0) (2025-06-11)
+
+
+### Features
+
+* timers (non-persistent only) ([#57](https://github.com/cincpro/prosody-js/issues/57)) ([a882253](https://github.com/cincpro/prosody-js/commit/a882253a4c7565a7869cfd4da196a8dcbe90d9da))
+
 ## [0.6.4](https://github.com/cincpro/prosody-js/compare/v0.6.3...v0.6.4) (2025-04-18)
 
 
