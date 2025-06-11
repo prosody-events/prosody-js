@@ -82,7 +82,8 @@ jobs:
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: |-
-              set -e &&
+              rustup update stable &&
+              rustup default stable &&
               rustup target add aarch64-unknown-linux-musl &&
               yarn build --target aarch64-unknown-linux-musl
           - host: windows-latest
@@ -146,7 +147,7 @@ jobs:
             -v ${{ github.workspace }}:/build \
             -w /build \
             ${{ matrix.settings.docker }} \
-            sh -c "${{ matrix.settings.build }}"
+            sh -c "rustup update stable && rustup default stable && ${{ matrix.settings.build }}"
       - name: Build
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
