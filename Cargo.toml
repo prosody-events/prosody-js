@@ -18,6 +18,7 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
+futures = "0.3"
 napi = { version = "2.16", default-features = false, features = [
     "chrono_date",
     "napi4",
@@ -26,7 +27,7 @@ napi = { version = "2.16", default-features = false, features = [
 ] }
 napi-derive = "2.16"
 opentelemetry = "0.28"
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "79da6bf9b42ce00577fc5c4f800bb0c80d18bfae" } # replace once we have a package manager
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "0940ba716cb5a7a7e6bf25ea7b0de7cc09932d50" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.41"

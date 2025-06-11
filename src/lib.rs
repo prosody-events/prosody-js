@@ -24,3 +24,6 @@ mod logging;
 
 /// Module dealing with message-related functionality and structures.
 mod message;
+
+/// Module dealing with timer-related functionality and structures.
+mod timer;
