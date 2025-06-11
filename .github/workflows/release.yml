@@ -16,29 +16,29 @@ permissions:
 
 on:
   push:
-    branches:
-      - main
+#    branches:
+#      - main
 
 jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-22.04
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Release Please Action
-        id: release
-        uses: google-github-actions/release-please-action@v3
-        with:
-          release-type: node
-          package-name: prosody
-          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+  #  release-please:
+  #    name: Release Please
+  #    runs-on: ubuntu-latest
+  #    outputs:
+  #      release_created: ${{ steps.release.outputs.release_created }}
+  #      tag_name: ${{ steps.release.outputs.tag_name }}
+  #    steps:
+  #      - uses: actions/checkout@v4
+  #      - name: Release Please Action
+  #        id: release
+  #        uses: google-github-actions/release-please-action@v3
+  #        with:
+  #          release-type: node
+  #          package-name: prosody
+  #          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    #    needs: release-please
+    #    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -49,27 +49,42 @@ jobs:
           - host: windows-latest
             build: yarn build --target x86_64-pc-windows-msvc
             target: x86_64-pc-windows-msvc
-          - host: ubuntu-22.04
+          - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: yarn build --target x86_64-unknown-linux-gnu
-          - host: ubuntu-22.04
+          - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build: yarn build --target x86_64-unknown-linux-musl --zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
-          - host: ubuntu-22.04
+          - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            build: yarn build --target aarch64-unknown-linux-gnu --zig
-          - host: ubuntu-22.04
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            build: yarn build --target aarch64-unknown-linux-gnu
+          - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            build: yarn build --target armv7-unknown-linux-gnueabihf
-          - host: ubuntu-22.04
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-arm-linux-gnueabihf -y
+            build: |
+              yarn build --target armv7-unknown-linux-gnueabihf
+          - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
-            build: yarn build --target armv7-unknown-linux-musleabihf
-          - host: ubuntu-22.04
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-arm-linux-gnueabihf -y
+            build: |
+              yarn build --target armv7-unknown-linux-musleabihf
+          - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build: yarn build --target aarch64-unknown-linux-musl --zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            build: |-
+              set -e &&
+              rustup target add aarch64-unknown-linux-musl &&
+              yarn build --target aarch64-unknown-linux-musl
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
@@ -82,14 +97,13 @@ jobs:
           credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
         uses: actions/setup-node@v4
+        if: ${{ !matrix.settings.docker }}
         with:
           node-version: 20
           cache: yarn
-      - uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.13.0
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
@@ -103,6 +117,10 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup toolchain
+        run: ${{ matrix.settings.setup }}
+        if: ${{ matrix.settings.setup }}
+        shell: bash
       - name: Setup node x86
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         run: yarn config set supportedArchitectures.cpu "ia32"
@@ -116,8 +134,16 @@ jobs:
           node-version: 20
           cache: yarn
           architecture: x86
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
+          run: ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
+        if: ${{ !matrix.settings.docker }}
         shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -129,6 +155,48 @@ jobs:
             bindings.d.ts
           if-no-files-found: error
 
+  test-macOS-windows-binding:
+    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            architecture: x64
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            architecture: arm64
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            architecture: x64
+        node:
+          - '18'
+          - '20'
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+          architecture: ${{ matrix.settings.architecture }}
+      - name: Install dependencies
+        run: yarn install
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: .
+      - name: Test bindings
+        run: yarn test
+
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs:
@@ -139,7 +207,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -186,7 +254,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -235,7 +303,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -257,7 +325,7 @@ jobs:
         run: docker network create kafka-test-network
       - name: Start Kafka container
         run: |
-          docker run -d --name kafka --network kafka-test-network \
+          docker run -d --name kafka --network kafka-test-network --platform linux/arm64 \
             -e KAFKA_CFG_NODE_ID=0 \
             -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
             -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
@@ -267,19 +335,25 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-      - name: Setup and run tests
+      - name: Test bindings
         run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
+          docker run --rm --network kafka-test-network --platform linux/arm64 \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
+            -v $(pwd):/build -w /build \
             node:${{ matrix.node }}-slim \
-            sh -c "set -e && yarn test"
+            yarn test
 
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
       - build
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - '18'
+          - '20'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -301,7 +375,7 @@ jobs:
         run: docker network create kafka-test-network
       - name: Start Kafka container
         run: |
-          docker run -d --name kafka --network kafka-test-network \
+          docker run -d --name kafka --network kafka-test-network --platform linux/arm64 \
             -e KAFKA_CFG_NODE_ID=0 \
             -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
             -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
@@ -311,13 +385,13 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-      - name: Setup and run tests
+      - name: Test bindings
         run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
+          docker run --rm --network kafka-test-network --platform linux/arm64 \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:lts-alpine \
-            sh -c "set -e && yarn test"
+            -v $(pwd):/build -w /build \
+            node:${{ matrix.node }}-alpine \
+            yarn test
 
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
@@ -329,7 +403,7 @@ jobs:
         node:
           - '18'
           - '20'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -350,7 +424,7 @@ jobs:
         run: docker network create kafka-test-network
       - name: Start Kafka container
         run: |
-          docker run -d --name kafka --network kafka-test-network \
+          docker run -d --name kafka --network kafka-test-network --platform linux/arm/v7 \
             -e KAFKA_CFG_NODE_ID=0 \
             -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
             -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
@@ -360,13 +434,63 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
-      - name: Setup and run tests
+      - name: Test bindings
         run: |
-          docker run --rm --platform linux/arm/v7 --network kafka-test-network \
+          docker run --rm --network kafka-test-network --platform linux/arm/v7 \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v ${{ github.workspace }}:/build -w /build \
+            -v $(pwd):/build -w /build \
             node:${{ matrix.node }}-bullseye-slim \
-            sh -c "set -e && yarn test"
+            yarn test
+
+  test-linux-arm-musleabihf-binding:
+    name: Test bindings on armv7-unknown-linux-musleabihf - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - '18'
+          - '20'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-armv7-unknown-linux-musleabihf
+          path: .
+      - name: Install dependencies
+        run: |
+          yarn config set supportedArchitectures.cpu "arm"
+          yarn config set supportedArchitectures.libc "musl"
+          yarn install
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Create Docker network
+        run: docker network create kafka-test-network
+      - name: Start Kafka container
+        run: |
+          docker run -d --name kafka --network kafka-test-network --platform linux/arm/v7 \
+            -e KAFKA_CFG_NODE_ID=0 \
+            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
+            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
+            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
+            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+            docker.io/bitnami/kafka:3.7
+      - name: Test bindings
+        run: |
+          docker run --rm --network kafka-test-network --platform linux/arm/v7 \
+            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
+            -v $(pwd):/build -w /build \
+            node:${{ matrix.node }}-alpine \
+            yarn test
 
   universal-macOS:
     name: Build universal macOS binary
@@ -415,45 +539,47 @@ jobs:
             bindings.d.ts
           if-no-files-found: error
 
-  publish:
-    name: Publish
-    runs-on: ubuntu-22.04
-    needs:
-      - release-please
-      - build
-      - test-linux-x64-gnu-binding
-      - test-linux-x64-musl-binding
-      - test-linux-aarch64-gnu-binding
-      - test-linux-aarch64-musl-binding
-      - test-linux-arm-gnueabihf-binding
-      - universal-macOS
-    if: ${{ needs.release-please.outputs.release_created }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: 'https://npm.pkg.github.com'
-          cache: yarn
-          scope: '@cincpro'
-      - name: Install dependencies
-        run: yarn install
-      - name: Download bindings js and types
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-x86_64-unknown-linux-gnu
-          path: .
-          pattern: 'bindings.*'
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Move artifacts
-        run: yarn artifacts
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
-        run: |
-          npm config set provenance true
-          npm publish --access public
+#  publish:
+#    name: Publish
+#    runs-on: ubuntu-latest
+#    needs:
+#      - release-please
+#      - build
+#      - test-macOS-windows-binding
+#      - test-linux-x64-gnu-binding
+#      - test-linux-x64-musl-binding
+#      - test-linux-aarch64-gnu-binding
+#      - test-linux-aarch64-musl-binding
+#      - test-linux-arm-gnueabihf-binding
+#      - test-linux-arm-musleabihf-binding
+#      - universal-macOS
+#    #    if: ${{ needs.release-please.outputs.release_created }}
+#    steps:
+#      - uses: actions/checkout@v4
+#      - name: Setup node
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: 20
+#          registry-url: 'https://npm.pkg.github.com'
+#          cache: yarn
+#          scope: '@cincpro'
+#      - name: Install dependencies
+#        run: yarn install
+#      - name: Download bindings js and types
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: bindings-x86_64-unknown-linux-gnu
+#          path: .
+#          pattern: 'bindings.*'
+#      - name: Download all artifacts
+#        uses: actions/download-artifact@v4
+#        with:
+#          path: artifacts
+#      - name: Move artifacts
+#        run: yarn artifacts
+#      - name: Publish
+#        env:
+#          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
+#        run: |
+#          npm config set provenance true
+#          npm publish --access public
