@@ -138,20 +138,26 @@ jobs:
       - name: Build in docker
         if: ${{ matrix.settings.docker }}
         shell: bash
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
         run: |
           docker run --rm \
             --user 0:0 \
+            -v /home/runner/.config/git:/root/.config/git:ro \
             -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db \
             -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache \
             -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index \
             -v ${{ github.workspace }}:/build \
             -w /build \
+            -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
-            sh -c "rustup update stable && rustup default stable && ${{ matrix.settings.build }}"
+            sh -c "git config --global credential.helper 'store --file=/root/.config/git/credentials' && rustup update stable && rustup default stable && ${{ matrix.settings.build }}"
       - name: Build
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
         shell: bash
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
