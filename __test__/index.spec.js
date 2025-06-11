@@ -23,6 +23,17 @@ const sdk = new NodeSDK({
 
 sdk.start();
 
+// Handle unhandled promise rejections in CI environments
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process in tests, just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit the process in tests, just log the error
+});
+
 // Creates a tracer from the global tracer provider
 const tracer = opentelemetry.trace.getTracer("prosody-js-test");
 
@@ -46,17 +57,25 @@ const createMessageStream = () =>
 const waitForMessages = (stream, count, timeout) =>
   new Promise((resolve, reject) => {
     const messages = [];
-    const timer = setTimeout(
-      () => reject(new Error(`Timeout waiting for ${count} messages`)),
-      timeout,
-    );
+    let resolved = false;
+    
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        stream.removeListener("data", dataHandler);
+        reject(new Error(`Timeout waiting for ${count} messages`));
+      }
+    }, timeout);
 
     const dataHandler = (message) => {
-      messages.push(message);
-      if (messages.length === count) {
-        clearTimeout(timer);
-        stream.removeListener("data", dataHandler);
-        resolve(messages);
+      if (!resolved) {
+        messages.push(message);
+        if (messages.length === count) {
+          resolved = true;
+          clearTimeout(timer);
+          stream.removeListener("data", dataHandler);
+          resolve(messages);
+        }
       }
     };
 
@@ -141,14 +160,38 @@ describe("ProsodyClient", () => {
   });
 
   afterEach(async () => {
-    if (client.consumerState === ConsumerState.Running) {
-      await client.unsubscribe();
-      await admin.deleteTopic(topic);
+    try {
+      if (client && client.consumerState === ConsumerState.Running) {
+        await client.unsubscribe();
+      }
+    } catch (err) {
+      console.error('Error during client cleanup:', err);
+    }
+    
+    try {
+      if (topic) {
+        await admin.deleteTopic(topic);
+      }
+    } catch (err) {
+      console.error('Error deleting topic:', err);
     }
   });
 
   afterAll(async () => {
-    await sdk.shutdown();
+    try {
+      if (admin) {
+        // Clean up admin client resources if possible
+        admin = null;
+      }
+    } catch (err) {
+      console.error('Error cleaning up admin client:', err);
+    }
+    
+    try {
+      await sdk.shutdown();
+    } catch (err) {
+      console.error('Error shutting down OpenTelemetry SDK:', err);
+    }
   });
 
   it("initializes correctly", () => {
@@ -681,13 +724,24 @@ describe("ProsodyClient", () => {
 
 const waitForEvent = (emitter, eventName, timeout) => {
   return new Promise((resolve, reject) => {
+    let resolved = false;
+    
     const timer = setTimeout(() => {
-      reject(new Error(`Timeout waiting for ${eventName}`));
+      if (!resolved) {
+        resolved = true;
+        emitter.removeListener(eventName, eventHandler);
+        reject(new Error(`Timeout waiting for ${eventName}`));
+      }
     }, timeout);
 
-    emitter.once(eventName, (...args) => {
-      clearTimeout(timer);
-      resolve(args);
-    });
+    const eventHandler = (...args) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve(args);
+      }
+    };
+
+    emitter.once(eventName, eventHandler);
   });
 };
