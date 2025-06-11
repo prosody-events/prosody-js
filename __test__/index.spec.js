@@ -106,7 +106,7 @@ describe("ProsodyClient", () => {
   });
 
   afterAll(async () => {
-    await provider.shutdown();
+    await sdk.shutdown();
   });
 
   it("initializes correctly", () => {
