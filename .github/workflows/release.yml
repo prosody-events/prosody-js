@@ -118,26 +118,6 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        if: ${{ matrix.settings.docker }}
-        with:
-          path: /tmp/docker-cache
-          key: docker-${{ matrix.settings.docker }}-${{ hashFiles('**/Dockerfile', '**/package.json') }}
-          restore-keys: |
-            docker-${{ matrix.settings.docker }}-
-      - name: Load Docker image from cache
-        if: ${{ matrix.settings.docker }}
-        run: |
-          if [ -f /tmp/docker-cache/image.tar ]; then
-            docker load -i /tmp/docker-cache/image.tar
-          fi
-      - name: Pull and cache Docker image
-        if: ${{ matrix.settings.docker }}
-        run: |
-          docker pull ${{ matrix.settings.docker }}
-          mkdir -p /tmp/docker-cache
-          docker save ${{ matrix.settings.docker }} -o /tmp/docker-cache/image.tar
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
@@ -266,25 +246,6 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka.tar ]; then
-            docker load -i /tmp/docker-cache/kafka.tar
-          fi
-      - name: Pull and cache Kafka Docker image
-        run: |
-          docker pull docker.io/bitnami/kafka:3.7
-          docker pull node:${{ matrix.node }}-slim
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka.tar
-          docker save node:${{ matrix.node }}-slim -o /tmp/docker-cache/node.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -334,29 +295,6 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-musl
           path: .
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-alpine-${{ matrix.node }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-alpine-${{ matrix.node }}-
-            docker-kafka-bitnami-3.7-alpine-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka.tar ]; then
-            docker load -i /tmp/docker-cache/kafka.tar
-          fi
-          if [ -f /tmp/docker-cache/node-alpine.tar ]; then
-            docker load -i /tmp/docker-cache/node-alpine.tar
-          fi
-      - name: Pull and cache Docker images
-        run: |
-          docker pull docker.io/bitnami/kafka:3.7
-          docker pull node:${{ matrix.node }}-alpine
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka.tar
-          docker save node:${{ matrix.node }}-alpine -o /tmp/docker-cache/node-alpine.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -402,34 +340,11 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
           yarn install
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-arm64-${{ matrix.node }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-arm64-${{ matrix.node }}-
-            docker-kafka-bitnami-3.7-arm64-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka-arm64.tar ]; then
-            docker load -i /tmp/docker-cache/kafka-arm64.tar
-          fi
-          if [ -f /tmp/docker-cache/node-arm64.tar ]; then
-            docker load -i /tmp/docker-cache/node-arm64.tar
-          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Pull and cache Docker images
-        run: |
-          docker pull --platform linux/arm64 docker.io/bitnami/kafka:3.7
-          docker pull --platform linux/arm64 node:${{ matrix.node }}-slim
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka-arm64.tar
-          docker save node:${{ matrix.node }}-slim -o /tmp/docker-cache/node-arm64.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -475,34 +390,11 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "musl"
           yarn install
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-arm64-alpine-${{ matrix.node }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-arm64-alpine-${{ matrix.node }}-
-            docker-kafka-bitnami-3.7-arm64-alpine-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka-arm64.tar ]; then
-            docker load -i /tmp/docker-cache/kafka-arm64.tar
-          fi
-          if [ -f /tmp/docker-cache/node-arm64-alpine.tar ]; then
-            docker load -i /tmp/docker-cache/node-arm64-alpine.tar
-          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Pull and cache Docker images
-        run: |
-          docker pull --platform linux/arm64 docker.io/bitnami/kafka:3.7
-          docker pull --platform linux/arm64 node:${{ matrix.node }}-alpine
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka-arm64.tar
-          docker save node:${{ matrix.node }}-alpine -o /tmp/docker-cache/node-arm64-alpine.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -547,34 +439,11 @@ jobs:
         run: |
           yarn config set supportedArchitectures.cpu "arm"
           yarn install
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-armv7-${{ matrix.node }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-armv7-${{ matrix.node }}-
-            docker-kafka-bitnami-3.7-armv7-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka-armv7.tar ]; then
-            docker load -i /tmp/docker-cache/kafka-armv7.tar
-          fi
-          if [ -f /tmp/docker-cache/node-armv7.tar ]; then
-            docker load -i /tmp/docker-cache/node-armv7.tar
-          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Pull and cache Docker images
-        run: |
-          docker pull --platform linux/arm/v7 docker.io/bitnami/kafka:3.7
-          docker pull --platform linux/arm/v7 node:${{ matrix.node }}-bullseye-slim
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka-armv7.tar
-          docker save node:${{ matrix.node }}-bullseye-slim -o /tmp/docker-cache/node-armv7.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
@@ -620,34 +489,11 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm"
           yarn config set supportedArchitectures.libc "musl"
           yarn install
-      - name: Cache Docker images
-        uses: actions/cache@v4
-        with:
-          path: /tmp/docker-cache
-          key: docker-kafka-bitnami-3.7-armv7-alpine-${{ matrix.node }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            docker-kafka-bitnami-3.7-armv7-alpine-${{ matrix.node }}-
-            docker-kafka-bitnami-3.7-armv7-alpine-
-      - name: Load Docker image from cache
-        run: |
-          if [ -f /tmp/docker-cache/kafka-armv7.tar ]; then
-            docker load -i /tmp/docker-cache/kafka-armv7.tar
-          fi
-          if [ -f /tmp/docker-cache/node-armv7-alpine.tar ]; then
-            docker load -i /tmp/docker-cache/node-armv7-alpine.tar
-          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Pull and cache Docker images
-        run: |
-          docker pull --platform linux/arm/v7 docker.io/bitnami/kafka:3.7
-          docker pull --platform linux/arm/v7 node:${{ matrix.node }}-alpine
-          mkdir -p /tmp/docker-cache
-          docker save docker.io/bitnami/kafka:3.7 -o /tmp/docker-cache/kafka-armv7.tar
-          docker save node:${{ matrix.node }}-alpine -o /tmp/docker-cache/node-armv7-alpine.tar
       - name: Create Docker network
         run: docker network create kafka-test-network
       - name: Start Kafka container
