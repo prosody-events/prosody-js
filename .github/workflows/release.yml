@@ -166,8 +166,11 @@ jobs:
                   nodejs \
                   npm \
                   pkg-config \
-                  software-properties-common \
-                  zlib1g-dev
+                  wget \
+                  zlib1g-dev &&
+                wget -O /usr/local/share/ca-certificates/mozilla.crt https://curl.se/ca/cacert.pem &&
+                chmod 644 /usr/local/share/ca-certificates/mozilla.crt &&
+                update-ca-certificates
               else
                 # manylinux builds
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
