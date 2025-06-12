@@ -168,7 +168,7 @@ jobs:
                   pkg-config \
                   wget \
                   zlib1g-dev &&
-                wget -O /usr/local/share/ca-certificates/mozilla.crt https://curl.se/ca/cacert.pem &&
+                wget --no-check-certificate -O /usr/local/share/ca-certificates/mozilla.crt https://curl.se/ca/cacert.pem &&
                 chmod 644 /usr/local/share/ca-certificates/mozilla.crt &&
                 update-ca-certificates
               else
