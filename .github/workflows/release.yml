@@ -58,11 +58,6 @@ jobs:
             docker: quay.io/pypa/manylinux_2_28_x86_64
             build: yarn build --target x86_64-unknown-linux-gnu
             qemuPlatform: ""
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            docker: node:20-alpine
-            build: yarn build --target x86_64-unknown-linux-musl
-            qemuPlatform: ""
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
@@ -74,19 +69,9 @@ jobs:
             build: yarn build --target aarch64-unknown-linux-gnu
             qemuPlatform: linux/arm64
           - host: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            docker: node:20-alpine
-            build: yarn build --target aarch64-unknown-linux-musl
-            qemuPlatform: linux/arm64
-          - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             docker: quay.io/pypa/manylinux_2_31_armv7l
             build: yarn build --target armv7-unknown-linux-gnueabihf
-            qemuPlatform: linux/arm/v7
-          - host: ubuntu-latest
-            target: armv7-unknown-linux-musleabihf
-            docker: node:20-alpine
-            build: yarn build --target armv7-unknown-linux-musleabihf
             qemuPlatform: linux/arm/v7
           - host: windows-latest
             target: aarch64-pc-windows-msvc
@@ -166,22 +151,7 @@ jobs:
             ${{ matrix.settings.docker }} \
             sh -c "
               # Install Node.js 20 and Yarn
-              if command -v apk >/dev/null 2>&1; then
-                # Alpine-based musllinux
-                apk add --no-cache \
-                  curl \
-                  alpine-sdk \
-                  git \
-                  cmake \
-                  openssl-dev \
-                  cyrus-sasl-dev \
-                  zlib-dev \
-                  lz4-dev \
-                  zstd-dev \
-                  build-base \
-                  pkgconfig \
-                  linux-headers
-              elif command -v apt-get >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
                 # Ubuntu-based manylinux_2_31
                 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
                 apt-get update &&
@@ -332,55 +302,6 @@ jobs:
             node:${{ matrix.node }}-slim \
             yarn test
 
-  test-linux-x64-musl-binding:
-    name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "18"
-          - "20"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: yarn
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.libc "musl"
-          yarn install
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-x86_64-unknown-linux-musl
-          path: .
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-alpine \
-            yarn test
-
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
     needs:
@@ -431,56 +352,6 @@ jobs:
             node:${{ matrix.node }}-slim \
             yarn test
 
-  test-linux-aarch64-musl-binding:
-    name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "18"
-          - "20"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-unknown-linux-musl
-          path: .
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm64"
-          yarn config set supportedArchitectures.libc "musl"
-          yarn install
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network --platform linux/arm64 \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network --platform linux/arm64 \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-alpine \
-            yarn test
-
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
     needs:
@@ -528,56 +399,6 @@ jobs:
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -v $(pwd):/build -w /build \
             node:${{ matrix.node }}-bullseye-slim \
-            yarn test
-
-  test-linux-arm-musleabihf-binding:
-    name: Test bindings on armv7-unknown-linux-musleabihf - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "18"
-          - "20"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-armv7-unknown-linux-musleabihf
-          path: .
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm"
-          yarn config set supportedArchitectures.libc "musl"
-          yarn install
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network --platform linux/arm/v7 \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network --platform linux/arm/v7 \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-alpine \
             yarn test
 
   universal-macOS:
@@ -634,11 +455,8 @@ jobs:
 #      - build
 #      - test-macOS-windows-binding
 #      - test-linux-x64-gnu-binding
-#      - test-linux-x64-musl-binding
 #      - test-linux-aarch64-gnu-binding
-#      - test-linux-aarch64-musl-binding
 #      - test-linux-arm-gnueabihf-binding
-#      - test-linux-arm-musleabihf-binding
 #      - universal-macOS
 #    #    if: ${{ needs.release-please.outputs.release_created }}
 #    steps:
