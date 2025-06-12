@@ -70,7 +70,7 @@ jobs:
             qemuPlatform: linux/arm64
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            docker: quay.io/pypa/manylinux_2_31_armv7l
+            docker: ubuntu:20.04
             build: yarn build --target armv7-unknown-linux-gnueabihf
             qemuPlatform: linux/arm/v7
           - host: windows-latest
@@ -152,7 +152,7 @@ jobs:
             sh -c "
               # Install Node.js 20 and Yarn
               if command -v apt-get >/dev/null 2>&1; then
-                # Ubuntu-based manylinux_2_31
+                # Ubuntu-based ARM builds
                 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
                 apt-get update &&
                 apt-get install -y \
@@ -166,12 +166,9 @@ jobs:
                   pkg-config \
                   software-properties-common \
                   zlib1g-dev &&
-                add-apt-repository ppa:git-core/ppa &&
-                apt-get update &&
-                apt-get install -y git &&
                 npm install -g yarn
               else
-                # CentOS/RHEL-based manylinux_2_28
+                # manylinux builds
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
                 yum install -y \
                   cmake3 \
