@@ -221,7 +221,6 @@ jobs:
               curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
               export PATH=\"/root/.cargo/bin:$PATH\" &&
               rustup install stable &&
-              . "$HOME/.cargo/env" &&
               rustup target add ${{ matrix.settings.target }} &&
 
               # Install dependencies and build
