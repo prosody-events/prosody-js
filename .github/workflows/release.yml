@@ -175,6 +175,7 @@ jobs:
               if command -v apk >/dev/null 2>&1; then
                 # Alpine-based musllinux
                 apk add --no-cache \
+                  curl \
                   alpine-sdk \
                   git \
                   nodejs \
