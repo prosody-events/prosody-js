@@ -1547,7 +1547,7 @@ __metadata:
     "@babel/preset-env": "npm:^7"
     "@napi-rs/cli": "npm:^2"
     "@opentelemetry/api": "npm:^1"
-    "@opentelemetry/auto-instrumentations-node": "npm:^0.57.1"
+    "@opentelemetry/auto-instrumentations-node": "npm:^0.57"
     "@opentelemetry/core": "npm:^2"
     "@opentelemetry/sdk-metrics": "npm:^2"
     "@opentelemetry/sdk-node": "npm:^0.200"
@@ -1942,7 +1942,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/auto-instrumentations-node@npm:^0.57.1":
+"@opentelemetry/auto-instrumentations-node@npm:^0.57":
   version: 0.57.1
   resolution: "@opentelemetry/auto-instrumentations-node@npm:0.57.1"
   dependencies:

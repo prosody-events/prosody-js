@@ -55,18 +55,18 @@ jobs:
             build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            docker: quay.io/pypa/musllinux_1_2_x86_64
+            docker: alpine:3.13
             build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
-          - host: ubuntu-latest
+          - host: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             docker: quay.io/pypa/manylinux_2_28_aarch64
             build: yarn build --target aarch64-unknown-linux-gnu
-          - host: ubuntu-latest
+          - host: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
-            docker: quay.io/pypa/musllinux_1_2_aarch64
+            docker: alpine:3.13
             build: yarn build --target aarch64-unknown-linux-musl
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
@@ -74,7 +74,7 @@ jobs:
             build: yarn build --target armv7-unknown-linux-gnueabihf
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
-            docker: quay.io/pypa/musllinux_1_2_armv7l
+            docker: alpine:3.13
             build: yarn build --target armv7-unknown-linux-musleabihf
           - host: windows-latest
             target: aarch64-pc-windows-msvc
