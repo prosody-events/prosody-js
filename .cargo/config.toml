@@ -7,6 +7,3 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 [env]
 CMAKE_POLICY_VERSION_MINIMUM = { value = "3.5", force = true }
-
-[net]
-git-fetch-with-cli = true

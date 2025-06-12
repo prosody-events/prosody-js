@@ -148,6 +148,7 @@ jobs:
             -v ${{ github.workspace }}:/build \
             -w /build \
             -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
+            -e DEBIAN_FRONTEND=noninteractive \
             ${{ matrix.settings.docker }} \
             sh -c "
               # Install Node.js 20 and Yarn
