@@ -27,20 +27,21 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0"
+    "@opentelemetry/api": "^1",
+    "@opentelemetry/core": "^2"
   },
   "devDependencies": {
-    "@babel/core": "^7.26.10",
-    "@babel/plugin-proposal-decorators": "^7.25.9",
-    "@babel/preset-env": "^7.26.9",
-    "@napi-rs/cli": "^2.18.4",
+    "@babel/core": "^7",
+    "@babel/plugin-proposal-decorators": "^7",
+    "@babel/preset-env": "^7",
+    "@napi-rs/cli": "^2",
     "@opentelemetry/auto-instrumentations-node": "^0.57.1",
-    "@opentelemetry/sdk-metrics": "^2.0.0",
-    "@opentelemetry/sdk-node": "^0.200.0",
-    "@opentelemetry/sdk-trace-base": "^2.0.0",
-    "@opentelemetry/sdk-trace-node": "^2.0.0",
-    "jest": "^29.7.0",
-    "prettier": "^3.5.3"
+    "@opentelemetry/sdk-metrics": "^2",
+    "@opentelemetry/sdk-node": "^0.200",
+    "@opentelemetry/sdk-trace-base": "^2",
+    "@opentelemetry/sdk-trace-node": "^2",
+    "jest": "^29",
+    "prettier": "^3"
   },
   "engines": {
     "node": ">= 10"
