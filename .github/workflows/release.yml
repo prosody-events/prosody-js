@@ -60,7 +60,7 @@ jobs:
             qemuPlatform: ""
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            docker: alpine:3.13
+            docker: node:20-alpine3.18
             build: yarn build --target x86_64-unknown-linux-musl
             qemuPlatform: ""
           - host: macos-latest
@@ -75,7 +75,7 @@ jobs:
             qemuPlatform: linux/arm64
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            docker: alpine:3.13
+            docker: node:20-alpine3.18
             build: yarn build --target aarch64-unknown-linux-musl
             qemuPlatform: linux/arm64
           - host: ubuntu-latest
@@ -85,7 +85,7 @@ jobs:
             qemuPlatform: linux/arm/v7
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
-            docker: alpine:3.13
+            docker: node:20-alpine3.18
             build: yarn build --target armv7-unknown-linux-musleabihf
             qemuPlatform: linux/arm/v7
           - host: windows-latest
@@ -172,8 +172,6 @@ jobs:
                   curl \
                   alpine-sdk \
                   git \
-                  nodejs \
-                  npm \
                   cmake \
                   openssl-dev \
                   cyrus-sasl-dev \
