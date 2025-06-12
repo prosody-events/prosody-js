@@ -3,7 +3,7 @@ name: CI
 env:
   DEBUG: napi:*
   APP_NAME: prosody
-  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
@@ -51,41 +51,31 @@ jobs:
             target: x86_64-pc-windows-msvc
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            docker: quay.io/pypa/manylinux_2_28_x86_64
             build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            docker: quay.io/pypa/musllinux_1_2_x86_64
             build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            docker: quay.io/pypa/manylinux_2_28_aarch64
             build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            docker: quay.io/pypa/musllinux_1_2_aarch64
+            build: yarn build --target aarch64-unknown-linux-musl
+          - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            setup: |
-              sudo apt-get update
-              sudo apt-get install gcc-arm-linux-gnueabihf -y
-            build: |
-              yarn build --target armv7-unknown-linux-gnueabihf
+            docker: quay.io/pypa/manylinux_2_31_armv7l
+            build: yarn build --target armv7-unknown-linux-gnueabihf
           - host: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
-            setup: |
-              sudo apt-get update
-              sudo apt-get install gcc-arm-linux-gnueabihf -y
-            build: |
-              yarn build --target armv7-unknown-linux-musleabihf
-          - host: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: |-
-              rustup update stable &&
-              rustup default stable &&
-              rustup target add aarch64-unknown-linux-musl &&
-              yarn build --target aarch64-unknown-linux-musl
+            docker: quay.io/pypa/musllinux_1_2_armv7l
+            build: yarn build --target armv7-unknown-linux-musleabihf
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
@@ -128,6 +118,7 @@ jobs:
         shell: bash
       - name: Install dependencies
         run: yarn install
+        if: ${{ !matrix.settings.docker }}
       - name: Setup node x86
         uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
@@ -139,7 +130,7 @@ jobs:
         if: ${{ matrix.settings.docker }}
         shell: bash
         env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         run: |
           docker run --rm \
             --user 0:0 \
@@ -152,28 +143,63 @@ jobs:
             -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
             sh -c "
-              git config --global credential.helper 'store --file=/root/.config/git/credentials' && 
-              rustup update stable && 
-              rustup default stable && 
-              if command -v apt-get >/dev/null 2>&1; then
-                apt-get update && 
-                apt-get install -y \
-                  build-essential \
-                  cmake \
-                  pkg-config \
-                  zlib1g-dev \
-                  libc6-dev \
-                  libpthread-stubs0-dev
-              elif command -v apk >/dev/null 2>&1; then
+              # Setup git credentials
+              git config --global credential.helper 'store --file=/root/.config/git/credentials' &&
+
+              # Install Rust
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
+              export PATH=\"/root/.cargo/bin:\$PATH\" &&
+              rustup update stable &&
+              rustup default stable &&
+              rustup target add ${{ matrix.settings.target }} &&
+
+              # Install Node.js 20 and Yarn
+              if command -v apk >/dev/null 2>&1; then
+                # Alpine-based musllinux
                 apk add --no-cache \
-                  build-base \
+                  nodejs \
+                  npm \
                   cmake \
-                  pkgconfig \
+                  openssl-dev \
+                  cyrus-sasl-dev \
                   zlib-dev \
-                  musl-dev \
-                  libstdc++-dev \
-                  linux-headers
-              fi && 
+                  lz4-dev \
+                  zstd-dev \
+                  build-base \
+                  pkgconfig \
+                  linux-headers &&
+                npm install -g yarn
+              elif command -v apt-get >/dev/null 2>&1; then
+                # Ubuntu-based manylinux_2_31
+                curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
+                apt-get install -y nodejs &&
+                npm install -g yarn &&
+                apt-get update &&
+                apt-get install -y \
+                  cmake \
+                  libssl-dev \
+                  libsasl2-dev \
+                  zlib1g-dev \
+                  liblz4-dev \
+                  libzstd-dev \
+                  build-essential \
+                  pkg-config
+              else
+                # CentOS/RHEL-based manylinux_2_28
+                curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
+                yum install -y nodejs &&
+                npm install -g yarn &&
+                yum install -y \
+                  cmake3 \
+                  openssl-devel \
+                  cyrus-sasl-devel \
+                  zlib-devel \
+                  lz4-devel \
+                  libzstd-devel
+              fi &&
+
+              # Install dependencies and build
+              yarn install &&
               ${{ matrix.settings.build }}
             "
       - name: Build
@@ -181,7 +207,7 @@ jobs:
         if: ${{ !matrix.settings.docker }}
         shell: bash
         env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -200,21 +226,21 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
-            architecture: x64
-          - host: windows-latest
-            target: aarch64-pc-windows-msvc
-            architecture: arm64
-          - host: macos-latest
-            target: aarch64-apple-darwin
-            architecture: arm64
           - host: macos-latest
             target: x86_64-apple-darwin
             architecture: x64
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            architecture: x64
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            architecture: arm64
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -242,8 +268,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -289,8 +315,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -338,8 +364,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -388,8 +414,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -438,8 +464,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -487,8 +513,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -551,19 +577,19 @@ jobs:
         with:
           name: bindings-x86_64-apple-darwin
           path: artifacts
-          pattern: '*.node'
+          pattern: "*.node"
       - name: Download macOS arm64 artifact
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
           path: artifacts
-          pattern: '*.node'
+          pattern: "*.node"
       - name: Download bindings js and types
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
           path: .
-          pattern: 'bindings.*'
+          pattern: "bindings.*"
       - name: Combine binaries
         run: yarn universal
       - name: Upload artifact
@@ -575,7 +601,6 @@ jobs:
             bindings.js
             bindings.d.ts
           if-no-files-found: error
-
 #  publish:
 #    name: Publish
 #    runs-on: ubuntu-latest
