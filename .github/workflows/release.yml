@@ -164,10 +164,10 @@ jobs:
                   libssl-dev \
                   libzstd-dev \
                   nodejs \
+                  npm \
                   pkg-config \
                   software-properties-common \
-                  zlib1g-dev &&
-                npm install -g yarn
+                  zlib1g-dev
               else
                 # manylinux builds
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
@@ -178,9 +178,11 @@ jobs:
                   lz4-devel \
                   nodejs \
                   openssl-devel \
-                  zlib-devel &&
-                npm install -g yarn
+                  zlib-devel
               fi &&
+          
+              # Setup yarn
+              npm install -g yarn &&
           
               # Setup git credentials
               git config --global credential.helper 'store --file=/root/.config/git/credentials' &&
