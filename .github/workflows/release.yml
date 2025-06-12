@@ -180,13 +180,10 @@ jobs:
                   zstd-dev \
                   build-base \
                   pkgconfig \
-                  linux-headers &&
-                npm install -g yarn
+                  linux-headers
               elif command -v apt-get >/dev/null 2>&1; then
                 # Ubuntu-based manylinux_2_31
                 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - &&
-                apt-get install -y nodejs &&
-                npm install -g yarn &&
                 apt-get update &&
                 apt-get install -y \
                   build-essential \
@@ -195,25 +192,28 @@ jobs:
                   libsasl2-dev \
                   libssl-dev \
                   libzstd-dev \
+                  nodejs \
                   pkg-config \
                   software-properties-common \
                   zlib1g-dev &&
                 add-apt-repository ppa:git-core/ppa &&
                 apt-get update &&
-                apt-get install -y --only-upgrade git
+                apt-get install -y git
               else
                 # CentOS/RHEL-based manylinux_2_28
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
-                yum install -y nodejs &&
-                npm install -g yarn &&
                 yum install -y \
                   cmake3 \
-                  openssl-devel \
                   cyrus-sasl-devel \
-                  zlib-devel \
+                  libzstd-devel \
                   lz4-devel \
-                  libzstd-devel
+                  nodejs \
+                  openssl-devel \
+                  zlib-devel
               fi &&
+          
+              # Setup yarn
+              npm install -g yarn &&
           
               # Setup git credentials
               git config --global credential.helper 'store --file=/root/.config/git/credentials' &&
