@@ -165,12 +165,6 @@ jobs:
             -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
             ${{ matrix.settings.docker }} \
             sh -c "
-              # Install Rust
-              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
-              export PATH=\"/root/.cargo/bin:$PATH\" &&
-              rustup install stable &&
-              rustup target add ${{ matrix.settings.target }} &&
-
               # Install Node.js 20 and Yarn
               if command -v apk >/dev/null 2>&1; then
                 # Alpine-based musllinux
@@ -221,6 +215,12 @@ jobs:
           
               # Setup git credentials
               git config --global credential.helper 'store --file=/root/.config/git/credentials' &&
+          
+              # Install Rust
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
+              export PATH=\"/root/.cargo/bin:$PATH\" &&
+              rustup install stable &&
+              rustup target add ${{ matrix.settings.target }} &&
 
               # Install dependencies and build
               yarn install &&
