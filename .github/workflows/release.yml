@@ -198,7 +198,8 @@ jobs:
                   zlib1g-dev &&
                 add-apt-repository ppa:git-core/ppa &&
                 apt-get update &&
-                apt-get install -y git
+                apt-get install -y git &&
+                npm install -g yarn
               else
                 # CentOS/RHEL-based manylinux_2_28
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
@@ -209,11 +210,9 @@ jobs:
                   lz4-devel \
                   nodejs \
                   openssl-devel \
-                  zlib-devel
+                  zlib-devel &&
+                npm install -g yarn
               fi &&
-          
-              # Setup yarn
-              npm install -g yarn &&
           
               # Setup git credentials
               git config --global credential.helper 'store --file=/root/.config/git/credentials' &&
@@ -222,6 +221,7 @@ jobs:
               curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
               export PATH=\"/root/.cargo/bin:$PATH\" &&
               rustup install stable &&
+              . "$HOME/.cargo/env" &&
               rustup target add ${{ matrix.settings.target }} &&
 
               # Install dependencies and build
