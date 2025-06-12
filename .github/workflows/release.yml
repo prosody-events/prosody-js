@@ -189,14 +189,18 @@ jobs:
                 npm install -g yarn &&
                 apt-get update &&
                 apt-get install -y \
-                  cmake \
-                  libssl-dev \
-                  libsasl2-dev \
-                  zlib1g-dev \
-                  liblz4-dev \
-                  libzstd-dev \
                   build-essential \
-                  pkg-config
+                  cmake \
+                  liblz4-dev \
+                  libsasl2-dev \
+                  libssl-dev \
+                  libzstd-dev \
+                  pkg-config \
+                  software-properties-common \
+                  zlib1g-dev &&
+                add-apt-repository ppa:git-core/ppa &&
+                apt-get update &&
+                apt-get install -y --only-upgrade git
               else
                 # CentOS/RHEL-based manylinux_2_28
                 curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - &&
