@@ -70,7 +70,7 @@ jobs:
             qemuPlatform: linux/arm64
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            docker: ubuntu:20.04
+            docker: ubuntu:22.04
             build: yarn build --target armv7-unknown-linux-gnueabihf
             qemuPlatform: linux/arm/v7
           - host: windows-latest
