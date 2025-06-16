@@ -19,7 +19,7 @@ export interface EventHandler {
    * @param signal - An AbortSignal that can be used to cancel the message processing.
    * @returns A promise that resolves when the message has been processed.
    */
-  onMessage: (
+  onMessage?: (
     context: Context,
     message: Message,
     signal: AbortSignal,
@@ -33,7 +33,7 @@ export interface EventHandler {
    * @param signal - An AbortSignal that can be used to cancel the message processing.
    * @returns A promise that resolves when the timer has been processed.
    */
-  onTimer: (
+  onTimer?: (
     context: Context,
     message: Timer,
     signal: AbortSignal,
