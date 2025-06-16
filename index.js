@@ -71,7 +71,38 @@ class ProsodyClient {
 
   subscribe(eventHandler) {
     const tracer = trace.getTracer("prosody");
-    const { onMessage, onTimer } = eventHandler;
+    const {
+      onMessage = (context, message, signal) => {
+        console.error(
+          "ProsodyClient: Received a message but no onMessage handler was " +
+            "provided in subscribe(). To handle messages, implement the onMessage " +
+            "method in your EventHandler:",
+          {
+            topic: message.topic,
+            partition: message.partition,
+            offset: message.offset,
+            key: message.key,
+            solution:
+              "Add onMessage: async (context, message, signal) => " +
+              "{ /* your logic here */ } to your subscribe() call",
+          },
+        );
+      },
+      onTimer = (context, timer, signal) => {
+        console.error(
+          "ProsodyClient: Received a timer event but no onTimer handler was " +
+            "provided in subscribe(). To handle timers, implement the onTimer " +
+            "method in your EventHandler:",
+          {
+            key: timer.key,
+            time: timer.time,
+            solution:
+              "Add onTimer: async (context, timer, signal) => " +
+              "{ /* your logic here */ } to your subscribe() call",
+          },
+        );
+      },
+    } = eventHandler;
 
     this.nativeClient.subscribe({
       isPermanent: (err) => {
