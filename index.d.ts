@@ -8,7 +8,7 @@ import type {
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Context, Logger, Message, Mode };
+export { Configuration, ConsumerState, Context, Logger, Message, Timer, Mode };
 
 export interface EventHandler {
   /**
