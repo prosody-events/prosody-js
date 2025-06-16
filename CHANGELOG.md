@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/cincpro/prosody-js/compare/v0.7.0...v0.7.1) (2025-06-16)
+
+
+### Bug Fixes
+
+* add timer export and make EventHandler methods optional ([#61](https://github.com/cincpro/prosody-js/issues/61)) ([6ab6254](https://github.com/cincpro/prosody-js/commit/6ab6254a7d25ae977f536fdfc535a760337dc14a))
+
 ## [0.7.0](https://github.com/cincpro/prosody-js/compare/v0.6.4...v0.7.0) (2025-06-11)
 
 
