@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/cincpro/prosody-js/compare/v1.0.0...v1.0.1) (2025-06-30)
+
+
+### Bug Fixes
+
+* remove Scylla TLS to improve build compatibility ([#67](https://github.com/cincpro/prosody-js/issues/67)) ([0089453](https://github.com/cincpro/prosody-js/commit/0089453dca35d51a7b5ef1a960011f103205c0e2))
+
 ## [1.0.0](https://github.com/cincpro/prosody-js/compare/v0.7.1...v1.0.0) (2025-06-30)
 
 
