@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/cincpro/prosody-js/compare/v0.7.1...v1.0.0) (2025-06-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **timers:** persistence ([#64](https://github.com/cincpro/prosody-js/issues/64))
+
+### Features
+
+* **timers:** persistence ([#64](https://github.com/cincpro/prosody-js/issues/64)) ([ee27ee9](https://github.com/cincpro/prosody-js/commit/ee27ee9d81e96d84b1b2f300e3898aa21cbbeda9))
+
 ## [0.7.1](https://github.com/cincpro/prosody-js/compare/v0.7.0...v0.7.1) (2025-06-16)
 
 
