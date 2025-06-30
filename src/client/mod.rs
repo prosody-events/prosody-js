@@ -1,9 +1,8 @@
 use crate::client::config::{
-  Configuration, build_consumer_config, build_failure_topic_config, build_producer_config,
-  build_retry_config,
+  Configuration, build_cassandra_config, build_consumer_config, build_failure_topic_config,
+  build_producer_config, build_retry_config,
 };
 use crate::handler::JsHandler;
-use crate::handler::NativeHandler;
 use napi::bindgen_prelude::Promise;
 use napi::{Error, Result, Status};
 use napi_derive::napi;
@@ -12,7 +11,6 @@ use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::ops::Deref;
 use tokio::select;
 use tracing::field::Empty;
 use tracing::{Instrument, info_span};
@@ -43,6 +41,7 @@ impl NativeClient {
     let consumer_config = build_consumer_config(&config);
     let retry_config = build_retry_config(&config);
     let failure_topic_config = build_failure_topic_config(&config);
+    let cassandra_config = build_cassandra_config(&config);
 
     let client = HighLevelClient::new(
       config.mode.unwrap_or_default().into(),
@@ -50,6 +49,7 @@ impl NativeClient {
       &consumer_config,
       &retry_config,
       &failure_topic_config,
+      &cassandra_config,
     )
     .map_err(|e| Error::from_reason(e.to_string()))?;
 
@@ -60,8 +60,9 @@ impl NativeClient {
    * Gets the current state of the consumer.
    */
   #[napi(getter, writable = false)]
-  pub fn consumer_state(&self) -> ConsumerState {
-    self.client.consumer_state().deref().into()
+  pub async fn consumer_state(&self) -> Result<ConsumerState> {
+    let state_view = self.client.consumer_state().await;
+    Ok((&*state_view).into())
   }
 
   /**
@@ -117,14 +118,19 @@ impl NativeClient {
    * @param eventHandler - The event handler to process received messages.
    * @throws Error if the subscription fails.
    */
-  #[allow(clippy::needless_pass_by_value)] // required by NAPI
-  #[napi(writable = false)]
-  pub fn subscribe(&self, event_handler: NativeHandler) -> Result<()> {
-    let handler = JsHandler::new(&event_handler, 8)?;
-
+  #[napi(
+    writable = false,
+    ts_args_type = "eventHandler: { \
+      onMessage: (err: null | Error, context: Context, message: Message, otelContext: Record<string, string>) => Promise<void>; \
+      onTimer: (err: null | Error, context: Context, message: Timer, otelContext: Record<string, string>) => Promise<void>; \
+      isPermanent: (err: Error) => boolean \
+    }"
+  )]
+  pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
     self
       .client
-      .subscribe(handler)
+      .subscribe(event_handler)
+      .await
       .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(())
@@ -136,8 +142,8 @@ impl NativeClient {
    * @return {number} The number of assigned partitions, or 0 if the consumer is not in the Running state
    */
   #[napi(getter, writable = false)]
-  pub fn assigned_partition_count(&self) -> u32 {
-    self.client.assigned_partition_count()
+  pub async fn assigned_partition_count(&self) -> Result<u32> {
+    Ok(self.client.assigned_partition_count().await)
   }
 
   /**
@@ -146,8 +152,8 @@ impl NativeClient {
    * @return {boolean} Whether the consumer is stalled, or false if the consumer is not in the Running state
    */
   #[napi(getter, writable = false)]
-  pub fn is_stalled(&self) -> bool {
-    self.client.is_stalled()
+  pub async fn is_stalled(&self) -> Result<bool> {
+    Ok(self.client.is_stalled().await)
   }
 
   /**
