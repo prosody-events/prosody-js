@@ -148,7 +148,9 @@ describe("ProsodyClient", () => {
           sourceSystem: SOURCE_NAME,
           subscribedTopics: topic,
           probePort: null,
-          mode: Mode.Pipeline,
+          mode: Mode.Pipeline,          
+          cassandraNodes: "localhost:9042",
+          cassandraKeyspace: "prosody_test",
         });
         break;
       } catch (err) {
@@ -161,7 +163,7 @@ describe("ProsodyClient", () => {
 
   afterEach(async () => {
     try {
-      if (client && client.consumerState === ConsumerState.Running) {
+      if (client && (await client.consumerState) === ConsumerState.Running) {
         await client.unsubscribe();
       }
     } catch (err) {
@@ -194,11 +196,11 @@ describe("ProsodyClient", () => {
     }
   });
 
-  it("initializes correctly", () => {
+  it("initializes correctly", async () => {
     return tracer.startActiveSpan("test.initialize", async (span) => {
       try {
         expect(client).toBeInstanceOf(ProsodyClient);
-        expect(client.consumerState).toBe(ConsumerState.Configured);
+        expect(await client.consumerState).toBe(ConsumerState.Configured);
       } finally {
         span.end();
       }
@@ -210,13 +212,13 @@ describe("ProsodyClient", () => {
       "test.subscribe_unsubscribe",
       async (span) => {
         try {
-          client.subscribe({
+          await client.subscribe({
             onMessage: (_, message) => messageStream.push(message),
           });
-          expect(client.consumerState).toBe(ConsumerState.Running);
+          expect(await client.consumerState).toBe(ConsumerState.Running);
 
           await client.unsubscribe();
-          expect(client.consumerState).toBe(ConsumerState.Configured);
+          expect(await client.consumerState).toBe(ConsumerState.Configured);
         } finally {
           span.end();
         }
@@ -227,7 +229,7 @@ describe("ProsodyClient", () => {
   it("sends and receives a message", async () => {
     return tracer.startActiveSpan("test.send_receive", async (span) => {
       try {
-        client.subscribe({
+        await client.subscribe({
           onMessage: (_, message) => messageStream.push(message),
         });
 
@@ -256,7 +258,7 @@ describe("ProsodyClient", () => {
   it("handles multiple messages with correct ordering", async () => {
     return tracer.startActiveSpan("test.multiple_messages", async (span) => {
       try {
-        client.subscribe({
+        await client.subscribe({
           onMessage: (_, message) => messageStream.push(message),
         });
 
@@ -327,7 +329,7 @@ describe("ProsodyClient", () => {
           const testEvents = new EventEmitter();
           let messageAborted = false;
 
-          client.subscribe({
+          await client.subscribe({
             onMessage: (context, message, signal) => {
               const result = new Promise((resolve) => {
                 signal.addEventListener(
@@ -356,7 +358,7 @@ describe("ProsodyClient", () => {
           await unsubscribePromise;
 
           expect(messageAborted).toBe(true);
-          expect(client.consumerState).toBe(ConsumerState.Configured);
+          expect(await client.consumerState).toBe(ConsumerState.Configured);
         } finally {
           span.end();
         }
@@ -376,7 +378,7 @@ describe("ProsodyClient", () => {
           payload: { content: "This message should be aborted" },
         };
 
-        client.subscribe({
+        await client.subscribe({
           onMessage: (_, message) => {
             messageReceived = true;
             testEvents.emit("messageReceived", message);
@@ -418,7 +420,7 @@ describe("ProsodyClient", () => {
           }
         }
 
-        client.subscribe(new TransientErrorHandler());
+        await client.subscribe(new TransientErrorHandler());
 
         await client.send(topic, "test-key", {
           content: "Trigger transient error",
@@ -446,7 +448,7 @@ describe("ProsodyClient", () => {
           }
         }
 
-        client.subscribe(new PermanentErrorHandler());
+        await client.subscribe(new PermanentErrorHandler());
 
         await client.send(topic, "test-key", {
           content: "Trigger permanent error",
@@ -476,7 +478,7 @@ describe("ProsodyClient", () => {
           testEvents.emit("timerScheduled", scheduledTime);
         });
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         const testMessage = await sendTestMessage();
 
         await waitForEvent(testEvents, "messageReceived", MESSAGE_TIMEOUT);
@@ -519,7 +521,7 @@ describe("ProsodyClient", () => {
           testEvents.emit("timerFired", { timer, timerCount });
         });
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         await waitForEvent(testEvents, "firstTimerScheduled", MESSAGE_TIMEOUT);
@@ -563,7 +565,7 @@ describe("ProsodyClient", () => {
           testEvents.emit("timerFired", { timer, timerCount });
         });
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         await waitForEvent(testEvents, "timersScheduled", MESSAGE_TIMEOUT);
@@ -609,7 +611,7 @@ describe("ProsodyClient", () => {
           testEvents.emit("timerFired");
         });
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         await waitForEvent(testEvents, "timersScheduled", MESSAGE_TIMEOUT);
@@ -648,7 +650,7 @@ describe("ProsodyClient", () => {
           testEvents.emit("scheduledRetrieved", { scheduledTimes, expectedTimes: [time1, time2, time3] });
         });
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         const [retrievalResult] = await waitForEvent(testEvents, "scheduledRetrieved", MESSAGE_TIMEOUT);
@@ -700,7 +702,7 @@ describe("ProsodyClient", () => {
           }
         }
 
-        client.subscribe(new TimerHandler());
+        await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         const [retrievalResult] = await waitForEvent(testEvents, "scheduledRetrieved", MESSAGE_TIMEOUT);

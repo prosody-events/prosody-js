@@ -6,6 +6,7 @@ use prosody::consumer::failure::retry::RetryConfigurationBuilder;
 use prosody::consumer::failure::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
+use prosody::timers::store::cassandra::CassandraConfigurationBuilder;
 use std::time::Duration;
 
 /**
@@ -76,6 +77,27 @@ pub struct Configuration {
 
   /// Port for the probe server. Set to null to disable.
   pub probe_port: Option<Either<u16, Null>>,
+
+  /// Cassandra contact nodes (hostnames or IPs).
+  pub cassandra_nodes: Option<Either<String, Vec<String>>>,
+
+  /// Cassandra keyspace to use for storing timer data.
+  pub cassandra_keyspace: Option<String>,
+
+  /// Preferred Cassandra datacenter for query routing.
+  pub cassandra_datacenter: Option<String>,
+
+  /// Preferred Cassandra rack identifier for topology-aware routing.
+  pub cassandra_rack: Option<String>,
+
+  /// Username for authenticating with Cassandra.
+  pub cassandra_user: Option<String>,
+
+  /// Password for authenticating with Cassandra.
+  pub cassandra_password: Option<String>,
+
+  /// Retention period for failed/unprocessed timer data in Cassandra in seconds.
+  pub cassandra_retention_seconds: Option<u32>,
 }
 
 /**
@@ -249,6 +271,49 @@ pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigu
 
   if let Some(topic) = &config.failure_topic {
     builder.failure_topic(topic);
+  }
+
+  builder
+}
+
+/// Builds a `CassandraConfigurationBuilder` from the given Configuration.
+///
+/// # Arguments
+///
+/// * `config` - The Configuration to build from.
+///
+/// # Returns
+///
+/// A `CassandraConfigurationBuilder` with the specified configuration options.
+pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationBuilder {
+  let mut builder = CassandraConfigurationBuilder::default();
+
+  if let Some(nodes) = &config.cassandra_nodes {
+    builder.nodes(parse_string_or_vec(nodes));
+  }
+
+  if let Some(keyspace) = &config.cassandra_keyspace {
+    builder.keyspace(keyspace);
+  }
+
+  if let Some(datacenter) = &config.cassandra_datacenter {
+    builder.datacenter(Some(datacenter.clone()));
+  }
+
+  if let Some(rack) = &config.cassandra_rack {
+    builder.rack(Some(rack.clone()));
+  }
+
+  if let Some(user) = &config.cassandra_user {
+    builder.user(Some(user.clone()));
+  }
+
+  if let Some(password) = &config.cassandra_password {
+    builder.password(Some(password.clone()));
+  }
+
+  if let Some(retention_seconds) = config.cassandra_retention_seconds {
+    builder.retention(Duration::from_secs(u64::from(retention_seconds)));
   }
 
   builder

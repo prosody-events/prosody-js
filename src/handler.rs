@@ -3,10 +3,10 @@
 use crate::context::Context;
 use crate::message::Message;
 use crate::timer::Timer;
-use napi::bindgen_prelude::{Either3, Promise};
+use napi::bindgen_prelude::{Either3, FromNapiValue, Promise};
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext};
-use napi::{Error, JsFunction};
+use napi::{Error, JsFunction, JsObject};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::consumer::event_context::EventContext;
@@ -111,6 +111,38 @@ impl JsHandler {
         JsHandlerError::Js(error)
       },
     )
+  }
+}
+
+impl FromNapiValue for JsHandler {
+  // SAFETY: This implementation is safe because:
+  // 1. We validate the input by calling JsObject::from_napi_value, which performs proper type checking
+  //    and will return an error if the napi_value is not a valid JavaScript object
+  // 2. The napi_env and napi_value parameters are guaranteed to be valid by the N-API runtime when
+  //    this method is called through the NAPI-RS framework
+  // 3. We only access object properties using safe NAPI-RS methods (get_named_property) which
+  //    validate property existence and types
+  // 4. The conversion to NativeHandler is temporary and only used to create the thread-safe JsHandler
+  // 5. All JavaScript function references are immediately converted to ThreadsafeFunction objects
+  //    which are safe to use across threads
+  // 6. No raw pointers or memory are directly manipulated - all operations go through validated NAPI-RS APIs
+  #[allow(unsafe_code)]
+  unsafe fn from_napi_value(
+    env: napi::sys::napi_env,
+    napi_val: napi::sys::napi_value,
+  ) -> napi::Result<Self> {
+    let js_object = unsafe { JsObject::from_napi_value(env, napi_val)? };
+    let on_message: JsFunction = js_object.get_named_property("onMessage")?;
+    let on_timer: JsFunction = js_object.get_named_property("onTimer")?;
+    let is_permanent: JsFunction = js_object.get_named_property("isPermanent")?;
+
+    let native_handler = NativeHandler {
+      on_message,
+      on_timer,
+      is_permanent,
+    };
+
+    Self::new(&native_handler, 8)
   }
 }
 
