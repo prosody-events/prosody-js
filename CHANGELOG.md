@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/cincpro/prosody-js/compare/v1.0.1...v1.0.2) (2025-07-01)
+
+
+### Bug Fixes
+
+* add healthchecks to tests ([#69](https://github.com/cincpro/prosody-js/issues/69)) ([05b099e](https://github.com/cincpro/prosody-js/commit/05b099e909e26a3841118a2b5b080b40d0992411))
+
 ## [1.0.1](https://github.com/cincpro/prosody-js/compare/v1.0.0...v1.0.1) (2025-06-30)
 
 
