@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/cincpro/prosody-js/compare/v1.0.3...v1.0.4) (2025-07-01)
+
+
+### Bug Fixes
+
+* improve warnings, logs, and table names ([#74](https://github.com/cincpro/prosody-js/issues/74)) ([b759925](https://github.com/cincpro/prosody-js/commit/b759925a11ed0b37ab70f1a8a065aa22a9545b42))
+
 ## [1.0.3](https://github.com/cincpro/prosody-js/compare/v1.0.2...v1.0.3) (2025-07-01)
 
 
