@@ -59,7 +59,7 @@ impl NativeClient {
   /**
    * Gets the current state of the consumer.
    */
-  #[napi(getter, writable = false)]
+  #[napi(writable = false)]
   pub async fn consumer_state(&self) -> Result<ConsumerState> {
     let state_view = self.client.consumer_state().await;
     Ok((&*state_view).into())
@@ -141,7 +141,7 @@ impl NativeClient {
    *
    * @return {number} The number of assigned partitions, or 0 if the consumer is not in the Running state
    */
-  #[napi(getter, writable = false)]
+  #[napi(writable = false)]
   pub async fn assigned_partition_count(&self) -> Result<u32> {
     Ok(self.client.assigned_partition_count().await)
   }
@@ -151,7 +151,7 @@ impl NativeClient {
    *
    * @return {boolean} Whether the consumer is stalled, or false if the consumer is not in the Running state
    */
-  #[napi(getter, writable = false)]
+  #[napi(writable = false)]
   pub async fn is_stalled(&self) -> Result<bool> {
     Ok(self.client.is_stalled().await)
   }

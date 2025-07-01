@@ -52,6 +52,41 @@ jobs:
       - name: Install dependencies
         run: |
           yarn install
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for Cassandra and Kafka services to be ready..."
+          
+          # Wait for Cassandra
+          echo "🔍 Checking Cassandra..."
+          for i in {1..60}; do
+            if docker exec ${{ job.services.cassandra.id }} cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
+              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
+              break
+            elif [ $i -eq 60 ]; then
+              echo "❌ Cassandra service failed to start after 60 seconds"
+              exit 1
+            else
+              echo "⏳ Cassandra attempt $i: not ready yet..."
+              sleep 1
+            fi
+          done
+          
+          # Wait for Kafka
+          echo "🔍 Checking Kafka..."
+          for i in {1..60}; do
+            if docker exec ${{ job.services.kafka.id }} kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
+              break
+            elif [ $i -eq 60 ]; then
+              echo "❌ Kafka service failed to start after 60 seconds"
+              exit 1
+            else
+              echo "⏳ Kafka attempt $i: not ready yet..."
+              sleep 1
+            fi
+          done
+          
+          echo "🎉 Both services are ready!"
       - name: Build and run tests
         run: yarn build:debug && yarn test
         env:
