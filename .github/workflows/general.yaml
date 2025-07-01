@@ -32,10 +32,20 @@ jobs:
           KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
           KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+        options: >-
+          --health-cmd "kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 15
       cassandra:
         image: cassandra:latest
         ports:
           - "9042:9042"
+        options: >-
+          --health-cmd "cqlsh -e 'SELECT cluster_name FROM system.local;'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v3
       - uses: de-vri-es/setup-git-credentials@v2
@@ -52,41 +62,6 @@ jobs:
       - name: Install dependencies
         run: |
           yarn install
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for Cassandra and Kafka services to be ready..."
-          
-          # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
-          for i in {1..60}; do
-            if docker exec ${{ job.services.cassandra.id }} cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Cassandra service failed to start after 60 seconds"
-              exit 1
-            else
-              echo "⏳ Cassandra attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-          
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
-          for i in {1..60}; do
-            if docker exec ${{ job.services.kafka.id }} kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Kafka service failed to start after 60 seconds"
-              exit 1
-            else
-              echo "⏳ Kafka attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-          
-          echo "🎉 Both services are ready!"
       - name: Build and run tests
         run: yarn build:debug && yarn test
         env:
