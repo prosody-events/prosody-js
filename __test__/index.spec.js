@@ -43,6 +43,10 @@ const GROUP_NAME = "test-group";
 const SOURCE_NAME = "test-source";
 const BOOTSTRAP_SERVERS =
   process.env.PROSODY_BOOTSTRAP_SERVERS || "localhost:9094";
+const CASSANDRA_NODES =
+  process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
+const CASSANDRA_KEYSPACE =
+  process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
 
 // Helper functions
 const generateTopicName = () =>
@@ -149,8 +153,8 @@ describe("ProsodyClient", () => {
           subscribedTopics: topic,
           probePort: null,
           mode: Mode.Pipeline,          
-          cassandraNodes: "localhost:9042",
-          cassandraKeyspace: "prosody_test",
+          cassandraNodes: CASSANDRA_NODES,
+          cassandraKeyspace: CASSANDRA_KEYSPACE,
         });
         break;
       } catch (err) {
