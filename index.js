@@ -44,16 +44,16 @@ class ProsodyClient {
     this.nativeClient = new NativeClient(config);
   }
 
-  get consumerState() {
-    return this.nativeClient.consumerState;
+  consumerState() {
+    return this.nativeClient.consumerState();
   }
 
-  get assignedPartitionCount() {
-    return this.nativeClient.assignedPartitionCount;
+  assignedPartitionCount() {
+    return this.nativeClient.assignedPartitionCount();
   }
 
-  get isStalled() {
-    return this.nativeClient.isStalled;
+  isStalled() {
+    return this.nativeClient.isStalled();
   }
 
   async send(topic, key, payload, signal) {
@@ -69,7 +69,7 @@ class ProsodyClient {
     );
   }
 
-  subscribe(eventHandler) {
+  async subscribe(eventHandler) {
     const tracer = trace.getTracer("prosody");
     const {
       onMessage = (context, message, signal) => {
@@ -104,7 +104,7 @@ class ProsodyClient {
       },
     } = eventHandler;
 
-    this.nativeClient.subscribe({
+    await this.nativeClient.subscribe({
       isPermanent: (err) => {
         try {
           return err instanceof EventHandlerError && err.isPermanent;

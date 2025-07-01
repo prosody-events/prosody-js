@@ -163,7 +163,7 @@ describe("ProsodyClient", () => {
 
   afterEach(async () => {
     try {
-      if (client && (await client.consumerState) === ConsumerState.Running) {
+      if (client && (await client.consumerState()) === ConsumerState.Running) {
         await client.unsubscribe();
       }
     } catch (err) {
@@ -200,7 +200,7 @@ describe("ProsodyClient", () => {
     return tracer.startActiveSpan("test.initialize", async (span) => {
       try {
         expect(client).toBeInstanceOf(ProsodyClient);
-        expect(await client.consumerState).toBe(ConsumerState.Configured);
+        expect(await client.consumerState()).toBe(ConsumerState.Configured);
       } finally {
         span.end();
       }
@@ -215,10 +215,10 @@ describe("ProsodyClient", () => {
           await client.subscribe({
             onMessage: (_, message) => messageStream.push(message),
           });
-          expect(await client.consumerState).toBe(ConsumerState.Running);
+          expect(await client.consumerState()).toBe(ConsumerState.Running);
 
           await client.unsubscribe();
-          expect(await client.consumerState).toBe(ConsumerState.Configured);
+          expect(await client.consumerState()).toBe(ConsumerState.Configured);
         } finally {
           span.end();
         }
@@ -358,7 +358,7 @@ describe("ProsodyClient", () => {
           await unsubscribePromise;
 
           expect(messageAborted).toBe(true);
-          expect(await client.consumerState).toBe(ConsumerState.Configured);
+          expect(await client.consumerState()).toBe(ConsumerState.Configured);
         } finally {
           span.end();
         }
