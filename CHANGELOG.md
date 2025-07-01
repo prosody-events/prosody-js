@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/cincpro/prosody-js/compare/v1.0.2...v1.0.3) (2025-07-01)
+
+
+### Bug Fixes
+
+* test addresses ([#71](https://github.com/cincpro/prosody-js/issues/71)) ([0e70e53](https://github.com/cincpro/prosody-js/commit/0e70e5322b66077ec719b084237d8a4b4e6d37b0))
+
 ## [1.0.2](https://github.com/cincpro/prosody-js/compare/v1.0.1...v1.0.2) (2025-07-01)
 
 
