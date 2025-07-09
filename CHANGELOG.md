@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/cincpro/prosody-js/compare/v1.0.5...v1.0.6) (2025-07-09)
+
+
+### Bug Fixes
+
+* remove flaky/racy test ([#78](https://github.com/cincpro/prosody-js/issues/78)) ([d8957ad](https://github.com/cincpro/prosody-js/commit/d8957ad317d2d996ac930e257c0827cb8f43b2d8))
+
 ## [1.0.5](https://github.com/cincpro/prosody-js/compare/v1.0.4...v1.0.5) (2025-07-09)
 
 
