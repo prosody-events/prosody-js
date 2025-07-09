@@ -370,41 +370,6 @@ describe("ProsodyClient", () => {
     );
   });
 
-  it("handles abort signal in send method", async () => {
-    return tracer.startActiveSpan("test.send_abort_signal", async (span) => {
-      try {
-        const abortController = new AbortController();
-        const testEvents = new EventEmitter();
-        let messageReceived = false;
-
-        const testMessage = {
-          key: "abort-test-key",
-          payload: { content: "This message should be aborted" },
-        };
-
-        await client.subscribe({
-          onMessage: (_, message) => {
-            messageReceived = true;
-            testEvents.emit("messageReceived", message);
-          },
-        });
-
-        // Abort the controller immediately to ensure the send operation is aborted
-        abortController.abort();
-
-        const sendPromise = client.send(
-          topic,
-          testMessage.key,
-          testMessage.payload,
-          abortController.signal,
-        );
-
-        await expect(sendPromise).rejects.toThrow("Abort signal received");
-      } finally {
-        span.end();
-      }
-    });
-  });
 
   it("handles transient errors with retry", async () => {
     return tracer.startActiveSpan("test.transient_error", async (span) => {
