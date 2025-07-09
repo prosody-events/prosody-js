@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/cincpro/prosody-js/compare/v1.0.4...v1.0.5) (2025-07-09)
+
+
+### Bug Fixes
+
+* create mock broker topics ([#76](https://github.com/cincpro/prosody-js/issues/76)) ([10b2cae](https://github.com/cincpro/prosody-js/commit/10b2cae1d9d2a69ff292724caa2cf26a489b7af8))
+
 ## [1.0.4](https://github.com/cincpro/prosody-js/compare/v1.0.3...v1.0.4) (2025-07-01)
 
 
