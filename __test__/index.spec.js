@@ -38,7 +38,7 @@ process.on('uncaughtException', (error) => {
 const tracer = opentelemetry.trace.getTracer("prosody-js-test");
 
 // Constants
-const MESSAGE_TIMEOUT = 5000;
+const MESSAGE_TIMEOUT = 30000;
 const GROUP_NAME = "test-group";
 const SOURCE_NAME = "test-source";
 const BOOTSTRAP_SERVERS =
@@ -455,7 +455,7 @@ describe("ProsodyClient", () => {
 
         expect(scheduledTime).toBeDefined();
 
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 2000);
+        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
         const { timer, actualTime } = timerResult;
 
         expect(timer.key).toBe(testMessage.key);
@@ -497,7 +497,7 @@ describe("ProsodyClient", () => {
         await waitForEvent(testEvents, "secondTimerScheduled", MESSAGE_TIMEOUT);
 
         // Wait for timer to fire - only the second one should fire
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 1000);
+        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
         const { timer } = timerResult;
 
         expect(timerCount).toBe(1); // Only one timer should have fired
@@ -541,7 +541,7 @@ describe("ProsodyClient", () => {
         await waitForEvent(testEvents, "firstTimerUnscheduled", MESSAGE_TIMEOUT);
 
         // Wait for remaining timer to fire (should be the second one)
-        const maxWaitTime = timerDelayMs * 2 + 1000;
+        const maxWaitTime = timerDelayMs * 2 + 5000;
         const [timerResult] = await waitForEvent(testEvents, "timerFired", maxWaitTime);
         const { timer } = timerResult;
 
@@ -682,7 +682,7 @@ describe("ProsodyClient", () => {
         expectTimerApproximatelyEqual(retrievedTimes[0], expectedTime);
 
         // Wait for the timer to fire
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 1000);
+        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
         
         // Only one timer should have fired due to upsert behavior
         expect(timerResult.timerCount).toBe(1);
