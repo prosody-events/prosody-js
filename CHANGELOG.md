@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/cincpro/prosody-js/compare/v1.0.6...v1.0.7) (2025-07-16)
+
+
+### Bug Fixes
+
+* **deps:** update prosody and librdkafka ([#80](https://github.com/cincpro/prosody-js/issues/80)) ([15faecc](https://github.com/cincpro/prosody-js/commit/15faecc7fa52f3a562084d397383b79dbe9b87e0))
+
 ## [1.0.6](https://github.com/cincpro/prosody-js/compare/v1.0.5...v1.0.6) (2025-07-09)
 
 
