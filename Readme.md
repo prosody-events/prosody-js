@@ -48,6 +48,17 @@ const messageHandler = {
     onMessage: async (context, message, signal) => {
         // Process the received message
         console.log(`Received message: ${JSON.stringify(message)}`);
+        
+        // Schedule a timer for delayed processing
+        if (message.payload.scheduleFollowup) {
+            const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
+            await context.schedule(followupTime);
+        }
+    },
+    
+    onTimer: async (context, timer, signal) => {
+        // Handle timer firing
+        console.log(`Timer fired for key: ${timer.key} at ${timer.time}`);
     }
 };
 
@@ -281,6 +292,86 @@ PROSODY_IDEMPOTENCE_CACHE_SIZE=0
 
 Note that this deduplication is best-effort and not guaranteed. Because identifiers are cached ephemerally in memory,
 duplicates can still occur when instances rebalance or restart.
+
+## Timer Functionality
+
+Prosody supports timer-based delayed execution within message handlers. When a timer fires, your handler's `onTimer` method will be called:
+
+```javascript
+const messageHandler = {
+    onMessage: async (context, message, signal) => {
+        // Schedule a timer to fire in 30 seconds
+        const futureTime = new Date(Date.now() + 30000);
+        await context.schedule(futureTime);
+        
+        // Schedule multiple timers
+        const oneMinute = new Date(Date.now() + 60000);
+        const twoMinutes = new Date(Date.now() + 120000);
+        await context.schedule(oneMinute);
+        await context.schedule(twoMinutes);
+        
+        // Check what's scheduled
+        const scheduled = await context.scheduled();
+        console.log(`Scheduled timers: ${scheduled.length}`);
+    },
+    
+    onTimer: async (context, timer, signal) => {
+        console.log('Timer fired!');
+        console.log(`Key: ${timer.key}`);
+        console.log(`Scheduled time: ${timer.time}`);
+    }
+};
+```
+
+### Timer Methods
+
+The context provides timer scheduling methods that allow you to delay execution or implement timeout behavior:
+
+- `schedule(time)`: Schedules a timer to fire at the specified time
+- `clearAndSchedule(time)`: Clears all timers and schedules a new one
+- `unschedule(time)`: Removes a timer scheduled for the specified time
+- `clearScheduled()`: Removes all scheduled timers
+- `scheduled()`: Returns an array of all scheduled timer times
+
+### Timer Object
+
+When a timer fires, the `onTimer` method receives a timer object with these properties:
+
+- `key` (string): The entity key identifying what this timer belongs to
+- `time` (Date): The time when this timer was scheduled to fire
+
+**Note**: Timer precision is limited to seconds due to the underlying storage format. Sub-second precision in scheduled times will be rounded to the nearest second.
+
+### Timer Configuration
+
+Timer functionality requires Cassandra for persistence unless running in mock mode. Configure Cassandra connection via environment variable:
+
+```bash
+PROSODY_CASSANDRA_NODES=localhost:9042  # Required for timer persistence
+```
+
+Or programmatically when creating the client:
+
+```javascript
+const client = new ProsodyClient({
+    bootstrapServers: "localhost:9092",
+    groupId: "my-application",
+    subscribedTopics: "my-topic",
+    cassandraNodes: "localhost:9042"  // Required unless mock: true
+});
+```
+
+For testing, you can use mock mode to avoid Cassandra dependency:
+
+```javascript
+// Mock mode for testing (timers work but aren't persisted)
+const client = new ProsodyClient({
+    bootstrapServers: "localhost:9092",
+    groupId: "my-application",
+    subscribedTopics: "my-topic",
+    mock: true  // No Cassandra required in mock mode
+});
+```
 
 ### Error Handling
 
@@ -617,12 +708,15 @@ your changes before merging to `main`.
 - `send(topic: string, key: string, payload: any, signal?: AbortSignal): Promise<void>`: Send a message to a specified
   topic.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
--
-
-`subscribe(eventHandler: { onMessage: (context: Context, message: Message, signal: AbortSignal) => Promise<void> }): void`:
-Subscribe to messages using the provided handler.
-
+- `subscribe(eventHandler: EventHandler): void`: Subscribe to messages using the provided handler.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
+
+### EventHandler
+
+Interface for handling messages and timers:
+
+- `onMessage?: (context: Context, message: Message, signal: AbortSignal) => Promise<void>`: Handles incoming messages
+- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events
 
 ### Message
 
@@ -641,3 +735,18 @@ Represents the context of message processing:
 
 - `onShutdown(): Promise<void>`: A method that resolves when the context should shut down.
 - `shouldShutdown: boolean`: A property indicating whether the context should shut down.
+
+Timer scheduling methods:
+
+- `schedule(time: Date): Promise<void>`: Schedules a timer to fire at the specified time
+- `clearAndSchedule(time: Date): Promise<void>`: Clears all timers and schedules a new one
+- `unschedule(time: Date): Promise<void>`: Removes a timer scheduled for the specified time
+- `clearScheduled(): Promise<void>`: Removes all scheduled timers
+- `scheduled(): Promise<Date[]>`: Returns an array of all scheduled timer times
+
+### Timer
+
+Represents a timer that has fired, provided to the `onTimer` method:
+
+- `key: string`: The entity key identifying what this timer belongs to
+- `time: Date`: The time when this timer was scheduled to fire
