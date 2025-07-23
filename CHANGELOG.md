@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.8](https://github.com/cincpro/prosody-js/compare/v1.0.7...v1.0.8) (2025-07-23)
+
+
+### Bug Fixes
+
+* don’t execute timer commands while shutting down the partition ([#83](https://github.com/cincpro/prosody-js/issues/83)) ([8516bac](https://github.com/cincpro/prosody-js/commit/8516bacf40bd9243a35edfd15a395322bb920d77))
+
 ## [1.0.7](https://github.com/cincpro/prosody-js/compare/v1.0.6...v1.0.7) (2025-07-16)
 
 
