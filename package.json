@@ -1,6 +1,6 @@
 {
   "name": "@cincpro/prosody",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
