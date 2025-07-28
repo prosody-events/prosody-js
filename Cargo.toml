@@ -27,7 +27,7 @@ napi = { version = "2.16", default-features = false, features = [
 ] }
 napi-derive = "2.16"
 opentelemetry = "0.30"
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "92dd604bbc07f526f5a2eacba3cc568c8e73d418" } # replace once we have a package manager
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "833c6a26349b0d77679928471713a18d90bf1e78" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.45"
