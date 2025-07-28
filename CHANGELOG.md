@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.9](https://github.com/cincpro/prosody-js/compare/v1.0.8...v1.0.9) (2025-07-28)
+
+
+### Bug Fixes
+
+* support all OTEL OTLP protocols and to add OTEL error logging ([#85](https://github.com/cincpro/prosody-js/issues/85)) ([67dbdb9](https://github.com/cincpro/prosody-js/commit/67dbdb9d22c512815f01cc2aea552b3869700c3c))
+
 ## [1.0.8](https://github.com/cincpro/prosody-js/compare/v1.0.7...v1.0.8) (2025-07-23)
 
 
