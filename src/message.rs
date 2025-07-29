@@ -18,7 +18,7 @@ use serde_json::Value;
 #[napi(object)]
 pub struct Message {
   /// The name of the topic from which the message was consumed.
-  pub topic: &'static str,
+  pub topic: String,
 
   /// The partition number from which the message was consumed.
   pub partition: i32,
@@ -61,7 +61,7 @@ impl From<ConsumerMessage> for Message {
     } = message.into_value();
 
     Self {
-      topic: topic.as_ref(),
+      topic: topic.to_string(),
       partition,
       offset,
       timestamp,

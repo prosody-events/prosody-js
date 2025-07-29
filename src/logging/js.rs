@@ -3,11 +3,10 @@
 //! This module provides a bridge between Rust's tracing system and JavaScript logging functions.
 
 use crate::logging::Logger;
-use napi::threadsafe_function::{
-  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
-};
-use napi::{Either, Env};
+use napi::Status;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use tracing::field::{Field, Visit};
@@ -15,14 +14,14 @@ use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
-/// Type alias for the arguments passed to JavaScript logging functions.
-type LogArgs = (Option<String>, Value);
-
-/// Type alias for a thread-safe JavaScript logging function.
-type LogFunction = ThreadsafeFunction<LogArgs, ErrorStrategy::Fatal>;
-
-/// Maximum number of log entries that can be queued before blocking.
-const LOG_QUEUE_SIZE: usize = 128;
+/// Type alias for a thread-safe JavaScript logging function with CalleeHandled=false.
+type LogFunction = ThreadsafeFunction<
+  (String, Option<HashMap<String, Value>>),
+  (),
+  (String, Option<HashMap<String, Value>>),
+  Status,
+  false,
+>;
 
 /// A logger that bridges Rust's tracing system with JavaScript logging functions.
 pub struct JsLogger {
@@ -38,14 +37,12 @@ impl JsLogger {
   ///
   /// # Arguments
   ///
-  /// * `env` - The NAPI environment.
   /// * `logger` - A `Logger` instance containing JavaScript logging functions.
   ///
   /// # Errors
   ///
   /// Returns an error if creating thread-safe functions fails.
   pub fn new(
-    env: Env,
     Logger {
       error,
       warn,
@@ -55,18 +52,13 @@ impl JsLogger {
     }: Logger,
   ) -> napi::Result<Self> {
     // Create thread-safe functions for each log level
-    let mut error = error.create_threadsafe_function(LOG_QUEUE_SIZE, build_args)?;
-    let mut warn = warn.create_threadsafe_function(LOG_QUEUE_SIZE, build_args)?;
-    let mut info = info.create_threadsafe_function(LOG_QUEUE_SIZE, build_args)?;
-    let mut debug = debug.create_threadsafe_function(LOG_QUEUE_SIZE, build_args)?;
-    let mut trace = trace.create_threadsafe_function(LOG_QUEUE_SIZE, build_args)?;
+    let error = error.build_threadsafe_function().build()?;
+    let warn = warn.build_threadsafe_function().build()?;
+    let info = info.build_threadsafe_function().build()?;
+    let debug = debug.build_threadsafe_function().build()?;
+    let trace = trace.build_threadsafe_function().build()?;
 
-    // Indicate that the event loop may exit before the functions are destroyed
-    error.unref(&env)?;
-    warn.unref(&env)?;
-    info.unref(&env)?;
-    debug.unref(&env)?;
-    trace.unref(&env)?;
+    // Note: In v3, unref() is deprecated. The ThreadsafeFunction handles lifecycle automatically.
 
     Ok(Self {
       error,
@@ -79,7 +71,7 @@ impl JsLogger {
 }
 
 impl<S: Subscriber> Layer<S> for JsLogger {
-  fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+  fn on_event(&self, event: &Event, _ctx: Context<S>) {
     // Select the appropriate logging function based on the event level
     let function = match *event.metadata().level() {
       Level::ERROR => &self.error,
@@ -94,28 +86,15 @@ impl<S: Subscriber> Layer<S> for JsLogger {
     event.record(&mut visitor);
 
     // Call the JavaScript logging function asynchronously
-    function.call(
-      (visitor.maybe_message, visitor.values.into()),
-      ThreadsafeFunctionCallMode::NonBlocking,
-    );
-  }
-}
+    let message = visitor.maybe_message.unwrap_or_default();
+    let metadata = if visitor.values.is_empty() {
+      None
+    } else {
+      Some(visitor.values.into_iter().collect())
+    };
 
-/// Builds arguments for JavaScript logging functions.
-///
-/// # Arguments
-///
-/// * `ctx` - The thread-safe call context containing the log arguments.
-///
-/// # Returns
-///
-/// A vector of `Either<Option<String>, Value>` containing the message and metadata.
-#[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
-fn build_args(
-  ctx: ThreadSafeCallContext<LogArgs>,
-) -> napi::Result<Vec<Either<Option<String>, Value>>> {
-  let (message, metadata) = ctx.value;
-  Ok(vec![Either::A(message), Either::B(metadata)])
+    function.call((message, metadata), ThreadsafeFunctionCallMode::NonBlocking);
+  }
 }
 
 /// A visitor that collects metadata and fields from tracing events.

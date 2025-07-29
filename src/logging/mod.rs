@@ -5,9 +5,12 @@
 
 use crate::logging::js::JsLogger;
 use crate::logging::swappable::SwappableLogger;
-use napi::{Env, JsFunction};
+use napi::Env;
+use napi::bindgen_prelude::Function;
 use napi_derive::napi;
 use prosody::tracing::initialize_tracing;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{LazyLock, Once};
 use tracing::error;
 
@@ -21,41 +24,37 @@ static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::defaul
  * JavaScript-compatible logger structure.
  */
 #[napi(object)]
-pub struct Logger {
+pub struct Logger<'a> {
   /// Function for logging error messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub error: JsFunction,
+  pub error: Function<'a, (String, Option<HashMap<String, Value>>), ()>,
 
   /// Function for logging warning messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub warn: JsFunction,
+  pub warn: Function<'a, (String, Option<HashMap<String, Value>>), ()>,
 
   /// Function for logging informational messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub info: JsFunction,
+  pub info: Function<'a, (String, Option<HashMap<String, Value>>), ()>,
 
   /// Function for logging debug messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub debug: JsFunction,
+  pub debug: Function<'a, (String, Option<HashMap<String, Value>>), ()>,
 
   /// Function for logging trace messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub trace: JsFunction,
+  pub trace: Function<'a, (String, Option<HashMap<String, Value>>), ()>,
 }
 
 /**
  * Initializes the logging system with a JavaScript logger.
  *
+ * @param env - The NAPI environment.
  * @param logger - The JavaScript logger to use.
  */
 #[napi]
-pub fn initialize(mut env: Env, logger: Logger) {
+pub fn initialize(env: Env, logger: Logger) {
   // Only initialize once
   static INIT: Once = Once::new();
 
   INIT.call_once(|| {
     // Set up the JavaScript logger
-    match JsLogger::new(env, logger) {
+    match JsLogger::new(logger) {
       Ok(logger) => LOGGER.set_logger(logger),
       Err(error) => {
         error!("failed to initialize logger: {error:#}");
@@ -83,7 +82,7 @@ pub fn initialize(mut env: Env, logger: Logger) {
  * @throws Error if creating the new JavaScript logger fails.
  */
 #[napi]
-pub fn set_logger(env: Env, logger: Logger) -> napi::Result<()> {
-  LOGGER.set_logger(JsLogger::new(env, logger)?);
+pub fn set_logger(logger: Logger) -> napi::Result<()> {
+  LOGGER.set_logger(JsLogger::new(logger)?);
   Ok(())
 }

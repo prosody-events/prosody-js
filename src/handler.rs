@@ -3,10 +3,9 @@
 use crate::context::Context;
 use crate::message::Message;
 use crate::timer::Timer;
-use napi::bindgen_prelude::{Either3, FromNapiValue, Promise};
+use napi::Error;
+use napi::bindgen_prelude::{FromNapiValue, Function, Object, Promise};
 use napi::threadsafe_function::ThreadsafeFunction;
-use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext};
-use napi::{Error, JsFunction, JsObject};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::consumer::event_context::EventContext;
@@ -15,6 +14,7 @@ use prosody::consumer::message::ConsumerMessage;
 use prosody::propagator::new_propagator;
 use prosody::timers::Trigger;
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -22,25 +22,30 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
  * Represents a native handler for processing messages.
  */
 #[napi(object)]
-pub struct NativeHandler {
+pub struct NativeHandler<'a> {
   /**
    * A function to be called when a message is received.
    *
-   * @param err - An Error object if an error occurred, or null otherwise
    * @param context - A Context object representing the message processing context
    * @param message - A Message object containing the received Kafka message
    * @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
    * @returns A Promise that resolves when the message has been processed
+   *
+   * Note: Error parameter is automatically added by CalleeHandled=true
    */
-  #[napi(
-    ts_type = "(err: null | Error, context: Context, message: Message, otelContext: Record<string, string>) => Promise<void>"
-  )]
-  pub on_message: JsFunction,
+  pub on_message: Function<'a, (Context, Message, HashMap<String, String>), Promise<()>>,
 
-  #[napi(
-    ts_type = "(err: null | Error, context: Context, message: Timer, otelContext: Record<string, string>) => Promise<void>"
-  )]
-  pub on_timer: JsFunction,
+  /**
+   * A function to be called when a timer fires.
+   *
+   * @param context - A Context object representing the timer processing context
+   * @param timer - A Timer object containing the timer details
+   * @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
+   * @returns A Promise that resolves when the timer has been processed
+   *
+   * Note: Error parameter is automatically added by CalleeHandled=true
+   */
+  pub on_timer: Function<'a, (Context, Timer, HashMap<String, String>), Promise<()>>,
 
   /**
    * Function that determines whether an error is permanent.
@@ -48,25 +53,26 @@ pub struct NativeHandler {
    * @param err - An Error object to classify
    * @returns A boolean that is true when the given error is permanent and false otherwise
    */
-  #[napi(ts_type = "(err: Error) => boolean")]
-  pub is_permanent: JsFunction,
+  pub is_permanent: Function<'a, (Error,), bool>,
+}
+
+/// Inner structure containing the `ThreadsafeFunction` instances.
+struct JsHandlerInner {
+  on_message: ThreadsafeFunction<(Context, Message, HashMap<String, String>), Promise<()>>,
+  on_timer: ThreadsafeFunction<(Context, Timer, HashMap<String, String>), Promise<()>>,
+  is_permanent: ThreadsafeFunction<(Error,), bool>,
+  propagator: TextMapCompositePropagator,
 }
 
 /// Handles the interaction between Rust and JavaScript for message processing.
 pub struct JsHandler {
-  on_message: ThreadsafeFunction<(Context, Message, HashMap<String, String>)>,
-  on_timer: ThreadsafeFunction<(Context, Timer, HashMap<String, String>)>, //todo: fix
-  is_permanent: ThreadsafeFunction<napi::Error, ErrorStrategy::Fatal>,
-  propagator: TextMapCompositePropagator,
+  inner: Arc<JsHandlerInner>,
 }
 
 impl Clone for JsHandler {
   fn clone(&self) -> Self {
     Self {
-      on_message: self.on_message.clone(),
-      on_timer: self.on_timer.clone(),
-      is_permanent: self.is_permanent.clone(),
-      propagator: new_propagator(),
+      inner: Arc::clone(&self.inner),
     }
   }
 }
@@ -77,40 +83,55 @@ impl JsHandler {
   /// # Arguments
   ///
   /// * `event_handler` - A reference to a `NativeHandler` containing the JavaScript callback.
-  /// * `max_queue_size` - The maximum number of items that can be queued for processing.
   ///
   /// # Errors
   ///
   /// Returns a `napi::Error` if the threadsafe function creation fails.
-  pub fn new(event_handler: &NativeHandler, max_queue_size: usize) -> napi::Result<Self> {
+  pub fn new(event_handler: &NativeHandler) -> napi::Result<Self> {
     let on_message = event_handler
       .on_message
-      .create_threadsafe_function(max_queue_size, build_on_message_args)?;
+      .build_threadsafe_function()
+      .callee_handled::<true>()
+      .build()?;
 
     let on_timer = event_handler
       .on_timer
-      .create_threadsafe_function(max_queue_size, build_on_timer_args)?;
+      .build_threadsafe_function()
+      .callee_handled::<true>()
+      .build()?;
 
     let is_permanent = event_handler
       .is_permanent
-      .create_threadsafe_function(max_queue_size, build_is_permanent_args)?;
+      .build_threadsafe_function()
+      .callee_handled::<true>()
+      .build()?;
 
     Ok(Self {
-      on_message,
-      on_timer,
-      is_permanent,
-      propagator: new_propagator(),
+      inner: Arc::new(JsHandlerInner {
+        on_message,
+        on_timer,
+        is_permanent,
+        propagator: new_propagator(),
+      }),
     })
   }
 
+  /// Categorizes an error as permanent or transient by calling the JavaScript `is_permanent` function.
+  ///
+  /// # Arguments
+  ///
+  /// * `error` - The error to categorize.
+  /// 
+  /// # Returns
+  ///
+  /// A `JsHandlerError` indicating whether the error is permanent or transient.
   async fn categorize_error(&self, error: Error) -> napi::Result<JsHandlerError> {
-    Ok(
-      if self.is_permanent.call_async::<bool>(error.clone()).await? {
-        JsHandlerError::Permanent(error)
-      } else {
-        JsHandlerError::Js(error)
-      },
-    )
+    let is_permanent = self.inner.is_permanent.call_async(Ok((error,))).await?;
+    Ok(if is_permanent {
+      JsHandlerError::Permanent(Error::from_reason("Permanent error"))
+    } else {
+      JsHandlerError::Js(Error::from_reason("Transient error"))
+    })
   }
 }
 
@@ -131,10 +152,18 @@ impl FromNapiValue for JsHandler {
     env: napi::sys::napi_env,
     napi_val: napi::sys::napi_value,
   ) -> napi::Result<Self> {
-    let js_object = unsafe { JsObject::from_napi_value(env, napi_val)? };
-    let on_message: JsFunction = js_object.get_named_property("onMessage")?;
-    let on_timer: JsFunction = js_object.get_named_property("onTimer")?;
-    let is_permanent: JsFunction = js_object.get_named_property("isPermanent")?;
+    let obj = Object::from_raw(env, napi_val);
+    let on_message = obj
+      .get("onMessage")?
+      .ok_or_else(|| Error::from_reason("onMessage property missing"))?;
+
+    let on_timer = obj
+      .get("onTimer")?
+      .ok_or_else(|| Error::from_reason("onTimer property missing"))?;
+
+    let is_permanent = obj
+      .get("isPermanent")?
+      .ok_or_else(|| Error::from_reason("isPermanent property missing"))?;
 
     let native_handler = NativeHandler {
       on_message,
@@ -142,62 +171,8 @@ impl FromNapiValue for JsHandler {
       is_permanent,
     };
 
-    Self::new(&native_handler, 8)
+    Self::new(&native_handler)
   }
-}
-
-type OnMessageArgs = Vec<Either3<Context, Message, HashMap<String, String>>>;
-type OnTimerArgs = Vec<Either3<Context, Timer, HashMap<String, String>>>;
-type IsPermanentArgs = Vec<napi::Error>;
-
-/// Builds the arguments for the message JavaScript callback.
-///
-/// # Arguments
-///
-/// * `ctx` - The thread-safe call context containing the message context, consumer message, and OpenTelemetry context.
-///
-/// # Returns
-///
-/// A `Result` containing a vector of arguments for the JavaScript callback.
-#[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
-fn build_on_message_args(
-  ctx: ThreadSafeCallContext<(Context, Message, HashMap<String, String>)>,
-) -> napi::Result<OnMessageArgs> {
-  let (context, message, otel_context) = ctx.value;
-
-  Ok(vec![
-    Either3::A(context),
-    Either3::B(message),
-    Either3::C(otel_context),
-  ])
-}
-
-#[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
-fn build_on_timer_args(
-  ctx: ThreadSafeCallContext<(Context, Timer, HashMap<String, String>)>,
-) -> napi::Result<OnTimerArgs> {
-  let (context, timer, otel_context) = ctx.value;
-  Ok(vec![
-    Either3::A(context),
-    Either3::B(timer),
-    Either3::C(otel_context),
-  ])
-}
-
-/// Builds the arguments for a JavaScript function to determine whether an error is permanent.
-///
-/// # Arguments
-///
-/// * `ctx` - The thread-safe call context containing the error to classify.
-///
-/// # Returns
-///
-/// A `Result` containing a vector of arguments for the JavaScript function.
-#[allow(clippy::unnecessary_wraps)] // required for create_threadsafe_function signature
-fn build_is_permanent_args(
-  ctx: ThreadSafeCallContext<napi::Error>,
-) -> napi::Result<IsPermanentArgs> {
-  Ok(vec![ctx.value])
 }
 
 impl FallibleHandler for JsHandler {
@@ -222,11 +197,12 @@ impl FallibleHandler for JsHandler {
     let mut carrier = HashMap::with_capacity(2);
 
     self
+      .inner
       .propagator
       .inject_context(&message.span.context(), &mut carrier);
 
     let message = Message {
-      topic: message.topic.as_ref(),
+      topic: message.topic.to_string(),
       partition: message.partition,
       offset: message.offset,
       timestamp: message.timestamp,
@@ -235,8 +211,9 @@ impl FallibleHandler for JsHandler {
     };
 
     let Err(error) = self
+      .inner
       .on_message
-      .call_async::<Promise<()>>(Ok((context, message, carrier)))
+      .call_async(Ok((context, message, carrier)))
       .await?
       .await
     else {
@@ -252,6 +229,7 @@ impl FallibleHandler for JsHandler {
   {
     let mut carrier = HashMap::with_capacity(2);
     self
+      .inner
       .propagator
       .inject_context(&trigger.span.context(), &mut carrier);
 
@@ -259,8 +237,9 @@ impl FallibleHandler for JsHandler {
     let timer: Timer = trigger.into();
 
     let Err(error) = self
+      .inner
       .on_timer
-      .call_async::<Promise<()>>(Ok((context, timer, carrier)))
+      .call_async(Ok((context, timer, carrier)))
       .await?
       .await
     else {
@@ -288,7 +267,7 @@ impl ClassifyError for JsHandlerError {
   ///
   /// # Returns
   ///
-  /// Returns `ErrorCategory::Transient` for all JavaScript errors.
+  /// Returns `ErrorCategory::Transient` for `Js` errors and `ErrorCategory::Permanent` for `Permanent` errors.
   fn classify_error(&self) -> ErrorCategory {
     match self {
       JsHandlerError::Js(_) => ErrorCategory::Transient,
