@@ -157,6 +157,13 @@ export function setLogger(logger: Logger): void;
 export function setLoggerIfUnset(logger: Logger): boolean;
 
 /**
+ * Gets the current configured logger.
+ * 
+ * @returns The current logger instance, or null/undefined if no logger is configured.
+ */
+export function getCurrentLogger(): Logger | null | undefined;
+
+/**
  * Base class for event handler errors.
  * Provides a common interface for determining if an error is permanent.
  */

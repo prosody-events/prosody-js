@@ -23,6 +23,9 @@ const defaultLogger = {
   trace: (message, metadata) => console.debug(message, metadata),
 };
 
+// Keep reference to current logger for use in handlers
+let currentLogger = defaultLogger;
+
 function transformLogger(logger) {
   return {
     info: ([msg, meta]) => logger.info(msg, meta),
@@ -31,6 +34,14 @@ function transformLogger(logger) {
     warn: ([msg, meta]) => logger.warn(msg, meta),
     trace: ([msg, meta]) => logger.trace(msg, meta),
   };
+}
+
+/**
+ * Gets the current configured logger.
+ * @returns {Logger|null|undefined} The current logger instance, or null/undefined if no logger is configured.
+ */
+function getCurrentLogger() {
+  return currentLogger;
 }
 
 initialize();
@@ -51,6 +62,7 @@ setLoggerIfUnset(defaultLogger);
  * @throws {Error} If creating the new JavaScript logger fails.
  */
 function setLogger(logger) {
+  currentLogger = logger;
   setLoggerInternal(transformLogger(logger));
 }
 
@@ -70,7 +82,11 @@ function setLogger(logger) {
  * @throws {Error} If creating the new JavaScript logger fails.
  */
 function setLoggerIfUnset(logger) {
-  return setLoggerIfUnsetInternal(transformLogger(logger));
+  const wasSet = setLoggerIfUnsetInternal(transformLogger(logger));
+  if (wasSet) {
+    currentLogger = logger;
+  }
+  return wasSet;
 }
 
 class ProsodyClient {
@@ -107,7 +123,7 @@ class ProsodyClient {
     const tracer = trace.getTracer("prosody");
     const {
       onMessage = (context, message, _signal) => {
-        console.error(
+        getCurrentLogger()?.error(
           "ProsodyClient: Received a message but no onMessage handler was " +
             "provided in subscribe(). To handle messages, implement the onMessage " +
             "method in your EventHandler:",
@@ -123,7 +139,7 @@ class ProsodyClient {
         );
       },
       onTimer = (context, timer, _signal) => {
-        console.error(
+        getCurrentLogger()?.error(
           "ProsodyClient: Received a timer event but no onTimer handler was " +
             "provided in subscribe(). To handle timers, implement the onTimer " +
             "method in your EventHandler:",
@@ -172,7 +188,7 @@ class ProsodyClient {
             // process message
             await onMessage(context, message, controller.signal);
           } catch (error) {
-            console.log("error", error);
+            getCurrentLogger()?.error("Message handler error", error);
             span.recordException(error);
             throw error;
           } finally {
@@ -206,7 +222,7 @@ class ProsodyClient {
             // process timer
             await onTimer(context, timer, controller.signal);
           } catch (error) {
-            console.log("error", error);
+            getCurrentLogger()?.error("Timer handler error", error);
             span.recordException(error);
             throw error;
           } finally {
@@ -310,6 +326,7 @@ module.exports = {
   PermanentError,
   ProsodyClient,
   TransientError,
+  getCurrentLogger,
   initialize,
   loggerIsSet,
   permanent,
