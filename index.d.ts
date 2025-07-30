@@ -35,7 +35,7 @@ export interface EventHandler {
    */
   onTimer?: (
     context: Context,
-    message: Timer,
+    timer: Timer,
     signal: AbortSignal,
   ) => Promise<void>;
 }
