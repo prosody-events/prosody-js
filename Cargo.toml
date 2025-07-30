@@ -19,18 +19,13 @@ arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
 futures = "0.3"
-napi = { version = "3.1", default-features = false, features = [
-    "chrono_date",
-    "napi4",
-    "serde-json",
-    "tokio_rt",
-] }
+napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.1"
 opentelemetry = "0.30"
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "833c6a26349b0d77679928471713a18d90bf1e78" } # replace once we have a package manager
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = "1.45"
+tokio = "1.47"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.31"
 tracing-subscriber = "0.3"
