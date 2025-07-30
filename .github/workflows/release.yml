@@ -83,10 +83,14 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Install cross-compilation tools
-        uses: taiki-e/install-action@v2
+      - name: Install cargo-xwin
+        uses: baptiste0928/cargo-install@v3
         with:
-          tool: cargo-zigbuild,cargo-xwin
+          crate: cargo-xwin
+      - name: Install cargo-zigbuild
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-zigbuild
       - name: Cache cargo
         uses: actions/cache@v4
         with:
