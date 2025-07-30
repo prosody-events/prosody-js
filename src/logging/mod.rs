@@ -17,7 +17,8 @@ pub mod js;
 pub mod swappable;
 
 /// Type alias for the arguments passed to JavaScript logging functions.
-type LogArgs = (Option<String>, Value);
+#[napi]
+pub type LogArgs = (Option<String>, Value);
 
 /// Global swappable logger instance.
 static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
@@ -46,7 +47,6 @@ pub struct Logger<'a> {
 /**
  * Initializes the logging system with a JavaScript logger.
  *
- * @param env - The NAPI environment.
  * @param logger - The JavaScript logger to use.
  */
 #[allow(clippy::needless_pass_by_value)]
