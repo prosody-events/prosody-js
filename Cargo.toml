@@ -32,7 +32,7 @@ tracing-subscriber = "0.3"
 # ARM targets: disable cmake-build feature 
 [target.'cfg(target_arch = "arm")'.dependencies]
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", default-features = false, features = [
-    "libz-static",
+    "external-lz4",
 ] }
 
 # Non-ARM targets: use cmake-build
