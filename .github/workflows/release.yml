@@ -111,7 +111,7 @@ jobs:
         if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '--use-napi-cross')
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake
+          sudo apt-get install -y cmake zlib1g-dev
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
