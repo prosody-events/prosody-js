@@ -1,7 +1,7 @@
 name: CI
 
 env:
-  DEBUG: napi:*
+  DEBUG: 'napi:*'
   APP_NAME: prosody
   MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
@@ -22,7 +22,7 @@ on:
 jobs:
   release-please:
     name: Release Please
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -43,38 +43,28 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - host: macos-latest
-            target: x86_64-apple-darwin
-            build: yarn build --target x86_64-apple-darwin
-          - host: windows-latest
-            build: yarn build --target x86_64-pc-windows-msvc
-            target: x86_64-pc-windows-msvc
-          - host: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            build: yarn build --target x86_64-unknown-linux-gnu
-          - host: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
-            build: yarn build --target x86_64-unknown-linux-musl --zig
-          - host: macos-latest
-            target: aarch64-apple-darwin
-            build: yarn build --target aarch64-apple-darwin
-          - host: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
-            build: yarn build --target aarch64-unknown-linux-gnu --zig
-          - host: ubuntu-22.04
-            target: armv7-unknown-linux-gnueabihf
-            build: yarn build --target armv7-unknown-linux-gnueabihf
-          - host: ubuntu-22.04
-            target: armv7-unknown-linux-musleabihf
-            build: yarn build --target armv7-unknown-linux-musleabihf
-          - host: ubuntu-22.04
-            target: aarch64-unknown-linux-musl
-            build: yarn build --target aarch64-unknown-linux-musl --zig
-          - host: windows-latest
-            target: aarch64-pc-windows-msvc
-            build: yarn build --target aarch64-pc-windows-msvc
-    name: stable - ${{ matrix.settings.target }} - node@20
-    runs-on: ${{ matrix.settings.host }}
+          - target: x86_64-apple-darwin
+            flags: '-x'
+          - target: aarch64-apple-darwin
+            flags: '-x'
+          - target: x86_64-pc-windows-msvc
+            flags: '-x'
+          - target: aarch64-pc-windows-msvc
+            flags: '-x'
+          - target: x86_64-unknown-linux-gnu
+            flags: '--use-napi-cross'
+          - target: aarch64-unknown-linux-gnu
+            flags: '--use-napi-cross'
+          - target: x86_64-unknown-linux-musl
+            flags: '-x'
+          - target: aarch64-unknown-linux-musl
+            flags: '-x'
+          - target: armv7-unknown-linux-gnueabihf
+            flags: '--use-napi-cross'
+          - target: armv7-unknown-linux-musleabihf
+            flags: '-x'
+    name: stable - ${{ matrix.settings.target }} - node@22
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: de-vri-es/setup-git-credentials@v2
@@ -83,41 +73,33 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0
+          version: 0.14.1
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
+      - name: Install cross-compilation tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild,cargo-xwin
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            .cargo-cache
-            target/
-          key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
-      - name: Setup node x86
-        if: matrix.settings.target == 'i686-pc-windows-msvc'
-        run: yarn config set supportedArchitectures.cpu "ia32"
-        shell: bash
+            ~/.cargo
+            ${{ github.workspace }}/.xwin
+            ~/.napi-rs
+            ./target
+          key: ${{ matrix.settings.target }}-cargo-cache
       - name: Install dependencies
         run: yarn install
-      - name: Setup node x86
-        uses: actions/setup-node@v4
-        if: matrix.settings.target == 'i686-pc-windows-msvc'
-        with:
-          node-version: 20
-          cache: yarn
-          architecture: x86
       - name: Build
-        run: ${{ matrix.settings.build }}
+        run: yarn build --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
         shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -137,9 +119,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "18"
           - "20"
-    runs-on: ubuntu-22.04
+          - "22"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -228,9 +210,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "18"
           - "20"
-    runs-on: ubuntu-22.04
+          - "22"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -321,9 +303,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "18"
           - "20"
-    runs-on: ubuntu-22.04
+          - "22"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -411,7 +393,7 @@ jobs:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
       - build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -503,9 +485,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "18"
           - "20"
-    runs-on: ubuntu-22.04
+          - "22"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -592,7 +574,7 @@ jobs:
     name: Build universal macOS binary
     needs:
       - build
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: de-vri-es/setup-git-credentials@v2
@@ -601,7 +583,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
       - name: Install dependencies
         run: yarn install
@@ -637,7 +619,7 @@ jobs:
 
   publish:
     name: Publish
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs:
       - release-please
       - build
@@ -653,7 +635,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: "https://npm.pkg.github.com"
           cache: yarn
           scope: "@cincpro"
