@@ -76,7 +76,7 @@ jobs:
           - target: armv7-unknown-linux-musleabihf
             flags: '-x'
             host: ubuntu-latest
-    name: stable - ${{ matrix.settings.target }} - node@22
+    name: ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
           if-no-files-found: error
 
   test-linux-x64-gnu-binding:
-    name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
+    name: test-x86_64-gnu-node@${{ matrix.node }}
     needs:
       - build
     strategy:
@@ -254,7 +254,7 @@ jobs:
             yarn test
 
   test-linux-x64-musl-binding:
-    name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
+    name: test-x86_64-musl-node@${{ matrix.node }}
     needs:
       - build
     strategy:
@@ -347,7 +347,7 @@ jobs:
             yarn test
 
   test-linux-aarch64-gnu-binding:
-    name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
+    name: test-aarch64-gnu-node@${{ matrix.node }}
     needs:
       - build
     strategy:
@@ -441,7 +441,7 @@ jobs:
             sh -c "set -e && yarn test"
 
   test-linux-aarch64-musl-binding:
-    name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
+    name: test-aarch64-musl-node@${{ matrix.node }}
     needs:
       - build
     runs-on: ubuntu-latest
@@ -529,7 +529,7 @@ jobs:
             sh -c "set -e && yarn test"
 
   test-linux-arm-gnueabihf-binding:
-    name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
+    name: test-armv7-gnu-node@${{ matrix.node }}
     needs:
       - build
     strategy:
@@ -622,7 +622,7 @@ jobs:
             sh -c "set -e && yarn test"
 
   universal-macOS:
-    name: Build universal macOS binary
+    name: universal-apple-darwin
     needs:
       - build
     runs-on: ubuntu-latest
