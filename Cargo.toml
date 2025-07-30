@@ -33,7 +33,6 @@ tracing-subscriber = "0.3"
 [target.'cfg(target_arch = "arm")'.dependencies]
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", default-features = false, features = [
     "libz-static",
-    "ssl-vendored",
 ] }
 
 # Non-ARM targets: use cmake-build
@@ -41,7 +40,6 @@ prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0e
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", features = [
     "cmake-build",
     "libz-static",
-    "ssl-vendored",
 ] }
 
 [build-dependencies]
