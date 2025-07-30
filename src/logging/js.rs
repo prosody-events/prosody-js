@@ -2,11 +2,10 @@
 //!
 //! This module provides a bridge between Rust's tracing system and JavaScript logging functions.
 
-use crate::logging::Logger;
+use crate::logging::{LogArgs, Logger};
 use napi::Status;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use tracing::field::{Field, Visit};
@@ -14,14 +13,11 @@ use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
-/// Type alias for a thread-safe JavaScript logging function with CalleeHandled=false.
-type LogFunction = ThreadsafeFunction<
-  (String, Option<HashMap<String, Value>>),
-  (),
-  (String, Option<HashMap<String, Value>>),
-  Status,
-  false,
->;
+/// Maximum number of log entries that can be queued before blocking.
+const LOG_QUEUE_SIZE: usize = 128;
+
+/// Type alias for a thread-safe JavaScript logging function.
+type LogFunction = ThreadsafeFunction<LogArgs, (), LogArgs, Status, false, true, LOG_QUEUE_SIZE>;
 
 /// A logger that bridges Rust's tracing system with JavaScript logging functions.
 pub struct JsLogger {
@@ -42,23 +38,43 @@ impl JsLogger {
   /// # Errors
   ///
   /// Returns an error if creating thread-safe functions fails.
-  pub fn new(
-    Logger {
-      error,
-      warn,
-      info,
-      debug,
-      trace,
-    }: Logger,
-  ) -> napi::Result<Self> {
+  pub fn new(logger: &Logger) -> napi::Result<Self> {
     // Create thread-safe functions for each log level
-    let error = error.build_threadsafe_function().build()?;
-    let warn = warn.build_threadsafe_function().build()?;
-    let info = info.build_threadsafe_function().build()?;
-    let debug = debug.build_threadsafe_function().build()?;
-    let trace = trace.build_threadsafe_function().build()?;
+    // Try to create them as weak references to prevent keeping the process alive
+    let error = logger
+      .error
+      .build_threadsafe_function()
+      .weak()
+      .max_queue_size()
+      .build()?;
 
-    // Note: In v3, unref() is deprecated. The ThreadsafeFunction handles lifecycle automatically.
+    let warn = logger
+      .warn
+      .build_threadsafe_function()
+      .weak()
+      .max_queue_size()
+      .build()?;
+
+    let info = logger
+      .info
+      .build_threadsafe_function()
+      .weak()
+      .max_queue_size()
+      .build()?;
+
+    let debug = logger
+      .debug
+      .build_threadsafe_function()
+      .weak()
+      .max_queue_size()
+      .build()?;
+
+    let trace = logger
+      .trace
+      .build_threadsafe_function()
+      .weak()
+      .max_queue_size()
+      .build()?;
 
     Ok(Self {
       error,
@@ -86,12 +102,13 @@ impl<S: Subscriber> Layer<S> for JsLogger {
     event.record(&mut visitor);
 
     // Call the JavaScript logging function asynchronously
-    let message = visitor.maybe_message.unwrap_or_default();
+    let message = visitor.maybe_message;
     let metadata = if visitor.values.is_empty() {
       None
     } else {
       Some(visitor.values.into_iter().collect())
-    };
+    }
+    .unwrap_or_default();
 
     function.call((message, metadata), ThreadsafeFunctionCallMode::NonBlocking);
   }

@@ -29,8 +29,9 @@ impl SwappableLogger {
     self.inner.store(Some(Arc::new(logger)));
   }
 
-  /// Clears the current logger, effectively disabling logging.
-  pub fn clear_logger(&self) {
+  /// Shuts down the current logger and cleans up resources.
+  /// This should be called when Node.js is shutting down.
+  pub fn shutdown_logger(&self) {
     self.inner.store(None);
   }
 }

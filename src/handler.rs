@@ -121,7 +121,7 @@ impl JsHandler {
   /// # Arguments
   ///
   /// * `error` - The error to categorize.
-  /// 
+  ///
   /// # Returns
   ///
   /// A `JsHandlerError` indicating whether the error is permanent or transient.
