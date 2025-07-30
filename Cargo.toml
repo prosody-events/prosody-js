@@ -22,25 +22,15 @@ futures = "0.3"
 napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.1"
 opentelemetry = "0.30"
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", features = [
+    "external-lz4",
+] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.47"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.31"
 tracing-subscriber = "0.3"
-
-# ARM targets: disable cmake-build feature 
-[target.'cfg(target_arch = "arm")'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", default-features = false, features = [
-    "external-lz4",
-] }
-
-# Non-ARM targets: use cmake-build
-[target.'cfg(not(target_arch = "arm"))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", features = [
-    "cmake-build",
-    "libz-static",
-] }
 
 [build-dependencies]
 napi-build = "2.2"
