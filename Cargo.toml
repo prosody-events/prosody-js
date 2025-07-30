@@ -29,12 +29,14 @@ tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.31"
 tracing-subscriber = "0.3"
 
-[target.'cfg(target_triple = "x86_64-unknown-linux-gnu")'.dependencies]
+# x86_64-unknown-linux-gnu: use libz-static
+[target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", features = [
     "libz-static",
 ] }
 
-[target.'cfg(not(target_triple = "x86_64-unknown-linux-gnu"))'.dependencies]
+# All other targets: use external-lz4
+[target.'cfg(not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")))'.dependencies]
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e2bef16857d0ee4116851ee6b669094e621a5f83", features = [
     "external-lz4",
 ] }
