@@ -45,25 +45,19 @@ pub struct Logger<'a> {
 }
 
 /**
- * Initializes the logging system with a JavaScript logger.
+ * Initializes the logging system for the Prosody client.
  *
- * @param logger - The JavaScript logger to use.
+ * This function sets up the tracing infrastructure and prepares the logging system
+ * to accept JavaScript loggers. It should be called once during application startup
+ * before any other logging operations.
  */
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
-pub fn initialize(env: Env, logger: Logger) {
+pub fn initialize(env: Env) {
   // Only initialize once
   static INIT: Once = Once::new();
 
   INIT.call_once(|| {
-    // Set up the JavaScript logger
-    match JsLogger::new(&logger) {
-      Ok(logger) => LOGGER.set_logger(logger),
-      Err(error) => {
-        error!("failed to initialize logger: {error:#}");
-      }
-    }
-
     // Initialize tracing with the global logger
     if let Err(error) = initialize_tracing(Some(LOGGER.clone())) {
       error!("failed to initialize tracing: {error:#}");
@@ -79,9 +73,22 @@ pub fn initialize(env: Env, logger: Logger) {
 }
 
 /**
- * Sets a new JavaScript logger.
+ * Checks if a logger has been set in the logging system.
  *
- * @param logger - The new JavaScript logger to set.
+ * @returns True if a logger is currently configured, false otherwise.
+ */
+#[napi]
+pub fn logger_is_set() -> bool {
+  LOGGER.is_set()
+}
+
+/**
+ * Sets a new JavaScript logger for the Prosody client.
+ *
+ * This function configures the logging system to use the provided JavaScript logger
+ * for all log output. The logger must implement all required log levels.
+ *
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
  * @throws Error if creating the new JavaScript logger fails.
  */
 #[allow(clippy::needless_pass_by_value)]
@@ -92,11 +99,30 @@ pub fn set_logger(logger: Logger) -> napi::Result<()> {
 }
 
 /**
- * Shuts down the current logger and cleans up all resources.
- * This should be called when the Node.js process is shutting down
- * to ensure ThreadsafeFunction instances are properly cleaned up.
+ * Sets a JavaScript logger only if no logger is currently configured.
+ *
+ * This function is useful for providing a default logger without overriding
+ * an existing one that may have been set earlier.
+ *
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
+ * @throws Error if creating the new JavaScript logger fails.
  */
+#[allow(clippy::needless_pass_by_value)]
 #[napi]
-pub fn shutdown_logger() {
+pub fn set_logger_if_unset(logger: Logger) -> napi::Result<bool> {
+  Ok(LOGGER.set_logger_if_unset(JsLogger::new(&logger)?))
+}
+
+/// Internal function to shut down the current logger and clean up all resources.
+///
+/// This function should be called when the Node.js process is shutting down
+/// to ensure `ThreadsafeFunction` instances are properly cleaned up and prevent
+/// potential memory leaks or hanging processes.
+///
+/// Note: This function is not exposed to JavaScript as it's handled internally
+/// by the environment cleanup hook.
+#[allow(dead_code)]
+fn shutdown_logger() {
   LOGGER.shutdown_logger();
 }

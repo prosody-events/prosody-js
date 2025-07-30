@@ -20,6 +20,17 @@ pub struct SwappableLogger {
 }
 
 impl SwappableLogger {
+  pub fn is_set(&self) -> bool {
+    self.inner.load().is_some()
+  }
+
+  pub fn set_logger_if_unset(&self, logger: JsLogger) -> bool {
+    self
+      .inner
+      .compare_and_swap(&None::<Arc<_>>, Some(Arc::new(logger)))
+      .is_none()
+  }
+
   /// Sets the current logger to the provided `JsLogger`.
   ///
   /// # Arguments

@@ -110,7 +110,14 @@ impl<S: Subscriber> Layer<S> for JsLogger {
     }
     .unwrap_or_default();
 
-    function.call((message, metadata), ThreadsafeFunctionCallMode::NonBlocking);
+    #[allow(
+      clippy::print_stderr,
+      reason = "if logging fails, we have to print to stderr"
+    )]
+    match function.call((message, metadata), ThreadsafeFunctionCallMode::NonBlocking) {
+      Status::Ok => {}
+      error => eprintln!("Logging failed: {error:?}"),
+    }
   }
 }
 

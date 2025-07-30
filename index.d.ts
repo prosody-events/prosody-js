@@ -2,13 +2,30 @@ import type {
   Configuration,
   ConsumerState,
   Context,
-  Logger,
   Message,
   Mode,
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Context, Logger, Message, Timer, Mode };
+export { Configuration, ConsumerState, Context, Message, Timer, Mode };
+
+/**
+ * JavaScript logger interface for use with Prosody client.
+ * 
+ * Each logging method receives a message string and optional metadata object.
+ */
+export interface Logger {
+  /** Function for logging error messages. */
+  error: (message: string | undefined | null, metadata?: any) => void;
+  /** Function for logging warning messages. */  
+  warn: (message: string | undefined | null, metadata?: any) => void;
+  /** Function for logging informational messages. */
+  info: (message: string | undefined | null, metadata?: any) => void;
+  /** Function for logging debug messages. */
+  debug: (message: string | undefined | null, metadata?: any) => void;
+  /** Function for logging trace messages. */
+  trace: (message: string | undefined | null, metadata?: any) => void;
+}
 
 export interface EventHandler {
   /**
@@ -101,11 +118,43 @@ export declare class ProsodyClient {
 }
 
 /**
- * Sets a new JavaScript logger.
+ * Initializes the logging system for the Prosody client.
+ * 
+ * This function sets up the tracing infrastructure and prepares the logging system
+ * to accept JavaScript loggers. It should be called once during application startup
+ * before any other logging operations.
+ */
+export function initialize(): void;
+
+/**
+ * Checks if a logger has been set in the logging system.
+ * 
+ * @returns True if a logger is currently configured, false otherwise.
+ */
+export function loggerIsSet(): boolean;
+
+/**
+ * Sets a new JavaScript logger for the Prosody client.
+ * 
+ * This function configures the logging system to use the provided JavaScript logger
+ * for all log output. The logger must implement all required log levels.
  *
- * @param logger - The new JavaScript logger to set.
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @throws Error if creating the new JavaScript logger fails.
  */
 export function setLogger(logger: Logger): void;
+
+/**
+ * Sets a JavaScript logger only if no logger is currently configured.
+ * 
+ * This function is useful for providing a default logger without overriding
+ * an existing one that may have been set earlier.
+ *
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
+ * @throws Error if creating the new JavaScript logger fails.
+ */
+export function setLoggerIfUnset(logger: Logger): boolean;
 
 /**
  * Base class for event handler errors.

@@ -1,11 +1,15 @@
-//! This module handles message processing and JavaScript interaction for the Prosody consumer.
+//! Provides message processing and JavaScript interaction for the Prosody consumer.
+//!
+//! This module defines the `JsHandler` struct, which bridges between Rust's Prosody
+//! consumer and JavaScript event handlers. It enables asynchronous message and timer
+//! processing through thread-safe function calls to JavaScript.
 
 use crate::context::Context;
 use crate::message::Message;
 use crate::timer::Timer;
-use napi::Error;
 use napi::bindgen_prelude::{FromNapiValue, Function, Object, Promise};
 use napi::threadsafe_function::ThreadsafeFunction;
+use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::consumer::event_context::EventContext;
@@ -18,8 +22,29 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+/// Type alias for message handler arguments.
+#[napi]
+pub type MessageHandlerArgs = (Context, Message, HashMap<String, String>);
+
+/// Type alias for timer handler arguments.
+#[napi]
+pub type TimerHandlerArgs = (Context, Timer, HashMap<String, String>);
+
+/// Type alias for error classification arguments.
+#[napi]
+pub type IsPermanentArgs = (Error,);
+
+/// Maximum number of queued handler function calls.
+pub const HANDLE_QUEUE_SIZE: usize = 64;
+
+/// Maximum number of queued error classification function calls.
+pub const PERM_QUEUE_SIZE: usize = 64;
+
 /**
- * Represents a native handler for processing messages.
+ * Represents a native handler for processing messages and timers.
+ *
+ * This struct contains functions that handle incoming messages, timer events, and error
+ * classification for the Prosody consumer.
  */
 #[napi(object)]
 pub struct NativeHandler<'a> {
@@ -33,7 +58,7 @@ pub struct NativeHandler<'a> {
    *
    * Note: Error parameter is automatically added by CalleeHandled=true
    */
-  pub on_message: Function<'a, (Context, Message, HashMap<String, String>), Promise<()>>,
+  pub on_message: Function<'a, MessageHandlerArgs, Promise<()>>,
 
   /**
    * A function to be called when a timer fires.
@@ -45,7 +70,7 @@ pub struct NativeHandler<'a> {
    *
    * Note: Error parameter is automatically added by CalleeHandled=true
    */
-  pub on_timer: Function<'a, (Context, Timer, HashMap<String, String>), Promise<()>>,
+  pub on_timer: Function<'a, TimerHandlerArgs, Promise<()>>,
 
   /**
    * Function that determines whether an error is permanent.
@@ -53,18 +78,50 @@ pub struct NativeHandler<'a> {
    * @param err - An Error object to classify
    * @returns A boolean that is true when the given error is permanent and false otherwise
    */
-  pub is_permanent: Function<'a, (Error,), bool>,
+  pub is_permanent: Function<'a, IsPermanentArgs, bool>,
 }
 
-/// Inner structure containing the `ThreadsafeFunction` instances.
+/// Inner structure containing the `ThreadsafeFunction` instances for JavaScript callbacks.
+///
+/// This struct holds thread-safe JavaScript functions that can be called from
+/// any thread to handle messages, timers, and error classification. It also
+/// contains an OpenTelemetry propagator for distributed tracing.
 struct JsHandlerInner {
-  on_message: ThreadsafeFunction<(Context, Message, HashMap<String, String>), Promise<()>>,
-  on_timer: ThreadsafeFunction<(Context, Timer, HashMap<String, String>), Promise<()>>,
-  is_permanent: ThreadsafeFunction<(Error,), bool>,
+  on_message: ThreadsafeFunction<
+    MessageHandlerArgs,
+    Promise<()>,
+    MessageHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+  >,
+  on_timer: ThreadsafeFunction<
+    TimerHandlerArgs,
+    Promise<()>,
+    TimerHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+  >,
+  is_permanent: ThreadsafeFunction<
+    IsPermanentArgs,
+    bool,
+    IsPermanentArgs,
+    Status,
+    false,
+    false,
+    PERM_QUEUE_SIZE,
+  >,
   propagator: TextMapCompositePropagator,
 }
 
 /// Handles the interaction between Rust and JavaScript for message processing.
+///
+/// This struct manages thread-safe JavaScript function calls for processing
+/// Kafka messages and timer events. It implements the `FallibleHandler` trait
+/// to integrate with the Prosody consumer framework.
 pub struct JsHandler {
   inner: Arc<JsHandlerInner>,
 }
@@ -80,30 +137,35 @@ impl Clone for JsHandler {
 impl JsHandler {
   /// Creates a new `JsHandler` instance.
   ///
+  /// Builds thread-safe functions from the provided JavaScript callbacks
+  /// and initializes an OpenTelemetry propagator for distributed tracing.
+  ///
   /// # Arguments
   ///
-  /// * `event_handler` - A reference to a `NativeHandler` containing the JavaScript callback.
+  /// * `event_handler` - A reference to a `NativeHandler` containing the JavaScript callbacks.
   ///
   /// # Errors
   ///
-  /// Returns a `napi::Error` if the threadsafe function creation fails.
+  /// Returns a `napi::Error` if thread-safe function creation fails.
   pub fn new(event_handler: &NativeHandler) -> napi::Result<Self> {
     let on_message = event_handler
       .on_message
       .build_threadsafe_function()
-      .callee_handled::<true>()
+      .callee_handled()
+      .max_queue_size()
       .build()?;
 
     let on_timer = event_handler
       .on_timer
       .build_threadsafe_function()
-      .callee_handled::<true>()
+      .callee_handled()
+      .max_queue_size()
       .build()?;
 
     let is_permanent = event_handler
       .is_permanent
       .build_threadsafe_function()
-      .callee_handled::<true>()
+      .max_queue_size()
       .build()?;
 
     Ok(Self {
@@ -118,6 +180,9 @@ impl JsHandler {
 
   /// Categorizes an error as permanent or transient by calling the JavaScript `is_permanent` function.
   ///
+  /// This method allows JavaScript code to determine whether an error should trigger
+  /// retries (transient) or be treated as unrecoverable (permanent).
+  ///
   /// # Arguments
   ///
   /// * `error` - The error to categorize.
@@ -125,8 +190,12 @@ impl JsHandler {
   /// # Returns
   ///
   /// A `JsHandlerError` indicating whether the error is permanent or transient.
+  ///
+  /// # Errors
+  ///
+  /// Returns a `napi::Result<JsHandlerError>` if the JavaScript function call fails.
   async fn categorize_error(&self, error: Error) -> napi::Result<JsHandlerError> {
-    let is_permanent = self.inner.is_permanent.call_async(Ok((error,))).await?;
+    let is_permanent = self.inner.is_permanent.call_async((error,)).await?;
     Ok(if is_permanent {
       JsHandlerError::Permanent(Error::from_reason("Permanent error"))
     } else {
@@ -180,14 +249,19 @@ impl FallibleHandler for JsHandler {
 
   /// Processes a message by calling the JavaScript callback.
   ///
+  /// Converts the Prosody message into JavaScript-compatible types,
+  /// injects OpenTelemetry context for distributed tracing, and calls
+  /// the JavaScript `onMessage` function asynchronously.
+  ///
   /// # Arguments
   ///
-  /// * `context` - The message context.
-  /// * `message` - The consumer message.
+  /// * `context` - The event context providing shutdown signaling and other utilities.
+  /// * `message` - The consumer message to process.
   ///
   /// # Errors
   ///
-  /// Returns a `JsHandlerError` if the JavaScript callback execution fails.
+  /// Returns a `JsHandlerError` if the JavaScript callback execution fails
+  /// or if error categorization fails.
   async fn on_message<C>(&self, context: C, message: ConsumerMessage) -> Result<(), Self::Error>
   where
     C: EventContext,
@@ -223,6 +297,21 @@ impl FallibleHandler for JsHandler {
     Err(self.categorize_error(error).await?)
   }
 
+  /// Processes a timer trigger by calling the JavaScript callback.
+  ///
+  /// Converts the Prosody timer trigger into JavaScript-compatible types,
+  /// injects OpenTelemetry context for distributed tracing, and calls
+  /// the JavaScript `onTimer` function asynchronously.
+  ///
+  /// # Arguments
+  ///
+  /// * `context` - The event context providing shutdown signaling and other utilities.
+  /// * `trigger` - The timer trigger to process.
+  ///
+  /// # Errors
+  ///
+  /// Returns a `JsHandlerError` if the JavaScript callback execution fails
+  /// or if error categorization fails.
   async fn on_timer<C>(&self, context: C, trigger: Trigger) -> Result<(), Self::Error>
   where
     C: EventContext,
@@ -251,23 +340,31 @@ impl FallibleHandler for JsHandler {
 }
 
 /// Represents errors that can occur during JavaScript handler execution.
+///
+/// This enum distinguishes between transient errors (which may be retried)
+/// and permanent errors (which should not be retried) to support Prosody's
+/// error handling and retry logic.
 #[derive(Debug, Error)]
 pub enum JsHandlerError {
-  /// Wraps an `napi::Error` that occurred during JavaScript execution.
+  /// Wraps an `napi::Error` that occurred during JavaScript execution (transient).
   #[error(transparent)]
   Js(#[from] napi::Error),
 
-  /// Wraps an `napi::Error` that is marked as permanent.
+  /// Wraps an `napi::Error` that is marked as permanent by JavaScript code.
   #[error(transparent)]
   Permanent(napi::Error),
 }
 
 impl ClassifyError for JsHandlerError {
-  /// Classifies the error as transient or permanent.
+  /// Classifies the error as transient or permanent for Prosody's retry logic.
+  ///
+  /// This implementation supports Prosody's error handling framework by
+  /// categorizing JavaScript errors based on their type.
   ///
   /// # Returns
   ///
-  /// Returns `ErrorCategory::Transient` for `Js` errors and `ErrorCategory::Permanent` for `Permanent` errors.
+  /// Returns `ErrorCategory::Transient` for `Js` errors (should be retried)
+  /// and `ErrorCategory::Permanent` for `Permanent` errors (should not be retried).
   fn classify_error(&self) -> ErrorCategory {
     match self {
       JsHandlerError::Js(_) => ErrorCategory::Transient,

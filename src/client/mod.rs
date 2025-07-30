@@ -121,9 +121,9 @@ impl NativeClient {
   #[napi(
     writable = false,
     ts_args_type = "eventHandler: { \
-      onMessage: (err: null | Error, context: Context, message: Message, otelContext: Record<string, string>) => Promise<void>; \
-      onTimer: (err: null | Error, context: Context, message: Timer, otelContext: Record<string, string>) => Promise<void>; \
-      isPermanent: (err: Error) => boolean \
+      onMessage: (err: null | Error, args: [Context, Message, Record<string, string>]) => Promise<void>; \
+      onTimer: (err: null | Error, args: [Context, Timer, Record<string, string>]) => Promise<void>; \
+      isPermanent: (args: [Error]) => boolean \
     }"
   )]
   pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
