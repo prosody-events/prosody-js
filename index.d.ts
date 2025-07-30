@@ -11,13 +11,13 @@ export { Configuration, ConsumerState, Context, Message, Timer, Mode };
 
 /**
  * JavaScript logger interface for use with Prosody client.
- * 
+ *
  * Each logging method receives a message string and optional metadata object.
  */
 export interface Logger {
   /** Function for logging error messages. */
   error: (message: string | undefined | null, metadata?: any) => void;
-  /** Function for logging warning messages. */  
+  /** Function for logging warning messages. */
   warn: (message: string | undefined | null, metadata?: any) => void;
   /** Function for logging informational messages. */
   info: (message: string | undefined | null, metadata?: any) => void;
@@ -119,7 +119,7 @@ export declare class ProsodyClient {
 
 /**
  * Initializes the logging system for the Prosody client.
- * 
+ *
  * This function sets up the tracing infrastructure and prepares the logging system
  * to accept JavaScript loggers. It should be called once during application startup
  * before any other logging operations.
@@ -128,14 +128,14 @@ export function initialize(): void;
 
 /**
  * Checks if a logger has been set in the logging system.
- * 
+ *
  * @returns True if a logger is currently configured, false otherwise.
  */
 export function loggerIsSet(): boolean;
 
 /**
  * Sets a new JavaScript logger for the Prosody client.
- * 
+ *
  * This function configures the logging system to use the provided JavaScript logger
  * for all log output. The logger must implement all required log levels.
  *
@@ -146,7 +146,7 @@ export function setLogger(logger: Logger): void;
 
 /**
  * Sets a JavaScript logger only if no logger is currently configured.
- * 
+ *
  * This function is useful for providing a default logger without overriding
  * an existing one that may have been set earlier.
  *
@@ -158,7 +158,7 @@ export function setLoggerIfUnset(logger: Logger): boolean;
 
 /**
  * Gets the current configured logger.
- * 
+ *
  * @returns The current logger instance, or null/undefined if no logger is configured.
  */
 export function getCurrentLogger(): Logger | null | undefined;

@@ -3,7 +3,7 @@ name: CI
 env:
   DEBUG: napi:*
   APP_NAME: prosody
-  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
@@ -137,8 +137,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -176,7 +176,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
@@ -192,7 +192,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           # Wait for Kafka
           echo "🔍 Checking Kafka..."
           for i in {1..60}; do
@@ -208,7 +208,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
       - name: Test bindings
         run: |
@@ -228,8 +228,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -269,7 +269,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
@@ -285,7 +285,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           # Wait for Kafka
           echo "🔍 Checking Kafka..."
           for i in {1..60}; do
@@ -301,7 +301,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
       - name: Test bindings
         run: |
@@ -321,8 +321,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -363,7 +363,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
@@ -379,7 +379,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           # Wait for Kafka
           echo "🔍 Checking Kafka..."
           for i in {1..60}; do
@@ -395,7 +395,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
       - name: Setup and run tests
         run: |
@@ -451,7 +451,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
@@ -467,7 +467,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           # Wait for Kafka
           echo "🔍 Checking Kafka..."
           for i in {1..60}; do
@@ -483,7 +483,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
       - name: Setup and run tests
         run: |
@@ -503,8 +503,8 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - "18"
+          - "20"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -544,7 +544,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
@@ -560,7 +560,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           # Wait for Kafka
           echo "🔍 Checking Kafka..."
           for i in {1..60}; do
@@ -576,7 +576,7 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
       - name: Setup and run tests
         run: |
@@ -610,19 +610,19 @@ jobs:
         with:
           name: bindings-x86_64-apple-darwin
           path: artifacts
-          pattern: '*.node'
+          pattern: "*.node"
       - name: Download macOS arm64 artifact
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
           path: artifacts
-          pattern: '*.node'
+          pattern: "*.node"
       - name: Download bindings js and types
         uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
           path: .
-          pattern: 'bindings.*'
+          pattern: "bindings.*"
       - name: Combine binaries
         run: yarn universal
       - name: Upload artifact
@@ -654,9 +654,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://npm.pkg.github.com'
+          registry-url: "https://npm.pkg.github.com"
           cache: yarn
-          scope: '@cincpro'
+          scope: "@cincpro"
       - name: Install dependencies
         run: yarn install
       - name: Download bindings js and types
@@ -664,7 +664,7 @@ jobs:
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
-          pattern: 'bindings.*'
+          pattern: "bindings.*"
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

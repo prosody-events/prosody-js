@@ -8,7 +8,7 @@ on:
       - main
   # Rerun periodically to pick up new advisories
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   # Run manually
   workflow_dispatch:
 env:
@@ -37,8 +37,7 @@ jobs:
           crate: sarif-fmt
       - uses: Swatinem/rust-cache@v2
       - name: Linting
-        run:
-          cargo clippy --all-features -- -D warnings
+        run: cargo clippy --all-features -- -D warnings
 #          cargo clippy --all-features --message-format=json -- -D warnings
 #          | clippy-sarif
 #          | tee results.sarif

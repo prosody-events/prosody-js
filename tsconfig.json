@@ -1,7 +1,5 @@
 {
   "compilerOptions": {
-    "types": [
-      "jest"
-    ]
+    "types": ["jest"]
   }
 }
