@@ -43,28 +43,41 @@ jobs:
       fail-fast: false
       matrix:
         settings:
+          # Native compilation for macOS
           - target: x86_64-apple-darwin
-            flags: '-x'
+            flags: ''
+            host: macos-latest
           - target: aarch64-apple-darwin
-            flags: '-x'
+            flags: ''
+            host: macos-latest
+          # Native compilation for Windows
           - target: x86_64-pc-windows-msvc
-            flags: '-x'
+            flags: ''
+            host: windows-latest
           - target: aarch64-pc-windows-msvc
-            flags: '-x'
+            flags: ''
+            host: windows-latest
+          # Cross-compilation for Linux (with fixes)
           - target: x86_64-unknown-linux-gnu
             flags: '--use-napi-cross'
+            host: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             flags: '--use-napi-cross'
+            host: ubuntu-latest
           - target: x86_64-unknown-linux-musl
             flags: '-x'
+            host: ubuntu-latest
           - target: aarch64-unknown-linux-musl
             flags: '-x'
+            host: ubuntu-latest
           - target: armv7-unknown-linux-gnueabihf
             flags: '--use-napi-cross'
+            host: ubuntu-latest
           - target: armv7-unknown-linux-musleabihf
             flags: '-x'
+            host: ubuntu-latest
     name: stable - ${{ matrix.settings.target }} - node@22
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
       - uses: de-vri-es/setup-git-credentials@v2
@@ -76,18 +89,36 @@ jobs:
           node-version: 22
           cache: yarn
       - uses: goto-bus-stop/setup-zig@v2
+        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
         with:
           version: 0.14.1
+      - name: Install system development libraries
+        if: matrix.settings.host == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev llvm
+      - name: Install aarch64 cross-compilation toolchain
+        if: contains(matrix.settings.target, 'aarch64') && contains(matrix.settings.target, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install armv7 cross-compilation toolchain
+        if: contains(matrix.settings.target, 'armv7') && contains(matrix.settings.target, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
       - name: Install cargo-xwin
+        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-xwin
       - name: Install cargo-zigbuild
+        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-zigbuild
@@ -105,6 +136,13 @@ jobs:
       - name: Build
         run: yarn build --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
         shell: bash
+        env:
+          CC_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && 'aarch64-linux-gnu-gcc' || '' }}
+          CC_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && 'arm-linux-gnueabihf-gcc' || '' }}
+          AR_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && 'aarch64-linux-gnu-ar' || '' }}
+          AR_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && 'arm-linux-gnueabihf-ar' || '' }}
+          CFLAGS_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && '-D__ARM_ARCH=8' || '' }}
+          CFLAGS_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && '-D__ARM_ARCH=7' || '' }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
