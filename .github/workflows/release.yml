@@ -57,7 +57,7 @@ jobs:
           - target: aarch64-pc-windows-msvc
             flags: ''
             host: windows-latest
-          # Cross-compilation for Linux (with fixes)
+          # Cross-compilation for Linux
           - target: x86_64-unknown-linux-gnu
             flags: '--use-napi-cross'
             host: ubuntu-latest
