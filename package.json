@@ -11,47 +11,45 @@
     "README.md"
   ],
   "napi": {
-    "name": "prosody",
-    "triples": {
-      "additional": [
-        "aarch64-apple-darwin",
-        "aarch64-unknown-linux-gnu",
-        "aarch64-unknown-linux-musl",
-        "aarch64-pc-windows-msvc",
-        "armv7-unknown-linux-gnueabihf",
-        "armv7-unknown-linux-musleabihf",
-        "x86_64-unknown-linux-musl",
-        "universal-apple-darwin"
-      ]
-    }
+    "binaryName": "prosody",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu"
+    ]
   },
   "license": "UNLICENSED",
   "dependencies": {
     "@opentelemetry/api": "^1.9.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.27.4",
-    "@babel/plugin-proposal-decorators": "^7.27.1",
-    "@babel/preset-env": "^7.27.2",
-    "@napi-rs/cli": "^2.18.4",
-    "@opentelemetry/auto-instrumentations-node": "^0.60.1",
+    "@babel/core": "^7.28.0",
+    "@babel/plugin-proposal-decorators": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "@napi-rs/cli": "^3.0.4",
+    "@opentelemetry/auto-instrumentations-node": "^0.62.0",
     "@opentelemetry/sdk-metrics": "^2.0.1",
-    "@opentelemetry/sdk-node": "^0.202.0",
+    "@opentelemetry/sdk-node": "^0.203.0",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
     "@opentelemetry/sdk-trace-node": "^2.0.1",
-    "jest": "^30.0.0",
-    "prettier": "^3.5.3"
+    "jest": "^30.0.5",
+    "prettier": "^3.6.2",
+    "yarn-upgrade-all": "^0.7.5"
   },
   "engines": {
-    "node": ">= 10"
+    "node": ">= 20"
   },
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "napi build --js bindings.js --dts bindings.d.ts --platform --no-const-enum --release",
     "build:debug": "napi build --js bindings.js --dts bindings.d.ts --platform --no-const-enum",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
     "test": "yarn run jest",
-    "universal": "napi universal",
+    "universal": "napi universalize",
     "version": "napi version"
   },
   "packageManager": "yarn@4.4.0",

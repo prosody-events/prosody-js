@@ -10,7 +10,9 @@ const {
   ConsumerState,
   Context,
   initialize,
+  loggerIsSet,
   setLogger: setLoggerInternal,
+  setLoggerIfUnset: setLoggerIfUnsetInternal,
 } = require("./bindings");
 
 const defaultLogger = {
@@ -21,22 +23,70 @@ const defaultLogger = {
   trace: (message, metadata) => console.debug(message, metadata),
 };
 
-initialize(defaultLogger);
+// Keep reference to current logger for use in handlers
+let currentLogger = defaultLogger;
+
+function transformLogger(logger) {
+  return {
+    info: ([msg, meta]) => logger.info(msg, meta),
+    error: ([msg, meta]) => logger.error(msg, meta),
+    debug: ([msg, meta]) => logger.debug(msg, meta),
+    warn: ([msg, meta]) => logger.warn(msg, meta),
+    trace: ([msg, meta]) => logger.trace(msg, meta),
+  };
+}
 
 /**
- * Sets a new JavaScript logger.
+ * Gets the current configured logger.
+ * @returns {Logger|null|undefined} The current logger instance, or null/undefined if no logger is configured.
+ */
+function getCurrentLogger() {
+  return currentLogger;
+}
+
+initialize();
+setLoggerIfUnset(defaultLogger);
+
+/**
+ * Sets a new JavaScript logger for the Prosody client.
  *
- * @param logger - The new JavaScript logger to set.
- * @throws Error if creating the new JavaScript logger fails.
+ * This function configures the logging system to use the provided JavaScript logger
+ * for all log output. The logger must implement all required log levels.
+ *
+ * @param {Object} logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @param {Function} logger.error - Function for logging error messages. Called with (message, metadata).
+ * @param {Function} logger.warn - Function for logging warning messages. Called with (message, metadata).
+ * @param {Function} logger.info - Function for logging informational messages. Called with (message, metadata).
+ * @param {Function} logger.debug - Function for logging debug messages. Called with (message, metadata).
+ * @param {Function} logger.trace - Function for logging trace messages. Called with (message, metadata).
+ * @throws {Error} If creating the new JavaScript logger fails.
  */
 function setLogger(logger) {
-  setLoggerInternal({
-    info: (msg, meta) => logger.info(msg, meta),
-    error: (msg, meta) => logger.error(msg, meta),
-    debug: (msg, meta) => logger.debug(msg, meta),
-    warn: (msg, meta) => logger.warn(msg, meta),
-    trace: (msg, meta) => logger.trace(msg, meta),
-  });
+  currentLogger = logger;
+  setLoggerInternal(transformLogger(logger));
+}
+
+/**
+ * Sets a JavaScript logger only if no logger is currently configured.
+ *
+ * This function is useful for providing a default logger without overriding
+ * an existing one that may have been set earlier.
+ *
+ * @param {Object} logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @param {Function} logger.error - Function for logging error messages. Called with (message, metadata).
+ * @param {Function} logger.warn - Function for logging warning messages. Called with (message, metadata).
+ * @param {Function} logger.info - Function for logging informational messages. Called with (message, metadata).
+ * @param {Function} logger.debug - Function for logging debug messages. Called with (message, metadata).
+ * @param {Function} logger.trace - Function for logging trace messages. Called with (message, metadata).
+ * @returns {boolean} True if the logger was set (no previous logger existed), false if a logger was already configured.
+ * @throws {Error} If creating the new JavaScript logger fails.
+ */
+function setLoggerIfUnset(logger) {
+  const wasSet = setLoggerIfUnsetInternal(transformLogger(logger));
+  if (wasSet) {
+    currentLogger = logger;
+  }
+  return wasSet;
 }
 
 class ProsodyClient {
@@ -72,8 +122,8 @@ class ProsodyClient {
   async subscribe(eventHandler) {
     const tracer = trace.getTracer("prosody");
     const {
-      onMessage = (context, message, signal) => {
-        console.error(
+      onMessage = (context, message, _signal) => {
+        getCurrentLogger()?.error(
           "ProsodyClient: Received a message but no onMessage handler was " +
             "provided in subscribe(). To handle messages, implement the onMessage " +
             "method in your EventHandler:",
@@ -88,8 +138,8 @@ class ProsodyClient {
           },
         );
       },
-      onTimer = (context, timer, signal) => {
-        console.error(
+      onTimer = (context, timer, _signal) => {
+        getCurrentLogger()?.error(
           "ProsodyClient: Received a timer event but no onTimer handler was " +
             "provided in subscribe(). To handle timers, implement the onTimer " +
             "method in your EventHandler:",
@@ -105,7 +155,7 @@ class ProsodyClient {
     } = eventHandler;
 
     await this.nativeClient.subscribe({
-      isPermanent: (err) => {
+      isPermanent: ([err]) => {
         try {
           return err instanceof EventHandlerError && err.isPermanent;
         } catch {
@@ -113,7 +163,7 @@ class ProsodyClient {
         }
       },
 
-      onMessage: async (err, context, message, carrier) => {
+      onMessage: async (err, [context, message, carrier]) => {
         if (err) throw err;
 
         // Create a new context from the record
@@ -138,6 +188,7 @@ class ProsodyClient {
             // process message
             await onMessage(context, message, controller.signal);
           } catch (error) {
+            getCurrentLogger()?.error("Message handler error", error);
             span.recordException(error);
             throw error;
           } finally {
@@ -146,7 +197,7 @@ class ProsodyClient {
         });
       },
 
-      onTimer: async (err, context, timer, carrier) => {
+      onTimer: async (err, [context, timer, carrier]) => {
         if (err) throw err;
 
         // Create a new context from the record
@@ -171,6 +222,7 @@ class ProsodyClient {
             // process timer
             await onTimer(context, timer, controller.signal);
           } catch (error) {
+            getCurrentLogger()?.error("Timer handler error", error);
             span.recordException(error);
             throw error;
           } finally {
@@ -274,7 +326,11 @@ module.exports = {
   PermanentError,
   ProsodyClient,
   TransientError,
+  getCurrentLogger,
+  initialize,
+  loggerIsSet,
   permanent,
   setLogger,
+  setLoggerIfUnset,
   transient,
 };

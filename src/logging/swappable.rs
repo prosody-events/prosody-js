@@ -20,6 +20,17 @@ pub struct SwappableLogger {
 }
 
 impl SwappableLogger {
+  pub fn is_set(&self) -> bool {
+    self.inner.load().is_some()
+  }
+
+  pub fn set_logger_if_unset(&self, logger: JsLogger) -> bool {
+    self
+      .inner
+      .compare_and_swap(&None::<Arc<_>>, Some(Arc::new(logger)))
+      .is_none()
+  }
+
   /// Sets the current logger to the provided `JsLogger`.
   ///
   /// # Arguments
@@ -29,8 +40,9 @@ impl SwappableLogger {
     self.inner.store(Some(Arc::new(logger)));
   }
 
-  /// Clears the current logger, effectively disabling logging.
-  pub fn clear_logger(&self) {
+  /// Shuts down the current logger and cleans up resources.
+  /// This should be called when Node.js is shutting down.
+  pub fn shutdown_logger(&self) {
     self.inner.store(None);
   }
 }

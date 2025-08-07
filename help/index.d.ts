@@ -5,77 +5,77 @@
 
 export interface Configuration {
   /** Kafka servers for initial connection */
-  bootstrapServers?: string | Array<string>
+  bootstrapServers?: string | Array<string>;
   /** Use mock client for testing if true */
-  mock?: boolean
+  mock?: boolean;
   /** Timeout for message send operations */
-  sendTimeoutMs?: number
+  sendTimeoutMs?: number;
   /** Consumer group name */
-  groupId?: string
+  groupId?: string;
   /** Topics to subscribe to */
-  subscribedTopics?: string | Array<string>
+  subscribedTopics?: string | Array<string>;
   /** Max number of uncommitted messages */
-  maxUncommitted?: number
+  maxUncommitted?: number;
   /** Max enqueued messages per key */
-  maxEnqueuedPerKey?: number
+  maxEnqueuedPerKey?: number;
   /**
    * Timeout for partition shutdown. During partition revocation, tasks are given 80% of this time
    * to finish before being cancelled. The remaining 20% is used to wait for the cancellation hooks
    * to complete.
    */
-  partitionShutdownTimeoutMs?: number
+  partitionShutdownTimeoutMs?: number;
   /** Time between message polls */
-  pollIntervalMs?: number
+  pollIntervalMs?: number;
   /** Time between offset commits */
-  commitIntervalMs?: number
+  commitIntervalMs?: number;
   /** Operating mode */
-  mode?: Mode
+  mode?: Mode;
   /** Initial delay for exponential backoff in retries */
-  retryBaseMs?: number
+  retryBaseMs?: number;
   /** Maximum number of retries */
-  maxRetries?: number
+  maxRetries?: number;
   /** Maximum delay between retries */
-  maxRetryDelayMs?: number
+  maxRetryDelayMs?: number;
   /** Topic for failed messages in low-latency mode */
-  failureTopic?: string
+  failureTopic?: string;
 }
 export const enum Mode {
   /** Pipeline mode for standard processing. */
-  Pipeline = 'Pipeline',
+  Pipeline = "Pipeline",
   /** Low-latency mode for faster processing with potential trade-offs. */
-  LowLatency = 'LowLatency'
+  LowLatency = "LowLatency",
 }
 /** Current state of the consumer. */
 export const enum ConsumerState {
   /** The consumer is not yet configured */
-  Unconfigured = 'Unconfigured',
+  Unconfigured = "Unconfigured",
   /** The consumer is configured but not running */
-  Configured = 'Configured',
+  Configured = "Configured",
   /** The consumer is actively running */
-  Running = 'Running'
+  Running = "Running",
 }
 export interface EventHandler {
-  onMessage: (context: Context, message: Message) => Promise<void>
+  onMessage: (context: Context, message: Message) => Promise<void>;
 }
 export interface Message {
   /** The name of the topic */
-  topic: string
+  topic: string;
   /** The partition number */
-  partition: number
+  partition: number;
   /** The message offset within the partition */
-  offset: number
+  offset: number;
   /** The timestamp when the message was created or sent */
-  timestamp: Date
+  timestamp: Date;
   /** The message key */
-  key: string
+  key: string;
   /** The message payload as a JSON-serializable value */
-  payload: any
+  payload: any;
 }
 export declare class ProsodyClient {
-  constructor(config: Configuration)
-  get consumerState(): ConsumerState
-  send(topic: string, key: string, payload: any): Promise<void>
-  subscribe(eventHandler: EventHandler): void
-  unsubscribe(): Promise<void>
+  constructor(config: Configuration);
+  get consumerState(): ConsumerState;
+  send(topic: string, key: string, payload: any): Promise<void>;
+  subscribe(eventHandler: EventHandler): void;
+  unsubscribe(): Promise<void>;
 }
-export declare class Context { }
+export declare class Context {}

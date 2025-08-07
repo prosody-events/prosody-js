@@ -10,7 +10,7 @@ use napi_derive::napi;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::datetime::CompactDateTime;
 
-/// Wrapper around MessageContext for use in Node.js bindings.
+/// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
 pub struct Context {
   context: BoxEventContext,

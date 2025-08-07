@@ -24,13 +24,13 @@ const sdk = new NodeSDK({
 sdk.start();
 
 // Handle unhandled promise rejections in CI environments
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
   // Don't exit the process in tests, just log the error
 });
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
   // Don't exit the process in tests, just log the error
 });
 
@@ -43,8 +43,7 @@ const GROUP_NAME = "test-group";
 const SOURCE_NAME = "test-source";
 const BOOTSTRAP_SERVERS =
   process.env.PROSODY_BOOTSTRAP_SERVERS || "localhost:9094";
-const CASSANDRA_NODES =
-  process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
+const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
 
@@ -62,7 +61,7 @@ const waitForMessages = (stream, count, timeout) =>
   new Promise((resolve, reject) => {
     const messages = [];
     let resolved = false;
-    
+
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
@@ -101,7 +100,11 @@ describe("ProsodyClient", () => {
     return { testEvents, timerDelayMs, toleranceMs };
   };
 
-  const createBasicTimerHandler = (testEvents, customOnMessage = null, customOnTimer = null) => {
+  const createBasicTimerHandler = (
+    testEvents,
+    customOnMessage = null,
+    customOnTimer = null,
+  ) => {
     return class TimerHandler {
       async onMessage(context, message) {
         testEvents.emit("messageReceived", { context, message });
@@ -111,7 +114,11 @@ describe("ProsodyClient", () => {
       }
 
       async onTimer(context, timer) {
-        testEvents.emit("timerFired", { context, timer, actualTime: new Date() });
+        testEvents.emit("timerFired", {
+          context,
+          timer,
+          actualTime: new Date(),
+        });
         if (customOnTimer) {
           await customOnTimer(context, timer);
         }
@@ -128,7 +135,11 @@ describe("ProsodyClient", () => {
     return testMessage;
   };
 
-  const expectTimerApproximatelyEqual = (timerTime, expectedTime, toleranceMs = 1000) => {
+  const expectTimerApproximatelyEqual = (
+    timerTime,
+    expectedTime,
+    toleranceMs = 1000,
+  ) => {
     // Account for timer precision - round both times to seconds
     const timerSeconds = Math.floor(timerTime.getTime() / 1000);
     const expectedSeconds = Math.floor(expectedTime.getTime() / 1000);
@@ -152,7 +163,7 @@ describe("ProsodyClient", () => {
           sourceSystem: SOURCE_NAME,
           subscribedTopics: topic,
           probePort: null,
-          mode: Mode.Pipeline,          
+          mode: Mode.Pipeline,
           cassandraNodes: CASSANDRA_NODES,
           cassandraKeyspace: CASSANDRA_KEYSPACE,
         });
@@ -171,15 +182,15 @@ describe("ProsodyClient", () => {
         await client.unsubscribe();
       }
     } catch (err) {
-      console.error('Error during client cleanup:', err);
+      console.error("Error during client cleanup:", err);
     }
-    
+
     try {
       if (topic) {
         await admin.deleteTopic(topic);
       }
     } catch (err) {
-      console.error('Error deleting topic:', err);
+      console.error("Error deleting topic:", err);
     }
   });
 
@@ -190,13 +201,13 @@ describe("ProsodyClient", () => {
         admin = null;
       }
     } catch (err) {
-      console.error('Error cleaning up admin client:', err);
+      console.error("Error cleaning up admin client:", err);
     }
-    
+
     try {
       await sdk.shutdown();
     } catch (err) {
-      console.error('Error shutting down OpenTelemetry SDK:', err);
+      console.error("Error shutting down OpenTelemetry SDK:", err);
     }
   });
 
@@ -370,7 +381,6 @@ describe("ProsodyClient", () => {
     );
   });
 
-
   it("handles transient errors with retry", async () => {
     return tracer.startActiveSpan("test.transient_error", async (span) => {
       try {
@@ -438,14 +448,18 @@ describe("ProsodyClient", () => {
   it("schedules and fires timers at correct time", async () => {
     return tracer.startActiveSpan("test.timer_scheduling", async (span) => {
       try {
-        const { testEvents, timerDelayMs, toleranceMs } = createTimerTestSetup();
+        const { testEvents, timerDelayMs, toleranceMs } =
+          createTimerTestSetup();
         let scheduledTime;
 
-        const TimerHandler = createBasicTimerHandler(testEvents, async (context, message) => {
-          scheduledTime = new Date(Date.now() + timerDelayMs);
-          await context.schedule(scheduledTime);
-          testEvents.emit("timerScheduled", scheduledTime);
-        });
+        const TimerHandler = createBasicTimerHandler(
+          testEvents,
+          async (context, message) => {
+            scheduledTime = new Date(Date.now() + timerDelayMs);
+            await context.schedule(scheduledTime);
+            testEvents.emit("timerScheduled", scheduledTime);
+          },
+        );
 
         await client.subscribe(new TimerHandler());
         const testMessage = await sendTestMessage();
@@ -455,7 +469,11 @@ describe("ProsodyClient", () => {
 
         expect(scheduledTime).toBeDefined();
 
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
+        const [timerResult] = await waitForEvent(
+          testEvents,
+          "timerFired",
+          timerDelayMs + 5000,
+        );
         const { timer, actualTime } = timerResult;
 
         expect(timer.key).toBe(testMessage.key);
@@ -475,20 +493,24 @@ describe("ProsodyClient", () => {
         let secondScheduledTime;
         let timerCount = 0;
 
-        const TimerHandler = createBasicTimerHandler(testEvents, async (context, message) => {
-          // Schedule first timer (4 seconds from now)
-          firstScheduledTime = new Date(Date.now() + timerDelayMs * 2);
-          await context.schedule(firstScheduledTime);
-          testEvents.emit("firstTimerScheduled");
+        const TimerHandler = createBasicTimerHandler(
+          testEvents,
+          async (context, message) => {
+            // Schedule first timer (4 seconds from now)
+            firstScheduledTime = new Date(Date.now() + timerDelayMs * 2);
+            await context.schedule(firstScheduledTime);
+            testEvents.emit("firstTimerScheduled");
 
-          // Clear and schedule a new timer (2 seconds from now - sooner)
-          secondScheduledTime = new Date(Date.now() + timerDelayMs);
-          await context.clearAndSchedule(secondScheduledTime);
-          testEvents.emit("secondTimerScheduled");
-        }, async (context, timer) => {
-          timerCount++;
-          testEvents.emit("timerFired", { timer, timerCount });
-        });
+            // Clear and schedule a new timer (2 seconds from now - sooner)
+            secondScheduledTime = new Date(Date.now() + timerDelayMs);
+            await context.clearAndSchedule(secondScheduledTime);
+            testEvents.emit("secondTimerScheduled");
+          },
+          async (context, timer) => {
+            timerCount++;
+            testEvents.emit("timerFired", { timer, timerCount });
+          },
+        );
 
         await client.subscribe(new TimerHandler());
         await sendTestMessage();
@@ -497,7 +519,11 @@ describe("ProsodyClient", () => {
         await waitForEvent(testEvents, "secondTimerScheduled", MESSAGE_TIMEOUT);
 
         // Wait for timer to fire - only the second one should fire
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
+        const [timerResult] = await waitForEvent(
+          testEvents,
+          "timerFired",
+          timerDelayMs + 5000,
+        );
         const { timer } = timerResult;
 
         expect(timerCount).toBe(1); // Only one timer should have fired
@@ -517,32 +543,44 @@ describe("ProsodyClient", () => {
         let timerCount = 0;
 
         // Use different keys to avoid upsert behavior, and ensure full second separation
-        const TimerHandler = createBasicTimerHandler(testEvents, async (context, message) => {
-          // Schedule two timers with different times (2 and 4 seconds from now)
-          firstScheduledTime = new Date(Date.now() + timerDelayMs); // 2 seconds
-          secondScheduledTime = new Date(Date.now() + timerDelayMs * 2); // 4 seconds
-          
-          await context.schedule(firstScheduledTime);
-          await context.schedule(secondScheduledTime);
-          testEvents.emit("timersScheduled");
+        const TimerHandler = createBasicTimerHandler(
+          testEvents,
+          async (context, message) => {
+            // Schedule two timers with different times (2 and 4 seconds from now)
+            firstScheduledTime = new Date(Date.now() + timerDelayMs); // 2 seconds
+            secondScheduledTime = new Date(Date.now() + timerDelayMs * 2); // 4 seconds
 
-          // Unschedule the first timer
-          await context.unschedule(firstScheduledTime);
-          testEvents.emit("firstTimerUnscheduled");
-        }, async (context, timer) => {
-          timerCount++;
-          testEvents.emit("timerFired", { timer, timerCount });
-        });
+            await context.schedule(firstScheduledTime);
+            await context.schedule(secondScheduledTime);
+            testEvents.emit("timersScheduled");
+
+            // Unschedule the first timer
+            await context.unschedule(firstScheduledTime);
+            testEvents.emit("firstTimerUnscheduled");
+          },
+          async (context, timer) => {
+            timerCount++;
+            testEvents.emit("timerFired", { timer, timerCount });
+          },
+        );
 
         await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
         await waitForEvent(testEvents, "timersScheduled", MESSAGE_TIMEOUT);
-        await waitForEvent(testEvents, "firstTimerUnscheduled", MESSAGE_TIMEOUT);
+        await waitForEvent(
+          testEvents,
+          "firstTimerUnscheduled",
+          MESSAGE_TIMEOUT,
+        );
 
         // Wait for remaining timer to fire (should be the second one)
         const maxWaitTime = timerDelayMs * 2 + 5000;
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", maxWaitTime);
+        const [timerResult] = await waitForEvent(
+          testEvents,
+          "timerFired",
+          maxWaitTime,
+        );
         const { timer } = timerResult;
 
         expect(timerCount).toBe(1); // Only second timer should fire
@@ -559,26 +597,30 @@ describe("ProsodyClient", () => {
         const { testEvents, timerDelayMs } = createTimerTestSetup();
         let timerCount = 0;
 
-        const TimerHandler = createBasicTimerHandler(testEvents, async (context, message) => {
-          // Schedule multiple timers with full second separation
-          // Each timer is for a different second, so all would normally be kept
-          // But we'll clear them all to test clearScheduled()
-          const time1 = new Date(Date.now() + timerDelayMs); // 2 seconds
-          const time2 = new Date(Date.now() + timerDelayMs + 1000); // 3 seconds  
-          const time3 = new Date(Date.now() + timerDelayMs + 2000); // 4 seconds
-          
-          await context.schedule(time1);
-          await context.schedule(time2);
-          await context.schedule(time3);
-          testEvents.emit("timersScheduled");
+        const TimerHandler = createBasicTimerHandler(
+          testEvents,
+          async (context, message) => {
+            // Schedule multiple timers with full second separation
+            // Each timer is for a different second, so all would normally be kept
+            // But we'll clear them all to test clearScheduled()
+            const time1 = new Date(Date.now() + timerDelayMs); // 2 seconds
+            const time2 = new Date(Date.now() + timerDelayMs + 1000); // 3 seconds
+            const time3 = new Date(Date.now() + timerDelayMs + 2000); // 4 seconds
 
-          // Clear all timers
-          await context.clearScheduled();
-          testEvents.emit("allTimersCleared");
-        }, async (context, timer) => {
-          timerCount++;
-          testEvents.emit("timerFired");
-        });
+            await context.schedule(time1);
+            await context.schedule(time2);
+            await context.schedule(time3);
+            testEvents.emit("timersScheduled");
+
+            // Clear all timers
+            await context.clearScheduled();
+            testEvents.emit("allTimersCleared");
+          },
+          async (context, timer) => {
+            timerCount++;
+            testEvents.emit("timerFired");
+          },
+        );
 
         await client.subscribe(new TimerHandler());
         await sendTestMessage();
@@ -587,7 +629,9 @@ describe("ProsodyClient", () => {
         await waitForEvent(testEvents, "allTimersCleared", MESSAGE_TIMEOUT);
 
         // Wait longer than all timers would have fired
-        await new Promise(resolve => setTimeout(resolve, timerDelayMs + 3000));
+        await new Promise((resolve) =>
+          setTimeout(resolve, timerDelayMs + 3000),
+        );
 
         expect(timerCount).toBe(0); // No timers should have fired
       } finally {
@@ -602,35 +646,50 @@ describe("ProsodyClient", () => {
         const { testEvents, timerDelayMs } = createTimerTestSetup();
         let scheduledTimes;
 
-        const TimerHandler = createBasicTimerHandler(testEvents, async (context, message) => {
-          // Schedule multiple timers with full second separation
-          // Since each timer is for a different second, all should be kept
-          // (timers are keyed by message key + time rounded to seconds)
-          const time1 = new Date(Date.now() + timerDelayMs); // 2 seconds
-          const time2 = new Date(Date.now() + timerDelayMs + 1000); // 3 seconds  
-          const time3 = new Date(Date.now() + timerDelayMs + 2000); // 4 seconds
-          
-          await context.schedule(time1);
-          await context.schedule(time2);
-          await context.schedule(time3);
+        const TimerHandler = createBasicTimerHandler(
+          testEvents,
+          async (context, message) => {
+            // Schedule multiple timers with full second separation
+            // Since each timer is for a different second, all should be kept
+            // (timers are keyed by message key + time rounded to seconds)
+            const time1 = new Date(Date.now() + timerDelayMs); // 2 seconds
+            const time2 = new Date(Date.now() + timerDelayMs + 1000); // 3 seconds
+            const time3 = new Date(Date.now() + timerDelayMs + 2000); // 4 seconds
 
-          // Get scheduled times
-          scheduledTimes = await context.scheduled();
-          testEvents.emit("scheduledRetrieved", { scheduledTimes, expectedTimes: [time1, time2, time3] });
-        });
+            await context.schedule(time1);
+            await context.schedule(time2);
+            await context.schedule(time3);
+
+            // Get scheduled times
+            scheduledTimes = await context.scheduled();
+            testEvents.emit("scheduledRetrieved", {
+              scheduledTimes,
+              expectedTimes: [time1, time2, time3],
+            });
+          },
+        );
 
         await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
-        const [retrievalResult] = await waitForEvent(testEvents, "scheduledRetrieved", MESSAGE_TIMEOUT);
-        const { scheduledTimes: retrievedTimes, expectedTimes } = retrievalResult;
+        const [retrievalResult] = await waitForEvent(
+          testEvents,
+          "scheduledRetrieved",
+          MESSAGE_TIMEOUT,
+        );
+        const { scheduledTimes: retrievedTimes, expectedTimes } =
+          retrievalResult;
 
         // All scheduled timers should be returned
         expect(retrievedTimes).toHaveLength(3);
-        
+
         // Sort both arrays for comparison (scheduled() might return in different order)
-        const sortedRetrieved = retrievedTimes.sort((a, b) => a.getTime() - b.getTime());
-        const sortedExpected = expectedTimes.sort((a, b) => a.getTime() - b.getTime());
+        const sortedRetrieved = retrievedTimes.sort(
+          (a, b) => a.getTime() - b.getTime(),
+        );
+        const sortedExpected = expectedTimes.sort(
+          (a, b) => a.getTime() - b.getTime(),
+        );
 
         sortedExpected.forEach((expectedTime, index) => {
           expectTimerApproximatelyEqual(sortedRetrieved[index], expectedTime);
@@ -651,18 +710,21 @@ describe("ProsodyClient", () => {
         class TimerHandler {
           async onMessage(context, message) {
             testEvents.emit("messageReceived", { context, message });
-            
+
             // Schedule multiple timers at the exact same time (same second)
             // Due to upsert behavior (one timer per key per second), only one should remain
             const sameTime = new Date(Date.now() + timerDelayMs);
-            
+
             await context.schedule(sameTime);
             await context.schedule(sameTime); // This should replace the first one
             await context.schedule(sameTime); // This should replace the second one
 
             // Get scheduled times to verify only one remains
             scheduledTimes = await context.scheduled();
-            testEvents.emit("scheduledRetrieved", { scheduledTimes, expectedTime: sameTime });
+            testEvents.emit("scheduledRetrieved", {
+              scheduledTimes,
+              expectedTime: sameTime,
+            });
           }
 
           async onTimer(context, timer) {
@@ -674,16 +736,25 @@ describe("ProsodyClient", () => {
         await client.subscribe(new TimerHandler());
         await sendTestMessage();
 
-        const [retrievalResult] = await waitForEvent(testEvents, "scheduledRetrieved", MESSAGE_TIMEOUT);
-        const { scheduledTimes: retrievedTimes, expectedTime } = retrievalResult;
+        const [retrievalResult] = await waitForEvent(
+          testEvents,
+          "scheduledRetrieved",
+          MESSAGE_TIMEOUT,
+        );
+        const { scheduledTimes: retrievedTimes, expectedTime } =
+          retrievalResult;
 
         // Due to upsert behavior, only one timer should remain
         expect(retrievedTimes).toHaveLength(1);
         expectTimerApproximatelyEqual(retrievedTimes[0], expectedTime);
 
         // Wait for the timer to fire
-        const [timerResult] = await waitForEvent(testEvents, "timerFired", timerDelayMs + 5000);
-        
+        const [timerResult] = await waitForEvent(
+          testEvents,
+          "timerFired",
+          timerDelayMs + 5000,
+        );
+
         // Only one timer should have fired due to upsert behavior
         expect(timerResult.timerCount).toBe(1);
       } finally {
@@ -696,7 +767,7 @@ describe("ProsodyClient", () => {
 const waitForEvent = (emitter, eventName, timeout) => {
   return new Promise((resolve, reject) => {
     let resolved = false;
-    
+
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;

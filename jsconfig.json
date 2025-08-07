@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
     "checkJs": true,
-    "types": [
-      "jest"
-    ]
+    "types": ["jest"]
   }
 }

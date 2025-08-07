@@ -5,14 +5,21 @@
 
 use crate::logging::js::JsLogger;
 use crate::logging::swappable::SwappableLogger;
-use napi::{Env, JsFunction};
+use napi::Env;
+use napi::bindgen_prelude::Function;
+use napi::bindgen_prelude::within_runtime_if_available;
 use napi_derive::napi;
 use prosody::tracing::initialize_tracing;
+use serde_json::Value;
 use std::sync::{LazyLock, Once};
 use tracing::error;
 
 pub mod js;
 pub mod swappable;
+
+/// Type alias for the arguments passed to JavaScript logging functions.
+#[napi]
+pub type LogArgs = (Option<String>, Value);
 
 /// Global swappable logger instance.
 static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
@@ -21,55 +28,45 @@ static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::defaul
  * JavaScript-compatible logger structure.
  */
 #[napi(object)]
-pub struct Logger {
+pub struct Logger<'a> {
   /// Function for logging error messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub error: JsFunction,
+  pub error: Function<'a, LogArgs, ()>,
 
   /// Function for logging warning messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub warn: JsFunction,
+  pub warn: Function<'a, LogArgs, ()>,
 
   /// Function for logging informational messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub info: JsFunction,
+  pub info: Function<'a, LogArgs, ()>,
 
   /// Function for logging debug messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub debug: JsFunction,
+  pub debug: Function<'a, LogArgs, ()>,
 
   /// Function for logging trace messages.
-  #[napi(ts_type = "(message: string, metadata?: Record<string, any>) => void")]
-  pub trace: JsFunction,
+  pub trace: Function<'a, LogArgs, ()>,
 }
 
 /**
- * Initializes the logging system with a JavaScript logger.
+ * Initializes the logging system for the Prosody client.
  *
- * @param logger - The JavaScript logger to use.
+ * This function sets up the tracing infrastructure and prepares the logging system
+ * to accept JavaScript loggers. It should be called once during application startup
+ * before any other logging operations.
  */
+#[allow(clippy::needless_pass_by_value)]
 #[napi]
-pub fn initialize(mut env: Env, logger: Logger) {
+pub fn initialize(env: Env) {
   // Only initialize once
   static INIT: Once = Once::new();
 
   INIT.call_once(|| {
-    // Set up the JavaScript logger
-    match JsLogger::new(env, logger) {
-      Ok(logger) => LOGGER.set_logger(logger),
-      Err(error) => {
-        error!("failed to initialize logger: {error:#}");
-      }
-    }
-
     // Initialize tracing with the global logger
-    if let Err(error) = initialize_tracing(Some(LOGGER.clone())) {
+    if let Err(error) = within_runtime_if_available(|| initialize_tracing(Some(LOGGER.clone()))) {
       error!("failed to initialize tracing: {error:#}");
     }
 
-    // Add a cleanup hook to clear the logger when the environment is destroyed
+    // Add a cleanup hook to shutdown the logger when the environment is destroyed
     if let Err(error) = env.add_env_cleanup_hook((), |()| {
-      LOGGER.clear_logger();
+      LOGGER.shutdown_logger();
     }) {
       error!("failed to attach environment cleanup hook: {error:#}");
     }
@@ -77,13 +74,56 @@ pub fn initialize(mut env: Env, logger: Logger) {
 }
 
 /**
- * Sets a new JavaScript logger.
+ * Checks if a logger has been set in the logging system.
  *
- * @param logger - The new JavaScript logger to set.
- * @throws Error if creating the new JavaScript logger fails.
+ * @returns True if a logger is currently configured, false otherwise.
  */
 #[napi]
-pub fn set_logger(env: Env, logger: Logger) -> napi::Result<()> {
-  LOGGER.set_logger(JsLogger::new(env, logger)?);
+pub fn logger_is_set() -> bool {
+  LOGGER.is_set()
+}
+
+/**
+ * Sets a new JavaScript logger for the Prosody client.
+ *
+ * This function configures the logging system to use the provided JavaScript logger
+ * for all log output. The logger must implement all required log levels.
+ *
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @throws Error if creating the new JavaScript logger fails.
+ */
+#[allow(clippy::needless_pass_by_value)]
+#[napi]
+pub fn set_logger(logger: Logger) -> napi::Result<()> {
+  LOGGER.set_logger(JsLogger::new(&logger)?);
   Ok(())
+}
+
+/**
+ * Sets a JavaScript logger only if no logger is currently configured.
+ *
+ * This function is useful for providing a default logger without overriding
+ * an existing one that may have been set earlier.
+ *
+ * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+ * @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
+ * @throws Error if creating the new JavaScript logger fails.
+ */
+#[allow(clippy::needless_pass_by_value)]
+#[napi]
+pub fn set_logger_if_unset(logger: Logger) -> napi::Result<bool> {
+  Ok(LOGGER.set_logger_if_unset(JsLogger::new(&logger)?))
+}
+
+/// Internal function to shut down the current logger and clean up all resources.
+///
+/// This function should be called when the Node.js process is shutting down
+/// to ensure `ThreadsafeFunction` instances are properly cleaned up and prevent
+/// potential memory leaks or hanging processes.
+///
+/// Note: This function is not exposed to JavaScript as it's handled internally
+/// by the environment cleanup hook.
+#[allow(dead_code)]
+fn shutdown_logger() {
+  LOGGER.shutdown_logger();
 }
