@@ -29,7 +29,7 @@ pub struct NativeClient {
 #[napi]
 impl NativeClient {
   /**
-   * Creates a new NativeClient instance.
+   * Creates a new `NativeClient` instance.
    *
    * @param config - The configuration for the client.
    * @throws Error if the client creation fails.

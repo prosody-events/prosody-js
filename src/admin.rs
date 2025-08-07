@@ -18,7 +18,7 @@ pub struct AdminClient {
 #[napi]
 impl AdminClient {
   /**
-   * Creates a new AdminClient instance.
+   * Creates a new `AdminClient` instance.
    *
    * @param bootstrapServers - A single server address or an array of server addresses to connect to.
    * @throws Error if the client cannot be created.
