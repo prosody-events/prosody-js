@@ -7,6 +7,7 @@ use crate::logging::js::JsLogger;
 use crate::logging::swappable::SwappableLogger;
 use napi::Env;
 use napi::bindgen_prelude::Function;
+use napi::bindgen_prelude::within_runtime_if_available;
 use napi_derive::napi;
 use prosody::tracing::initialize_tracing;
 use serde_json::Value;
@@ -59,7 +60,7 @@ pub fn initialize(env: Env) {
 
   INIT.call_once(|| {
     // Initialize tracing with the global logger
-    if let Err(error) = initialize_tracing(Some(LOGGER.clone())) {
+    if let Err(error) = within_runtime_if_available(|| initialize_tracing(Some(LOGGER.clone()))) {
       error!("failed to initialize tracing: {error:#}");
     }
 
