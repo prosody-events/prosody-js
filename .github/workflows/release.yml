@@ -43,115 +43,114 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          # Native compilation for macOS
-          - target: x86_64-apple-darwin
-            flags: ''
-            host: macos-latest
-          - target: aarch64-apple-darwin
-            flags: ''
-            host: macos-latest
-          # Native compilation for Windows
-          - target: x86_64-pc-windows-msvc
-            flags: ''
-            host: windows-latest
-          - target: aarch64-pc-windows-msvc
-            flags: ''
-            host: windows-latest
-          # Cross-compilation for Linux
+          # Native builds - commented out for testing
+          # - target: x86_64-apple-darwin
+          #   host: macos-latest
+          # - target: aarch64-apple-darwin
+          #   host: macos-latest
+          # - target: x86_64-pc-windows-msvc
+          #   host: windows-latest
+          # Linux Docker builds
           - target: x86_64-unknown-linux-gnu
-            flags: '--use-napi-cross'
             host: ubuntu-latest
+            use_docker: true
           - target: aarch64-unknown-linux-gnu
-            flags: '--use-napi-cross'
             host: ubuntu-latest
-          - target: x86_64-unknown-linux-musl
-            flags: '-x'
-            host: ubuntu-latest
-          - target: aarch64-unknown-linux-musl
-            flags: '-x'
-            host: ubuntu-latest
-          - target: armv7-unknown-linux-gnueabihf
-            flags: '--use-napi-cross'
-            host: ubuntu-latest
-          - target: armv7-unknown-linux-musleabihf
-            flags: '-x'
-            host: ubuntu-latest
+            use_docker: true
     name: ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     steps:
+      # Native builds (macOS/Windows)
       - uses: actions/checkout@v4
+        if: ${{ !matrix.settings.use_docker }}
       - uses: de-vri-es/setup-git-credentials@v2
+        if: ${{ !matrix.settings.use_docker }}
         with:
           credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
       - name: Setup node
+        if: ${{ !matrix.settings.use_docker }}
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
-      - uses: goto-bus-stop/setup-zig@v2
-        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
-        with:
-          version: 0.14.1
-      - name: Install system development libraries
-        if: matrix.settings.host == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm libssl-dev pkg-config build-essential
-      - name: Install aarch64 cross-compilation toolchain
-        if: contains(matrix.settings.target, 'aarch64') && contains(matrix.settings.target, 'linux')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-      - name: Install armv7 cross-compilation toolchain
-        if: contains(matrix.settings.target, 'armv7') && contains(matrix.settings.target, 'linux')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf
-      - name: Install additional NAPI cross dependencies
-        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '--use-napi-cross')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
       - name: Install Rust
+        if: ${{ !matrix.settings.use_docker }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Install cargo-xwin
-        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-xwin
-      - name: Install cargo-zigbuild
-        if: matrix.settings.host == 'ubuntu-latest' && contains(matrix.settings.flags, '-x')
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-zigbuild
       - name: Cache cargo
+        if: ${{ !matrix.settings.use_docker }}
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo
-            ${{ github.workspace }}/.xwin
-            ~/.napi-rs
             ./target
           key: ${{ matrix.settings.target }}-cargo-cache
       - name: Install dependencies
+        if: ${{ !matrix.settings.use_docker }}
         run: yarn install
       - name: Build
-        run: yarn build --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
-        shell: bash
-        env:
-          CC_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && 'aarch64-linux-gnu-gcc' || '' }}
-          CC_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && 'arm-linux-gnueabihf-gcc' || '' }}
-          AR_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && 'aarch64-linux-gnu-ar' || '' }}
-          AR_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && 'arm-linux-gnueabihf-ar' || '' }}
-          CFLAGS_aarch64_unknown_linux_gnu: ${{ contains(matrix.settings.target, 'aarch64-unknown-linux-gnu') && '-D__ARM_ARCH=8' || '' }}
-          CFLAGS_armv7_unknown_linux_gnueabihf: ${{ contains(matrix.settings.target, 'armv7-unknown-linux-gnueabihf') && '-D__ARM_ARCH=7' || '' }}
-          # Additional library paths for NAPI cross-compilation
-          PKG_CONFIG_ALLOW_CROSS: ${{ contains(matrix.settings.flags, '--use-napi-cross') && '1' || '' }}
-          OPENSSL_DIR: ${{ contains(matrix.settings.flags, '--use-napi-cross') && '/usr' || '' }}
-          OPENSSL_INCLUDE_DIR: ${{ contains(matrix.settings.flags, '--use-napi-cross') && '/usr/include' || '' }}
+        if: ${{ !matrix.settings.use_docker }}
+        run: yarn build --target ${{ matrix.settings.target }}
+      
+      # Docker builds (Linux)
+      - uses: actions/checkout@v4
+        if: ${{ matrix.settings.use_docker }}
+      - name: Configure AWS Credentials
+        if: ${{ matrix.settings.use_docker }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::558529356944:role/global-iamr-github-actions-image-build
+          role-session-name: GitHubImageBuild
+      - name: Login to ECR
+        if: ${{ matrix.settings.use_docker }}
+        uses: docker/login-action@v3
+        with:
+          registry: 558529356944.dkr.ecr.us-east-1.amazonaws.com
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Build in Docker
+        if: ${{ matrix.settings.use_docker }}
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e GITHUB_TOKEN="${{ secrets.TEMP_GH_ALL_REPOS_RW }}" \
+            558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-22 \
+            sh -c "
+              # Configure git credentials for private repo access
+              git config --global credential.helper store
+              git config --global user.name 'GitHub Actions'
+              git config --global user.email 'actions@github.com'
+              echo 'https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com' > ~/.git-credentials
+              chmod 600 ~/.git-credentials
+              
+              # Test git access
+              echo 'Testing git access...'
+              git ls-remote https://github.com/cincpro/prosody.git HEAD || echo 'Git access test failed'
+              
+              # Install Rust stable
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
+              . ~/.cargo/env && 
+              
+              # Install build dependencies
+              apt-get update && apt-get install -y cmake
+              
+              # Add ARM64 target if needed
+              if [ '${{ matrix.settings.target }}' = 'aarch64-unknown-linux-gnu' ]; then
+                rustup target add aarch64-unknown-linux-gnu
+                apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                # Set up cross-compilation environment
+                export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+                export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+              fi
+              
+              # Build with target specification
+              yarn install && 
+              yarn build --target ${{ matrix.settings.target }}
+            "
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -162,226 +161,67 @@ jobs:
             bindings.d.ts
           if-no-files-found: error
 
-  test-linux-x64-gnu-binding:
-    name: test-x86_64-gnu-node@${{ matrix.node }}
-    needs:
-      - build
+  test-linux-bindings:
+    name: test-${{ matrix.target }}-node@${{ matrix.node }}
+    needs: [build]
+    permissions:
+      contents: read
+      id-token: write  # Required for AWS OIDC
     strategy:
       fail-fast: false
       matrix:
-        node:
-          - "20"
-          - "22"
-    runs-on: ubuntu-latest
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        node: ["20", "22"]
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            needs_qemu: true
+    runs-on: ${{ matrix.runner }}
+    
     steps:
       - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
+      
+      # ECR access for Docker image pulls
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          node-version: ${{ matrix.node }}
-          cache: yarn
-      - name: Install dependencies
-        run: yarn install
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::558529356944:role/global-iamr-github-actions-image-build
+          role-session-name: GitHubImageBuild
+          
+      - name: Login to ECR
+        uses: docker/login-action@v3
+        with:
+          registry: 558529356944.dkr.ecr.us-east-1.amazonaws.com
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: bindings-x86_64-unknown-linux-gnu
+          name: bindings-${{ matrix.target }}
           path: .
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Cassandra container
-        run: |
-          docker run -d --name cassandra --network kafka-test-network \
-            -p 9042:9042 \
-            cassandra:latest
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for Cassandra and Kafka to be ready..."
 
-          # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
-          for i in {1..60}; do
-            if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Cassandra failed to start after 60 seconds"
-              docker logs cassandra
-              exit 1
-            else
-              echo "⏳ Cassandra attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
-          for i in {1..60}; do
-            if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Kafka failed to start after 60 seconds"
-              docker logs kafka
-              exit 1
-            else
-              echo "⏳ Kafka attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          echo "🎉 Both services are ready!"
-      - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
-            -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-slim \
-            yarn test
-
-  test-linux-x64-musl-binding:
-    name: test-x86_64-musl-node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "20"
-          - "22"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: yarn
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.libc "musl"
-          yarn install
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-x86_64-unknown-linux-musl
-          path: .
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Cassandra container
-        run: |
-          docker run -d --name cassandra --network kafka-test-network \
-            -p 9042:9042 \
-            cassandra:latest
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for Cassandra and Kafka to be ready..."
-
-          # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
-          for i in {1..60}; do
-            if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Cassandra failed to start after 60 seconds"
-              docker logs cassandra
-              exit 1
-            else
-              echo "⏳ Cassandra attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
-          for i in {1..60}; do
-            if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Kafka failed to start after 60 seconds"
-              docker logs kafka
-              exit 1
-            else
-              echo "⏳ Kafka attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          echo "🎉 Both services are ready!"
-      - name: Test bindings
-        run: |
-          docker run --rm --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
-            -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
-            -v $(pwd):/build -w /build \
-            node:${{ matrix.node }}-alpine \
-            yarn test
-
-  test-linux-aarch64-gnu-binding:
-    name: test-aarch64-gnu-node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "20"
-          - "22"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-unknown-linux-gnu
-          path: .
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm64"
-          yarn config set supportedArchitectures.libc "glibc"
-          yarn install
+      # Set up QEMU for ARM64 testing
       - name: Set up QEMU
+        if: ${{ matrix.needs_qemu }}
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      
+      # Set up Kafka and Cassandra services
       - name: Create Docker network
         run: docker network create kafka-test-network
+        
       - name: Start Cassandra container
         run: |
           docker run -d --name cassandra --network kafka-test-network \
             -p 9042:9042 \
             cassandra:latest
-      - name: Start Kafka container
+            
+      - name: Start Kafka container  
         run: |
           docker run -d --name kafka --network kafka-test-network \
             -e KAFKA_CFG_NODE_ID=0 \
@@ -393,15 +233,15 @@ jobs:
             -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
             -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             docker.io/bitnami/kafka:3.7
+            
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-
+          
           # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
           for i in {1..60}; do
             if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
+              echo "✅ Cassandra is ready after ${i} attempts"
               break
             elif [ $i -eq 60 ]; then
               echo "❌ Cassandra failed to start after 60 seconds"
@@ -413,11 +253,10 @@ jobs:
             fi
           done
 
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
+          # Wait for Kafka  
           for i in {1..60}; do
             if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
+              echo "✅ Kafka is ready after ${i} attempts"
               break
             elif [ $i -eq 60 ]; then
               echo "❌ Kafka failed to start after 60 seconds"
@@ -428,245 +267,20 @@ jobs:
               sleep 1
             fi
           done
-
+          
           echo "🎉 Both services are ready!"
-      - name: Setup and run tests
+      
+      # Run tests in Docker
+      - name: Test bindings
         run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
+          docker run --rm --network kafka-test-network \
+            ${{ matrix.needs_qemu && '--platform linux/arm64' || '' }} \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
             -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
             -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-slim \
-            sh -c "set -e && yarn test"
-
-  test-linux-aarch64-musl-binding:
-    name: test-aarch64-musl-node@${{ matrix.node }}
-    needs:
-      - build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-unknown-linux-musl
-          path: .
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm64"
-          yarn config set supportedArchitectures.libc "musl"
-          yarn install
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Cassandra container
-        run: |
-          docker run -d --name cassandra --network kafka-test-network \
-            -p 9042:9042 \
-            cassandra:latest
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for Cassandra and Kafka to be ready..."
-
-          # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
-          for i in {1..60}; do
-            if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Cassandra failed to start after 60 seconds"
-              docker logs cassandra
-              exit 1
-            else
-              echo "⏳ Cassandra attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
-          for i in {1..60}; do
-            if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Kafka failed to start after 60 seconds"
-              docker logs kafka
-              exit 1
-            else
-              echo "⏳ Kafka attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          echo "🎉 Both services are ready!"
-      - name: Setup and run tests
-        run: |
-          docker run --rm --platform linux/arm64 --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
-            -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:lts-alpine \
-            sh -c "set -e && yarn test"
-
-  test-linux-arm-gnueabihf-binding:
-    name: test-armv7-gnu-node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - "20"
-          - "22"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-armv7-unknown-linux-gnueabihf
-          path: .
-      - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu "arm"
-          yarn install
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
-      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Create Docker network
-        run: docker network create kafka-test-network
-      - name: Start Cassandra container
-        run: |
-          docker run -d --name cassandra --network kafka-test-network \
-            -p 9042:9042 \
-            cassandra:latest
-      - name: Start Kafka container
-        run: |
-          docker run -d --name kafka --network kafka-test-network \
-            -e KAFKA_CFG_NODE_ID=0 \
-            -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
-            -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093 \
-            -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
-            -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
-            -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
-            -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-            -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
-            docker.io/bitnami/kafka:3.7
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for Cassandra and Kafka to be ready..."
-
-          # Wait for Cassandra
-          echo "🔍 Checking Cassandra..."
-          for i in {1..60}; do
-            if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
-              echo "✅ Cassandra is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Cassandra failed to start after 60 seconds"
-              docker logs cassandra
-              exit 1
-            else
-              echo "⏳ Cassandra attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          # Wait for Kafka
-          echo "🔍 Checking Kafka..."
-          for i in {1..60}; do
-            if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
-              echo "✅ Kafka is ready after ${i} attempts (${i} seconds)"
-              break
-            elif [ $i -eq 60 ]; then
-              echo "❌ Kafka failed to start after 60 seconds"
-              docker logs kafka
-              exit 1
-            else
-              echo "⏳ Kafka attempt $i: not ready yet..."
-              sleep 1
-            fi
-          done
-
-          echo "🎉 Both services are ready!"
-      - name: Setup and run tests
-        run: |
-          docker run --rm --platform linux/arm/v7 --network kafka-test-network \
-            -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
-            -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
-            -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
-            -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-bullseye-slim \
-            sh -c "set -e && yarn test"
-
-  universal-macOS:
-    name: universal-apple-darwin
-    needs:
-      - build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: de-vri-es/setup-git-credentials@v2
-        with:
-          credentials: https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com/
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: yarn
-      - name: Install dependencies
-        run: yarn install
-      - name: Download macOS x64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-x86_64-apple-darwin
-          path: artifacts
-          pattern: "*.node"
-      - name: Download macOS arm64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-apple-darwin
-          path: artifacts
-          pattern: "*.node"
-      - name: Download bindings js and types
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-aarch64-apple-darwin
-          path: .
-          pattern: "bindings.*"
-      - name: Combine binaries
-        run: yarn universal
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bindings-universal-apple-darwin
-          path: |
-            ${{ env.APP_NAME }}.*.node
-            bindings.js
-            bindings.d.ts
-          if-no-files-found: error
+            558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-${{ matrix.node }} \
+            sh -c "yarn install && yarn test"
 
 #  publish:
 #    name: Publish
@@ -674,12 +288,7 @@ jobs:
 #    needs:
 #      - release-please
 #      - build
-#      - test-linux-x64-gnu-binding
-#      - test-linux-x64-musl-binding
-#      - test-linux-aarch64-gnu-binding
-#      - test-linux-aarch64-musl-binding
-#      - test-linux-arm-gnueabihf-binding
-#      - universal-macOS
+#      - test-linux-bindings
 #    if: ${{ needs.release-please.outputs.release_created }}
 #    steps:
 #      - uses: actions/checkout@v4
