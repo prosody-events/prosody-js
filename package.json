@@ -47,7 +47,7 @@
     "build:debug": "napi build --js bindings.js --dts bindings.d.ts --platform --no-const-enum",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
+    "prepublishOnly": "napi prepublish -t npm --no-gh-release",
     "test": "yarn run jest",
     "universal": "napi universalize",
     "version": "napi version"
