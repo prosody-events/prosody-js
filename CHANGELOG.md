@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/cincpro/prosody-js/compare/v1.0.9...v1.1.0) (2025-08-07)
+
+
+### Features
+
+* upgrade to NAPI version 3 ([#87](https://github.com/cincpro/prosody-js/issues/87)) ([763fbda](https://github.com/cincpro/prosody-js/commit/763fbda469e4576a36d42fbbc3b3f2f79751cedc))
+
 ## [1.0.9](https://github.com/cincpro/prosody-js/compare/v1.0.8...v1.0.9) (2025-07-28)
 
 
