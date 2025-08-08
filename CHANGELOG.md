@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/cincpro/prosody-js/compare/v1.1.0...v1.1.1) (2025-08-08)
+
+
+### Bug Fixes
+
+* prepublish release argument ([#89](https://github.com/cincpro/prosody-js/issues/89)) ([e814ceb](https://github.com/cincpro/prosody-js/commit/e814cebb700bbb190086b9e42becf3aa52915c6b))
+
 ## [1.1.0](https://github.com/cincpro/prosody-js/compare/v1.0.9...v1.1.0) (2025-08-07)
 
 
