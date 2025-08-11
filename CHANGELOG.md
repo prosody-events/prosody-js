@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/cincpro/prosody-js/compare/v1.1.1...v1.1.2) (2025-08-11)
+
+
+### Bug Fixes
+
+* disable OTEL TLS ([#91](https://github.com/cincpro/prosody-js/issues/91)) ([5d55924](https://github.com/cincpro/prosody-js/commit/5d55924203293e2b52b5210a1f987afc0e0bc268))
+
 ## [1.1.1](https://github.com/cincpro/prosody-js/compare/v1.1.0...v1.1.1) (2025-08-08)
 
 
