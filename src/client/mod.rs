@@ -11,7 +11,6 @@ use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::future::pending;
 use tokio::select;
 use tracing::field::Empty;
 use tracing::{Instrument, info_span};
@@ -98,17 +97,14 @@ impl NativeClient {
         .map_err(|e| Error::from_reason(e.to_string()))
     };
 
-    let abort_future = async {
-      match maybe_abort {
-        Some(abort_promise) => abort_promise.await,
-        None => pending().await,
-      }
+    let Some(on_abort) = maybe_abort else {
+      let result = send_future.await;
+      span.record("aborted", false);
+      return result;
     };
 
     select! {
-        biased;
-
-        result = abort_future => {
+        result = on_abort.into_future() => {
             span.record("aborted", true);
             result
         }
