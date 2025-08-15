@@ -115,7 +115,7 @@ class ProsodyClient {
       key,
       payload,
       carrier,
-      signal ? onAbort(signal) : new Promise(() => {}),
+      signal && onAbort(signal),
     );
   }
 
