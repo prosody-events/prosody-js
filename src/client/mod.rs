@@ -4,13 +4,14 @@ use crate::client::config::{
 };
 use crate::handler::JsHandler;
 use napi::bindgen_prelude::Promise;
-use napi::{Error, Result, Status};
+use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
 use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::pending;
 use tokio::select;
 use tracing::field::Empty;
 use tracing::{Instrument, info_span};
@@ -82,32 +83,39 @@ impl NativeClient {
     key: String,
     payload: Value,
     otel_context: HashMap<String, String>,
-    on_abort: Promise<()>,
+    maybe_abort: Option<Promise<()>>,
   ) -> Result<()> {
     let context = self.client.propagator().extract(&otel_context);
     let span = info_span!("javascript-send", %topic, %key, aborted = Empty);
     span.set_parent(context);
 
-    // Delay send to ensure the biased select will not send if already aborted
     let send_future = async {
       self
         .client
         .send(topic.as_str().into(), &key, &payload)
         .instrument(span.clone())
         .await
+        .map_err(|e| Error::from_reason(e.to_string()))
+    };
+
+    let abort_future = async {
+      match maybe_abort {
+        Some(abort_promise) => abort_promise.await,
+        None => pending().await,
+      }
     };
 
     select! {
         biased;
 
-        result = on_abort => {
+        result = abort_future => {
             span.record("aborted", true);
-            result.map_err(|_| Error::new(Status::Cancelled, "Abort signal received"))
+            result
         }
 
         result = send_future => {
             span.record("aborted", false);
-            result.map_err(|e| Error::from_reason(e.to_string()))
+            result
         }
     }
   }
