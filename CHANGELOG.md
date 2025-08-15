@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.3](https://github.com/cincpro/prosody-js/compare/v1.1.2...v1.1.3) (2025-08-15)
+
+
+### Bug Fixes
+
+* make abort signal explicitly optional ([#93](https://github.com/cincpro/prosody-js/issues/93)) ([da7e5e1](https://github.com/cincpro/prosody-js/commit/da7e5e1f9edffdb0d55501bdb4e09594f6c61488))
+
+
+### Performance Improvements
+
+* don’t select if we don’t need to in send ([#96](https://github.com/cincpro/prosody-js/issues/96)) ([9297d85](https://github.com/cincpro/prosody-js/commit/9297d853cbb7d56eaff4c6153faaaa8760265d15))
+
 ## [1.1.2](https://github.com/cincpro/prosody-js/compare/v1.1.1...v1.1.2) (2025-08-11)
 
 
