@@ -40,44 +40,36 @@ pub const HANDLE_QUEUE_SIZE: usize = 64;
 /// Maximum number of queued error classification function calls.
 pub const PERM_QUEUE_SIZE: usize = 64;
 
-/**
- * Represents a native handler for processing messages and timers.
- *
- * This struct contains functions that handle incoming messages, timer events, and error
- * classification for the Prosody consumer.
- */
+/// Represents a native handler for processing messages and timers.
+///
+/// This struct contains functions that handle incoming messages, timer events, and error
+/// classification for the Prosody consumer.
 #[napi(object)]
 pub struct NativeHandler<'a> {
-  /**
-   * A function to be called when a message is received.
-   *
-   * @param context - A Context object representing the message processing context
-   * @param message - A Message object containing the received Kafka message
-   * @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
-   * @returns A Promise that resolves when the message has been processed
-   *
-   * Note: Error parameter is automatically added by CalleeHandled=true
-   */
+  /// A function to be called when a message is received.
+  ///
+  /// @param context - A Context object representing the message processing context
+  /// @param message - A Message object containing the received Kafka message
+  /// @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
+  /// @returns A Promise that resolves when the message has been processed
+  ///
+  /// Note: Error parameter is automatically added by CalleeHandled=true
   pub on_message: Function<'a, MessageHandlerArgs, Promise<()>>,
 
-  /**
-   * A function to be called when a timer fires.
-   *
-   * @param context - A Context object representing the timer processing context
-   * @param timer - A Timer object containing the timer details
-   * @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
-   * @returns A Promise that resolves when the timer has been processed
-   *
-   * Note: Error parameter is automatically added by CalleeHandled=true
-   */
+  /// A function to be called when a timer fires.
+  ///
+  /// @param context - A Context object representing the timer processing context
+  /// @param timer - A Timer object containing the timer details
+  /// @param otelContext - A record of string key-value pairs representing the OpenTelemetry context
+  /// @returns A Promise that resolves when the timer has been processed
+  ///
+  /// Note: Error parameter is automatically added by CalleeHandled=true
   pub on_timer: Function<'a, TimerHandlerArgs, Promise<()>>,
 
-  /**
-   * Function that determines whether an error is permanent.
-   *
-   * @param err - An Error object to classify
-   * @returns A boolean that is true when the given error is permanent and false otherwise
-   */
+  /// Function that determines whether an error is permanent.
+  ///
+  /// @param err - An Error object to classify
+  /// @returns A boolean that is true when the given error is permanent and false otherwise
   pub is_permanent: Function<'a, IsPermanentArgs, bool>,
 }
 

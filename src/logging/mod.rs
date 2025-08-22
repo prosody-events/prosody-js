@@ -24,9 +24,7 @@ pub type LogArgs = (Option<String>, Value);
 /// Global swappable logger instance.
 static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
 
-/**
- * JavaScript-compatible logger structure.
- */
+/// JavaScript-compatible logger structure.
 #[napi(object)]
 pub struct Logger<'a> {
   /// Function for logging error messages.
@@ -45,13 +43,11 @@ pub struct Logger<'a> {
   pub trace: Function<'a, LogArgs, ()>,
 }
 
-/**
- * Initializes the logging system for the Prosody client.
- *
- * This function sets up the tracing infrastructure and prepares the logging system
- * to accept JavaScript loggers. It should be called once during application startup
- * before any other logging operations.
- */
+/// Initializes the logging system for the Prosody client.
+///
+/// This function sets up the tracing infrastructure and prepares the logging system
+/// to accept JavaScript loggers. It should be called once during application startup
+/// before any other logging operations.
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn initialize(env: Env) {
@@ -73,25 +69,21 @@ pub fn initialize(env: Env) {
   });
 }
 
-/**
- * Checks if a logger has been set in the logging system.
- *
- * @returns True if a logger is currently configured, false otherwise.
- */
+/// Checks if a logger has been set in the logging system.
+///
+/// @returns True if a logger is currently configured, false otherwise.
 #[napi]
 pub fn logger_is_set() -> bool {
   LOGGER.is_set()
 }
 
-/**
- * Sets a new JavaScript logger for the Prosody client.
- *
- * This function configures the logging system to use the provided JavaScript logger
- * for all log output. The logger must implement all required log levels.
- *
- * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
- * @throws Error if creating the new JavaScript logger fails.
- */
+/// Sets a new JavaScript logger for the Prosody client.
+///
+/// This function configures the logging system to use the provided JavaScript logger
+/// for all log output. The logger must implement all required log levels.
+///
+/// @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+/// @throws Error if creating the new JavaScript logger fails.
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn set_logger(logger: Logger) -> napi::Result<()> {
@@ -99,16 +91,14 @@ pub fn set_logger(logger: Logger) -> napi::Result<()> {
   Ok(())
 }
 
-/**
- * Sets a JavaScript logger only if no logger is currently configured.
- *
- * This function is useful for providing a default logger without overriding
- * an existing one that may have been set earlier.
- *
- * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
- * @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
- * @throws Error if creating the new JavaScript logger fails.
- */
+/// Sets a JavaScript logger only if no logger is currently configured.
+///
+/// This function is useful for providing a default logger without overriding
+/// an existing one that may have been set earlier.
+///
+/// @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
+/// @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
+/// @throws Error if creating the new JavaScript logger fails.
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn set_logger_if_unset(logger: Logger) -> napi::Result<bool> {

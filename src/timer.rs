@@ -2,6 +2,9 @@ use chrono::{DateTime, Utc};
 use napi_derive::napi;
 use prosody::timers::Trigger;
 
+/// Represents a timer event.
+///
+/// Contains the key and scheduled time for a timer trigger.
 #[napi(object)]
 pub struct Timer {
   /// The timer key.

@@ -9,12 +9,10 @@ use napi_derive::napi;
 use prosody::consumer::message::{ConsumerMessage, ConsumerMessageValue};
 use serde_json::Value;
 
-/**
- * Represents a message consumed from a Kafka topic.
- *
- * This object contains all the relevant information about a Kafka message,
- * including its topic, partition, offset, timestamp, key, and payload.
- */
+/// Represents a message consumed from a Kafka topic.
+///
+/// This object contains all the relevant information about a Kafka message,
+/// including its topic, partition, offset, timestamp, key, and payload.
 #[napi(object)]
 pub struct Message {
   /// The name of the topic from which the message was consumed.

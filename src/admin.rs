@@ -7,9 +7,7 @@ use napi::{Either, Error};
 use napi_derive::napi;
 use prosody::admin::ProsodyAdminClient;
 
-/**
- * Represents a client for performing administrative operations on a Prosody cluster.
- */
+/// Represents a client for performing administrative operations on a Prosody cluster.
 #[napi]
 pub struct AdminClient {
   client: ProsodyAdminClient,
@@ -17,12 +15,10 @@ pub struct AdminClient {
 
 #[napi]
 impl AdminClient {
-  /**
-   * Creates a new `AdminClient` instance.
-   *
-   * @param bootstrapServers - A single server address or an array of server addresses to connect to.
-   * @throws Error if the client cannot be created.
-   */
+  /// Creates a new `AdminClient` instance.
+  ///
+  /// @param bootstrapServers - A single server address or an array of server addresses to connect to.
+  /// @throws Error if the client cannot be created.
   #[napi(constructor, writable = false)]
   pub fn new(bootstrap_servers: Either<String, Vec<String>>) -> napi::Result<Self> {
     let bootstrap_servers = match bootstrap_servers {
@@ -36,14 +32,12 @@ impl AdminClient {
     Ok(Self { client })
   }
 
-  /**
-   * Creates a new topic in the Prosody cluster.
-   *
-   * @param name - The name of the topic to create.
-   * @param partitionCount - The number of partitions for the topic.
-   * @param replicationFactor - The replication factor for the topic.
-   * @throws Error if the topic creation fails.
-   */
+  /// Creates a new topic in the Prosody cluster.
+  ///
+  /// @param name - The name of the topic to create.
+  /// @param partitionCount - The number of partitions for the topic.
+  /// @param replicationFactor - The replication factor for the topic.
+  /// @throws Error if the topic creation fails.
   #[napi(writable = false)]
   pub async fn create_topic(
     &self,
@@ -58,12 +52,10 @@ impl AdminClient {
       .map_err(|e| Error::from_reason(e.to_string()))
   }
 
-  /**
-   * Deletes a topic from the Prosody cluster.
-   *
-   * @param name - The name of the topic to delete.
-   * @throws Error if the topic deletion fails.
-   */
+  /// Deletes a topic from the Prosody cluster.
+  ///
+  /// @param name - The name of the topic to delete.
+  /// @throws Error if the topic deletion fails.
   #[napi(writable = false)]
   pub async fn delete_topic(&self, name: String) -> napi::Result<()> {
     self
