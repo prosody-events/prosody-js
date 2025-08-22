@@ -27,32 +27,26 @@ impl Context {
     Self { context }
   }
 
-  /**
-   * Checks whether a shutdown has been signaled.
-   *
-   * @returns {boolean} True if shutdown was requested, otherwise false.
-   */
+  /// Checks whether a shutdown has been signaled.
+  ///
+  /// @returns True if shutdown was requested, otherwise false.
   #[napi(getter, writable = false)]
   pub fn should_shutdown(&self) -> bool {
     self.context.should_shutdown()
   }
 
-  /**
-   * Waits for a shutdown signal.
-   *
-   * @returns {Promise<void>} Resolves when shutdown is signaled.
-   */
+  /// Waits for a shutdown signal.
+  ///
+  /// @returns A promise that resolves when shutdown is signaled.
   #[napi(writable = false)]
   pub async fn on_shutdown(&self) {
     self.context.on_shutdown().await;
   }
 
-  /**
-   * Schedule a timer at the given time.
-   *
-   * @param time {Date} The UTC timestamp to schedule.
-   * @throws {Error} If time conversion or scheduling fails.
-   */
+  /// Schedule a timer at the given time.
+  ///
+  /// @param time - The UTC timestamp to schedule.
+  /// @throws Error if time conversion or scheduling fails.
   #[napi(writable = false)]
   pub async fn schedule(&self, time: DateTime<Utc>) -> napi::Result<()> {
     let time =
@@ -67,12 +61,10 @@ impl Context {
     Ok(())
   }
 
-  /**
-   * Clear existing timers and schedule a new one at the given time.
-   *
-   * @param time {Date} The UTC timestamp to schedule.
-   * @throws {Error} If time conversion or scheduling fails.
-   */
+  /// Clear existing timers and schedule a new one at the given time.
+  ///
+  /// @param time - The UTC timestamp to schedule.
+  /// @throws Error if time conversion or scheduling fails.
   #[napi(writable = false)]
   pub async fn clear_and_schedule(&self, time: DateTime<Utc>) -> napi::Result<()> {
     let time =
@@ -87,11 +79,9 @@ impl Context {
     Ok(())
   }
 
-  /**
-   * Unschedules the timer for the specified time.
-   * @param time - The time to unschedule.
-   * @throws Error if unscheduling fails.
-   */
+  /// Unschedules the timer for the specified time.
+  /// @param time - The time to unschedule.
+  /// @throws Error if unscheduling fails.
   #[napi(writable = false)]
   pub async fn unschedule(&self, time: DateTime<Utc>) -> napi::Result<()> {
     let time =
@@ -106,10 +96,8 @@ impl Context {
     Ok(())
   }
 
-  /**
-   * Clears all scheduled timers.
-   * @throws Error if clearing schedules fails.
-   */
+  /// Clears all scheduled timers.
+  /// @throws Error if clearing schedules fails.
   #[napi(writable = false)]
   pub async fn clear_scheduled(&self) -> napi::Result<()> {
     self
@@ -121,11 +109,9 @@ impl Context {
     Ok(())
   }
 
-  /**
-   * Retrieves all scheduled times.
-   * @returns An array of scheduled times as Date objects.
-   * @throws Error if retrieval fails.
-   */
+  /// Retrieves all scheduled times.
+  /// @returns An array of scheduled times as Date objects.
+  /// @throws Error if retrieval fails.
   #[napi(writable = false)]
   pub async fn scheduled(&self) -> napi::Result<Vec<DateTime<Utc>>> {
     self

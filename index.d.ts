@@ -1,3 +1,9 @@
+/**
+ * @module prosody-js
+ * @description A high-performance messaging client for Kafka with built-in OpenTelemetry support.
+ * Provides functionality for sending messages, subscribing to topics, and managing consumer state.
+ */
+
 import type {
   Configuration,
   ConsumerState,
@@ -15,15 +21,15 @@ export { Configuration, ConsumerState, Context, Message, Timer, Mode };
  * Each logging method receives a message string and optional metadata object.
  */
 export interface Logger {
-  /** Function for logging error messages. */
+  /** Logs error-level messages. */
   error: (message: string | undefined | null, metadata?: any) => void;
-  /** Function for logging warning messages. */
+  /** Logs warning-level messages. */
   warn: (message: string | undefined | null, metadata?: any) => void;
-  /** Function for logging informational messages. */
+  /** Logs info-level messages. */
   info: (message: string | undefined | null, metadata?: any) => void;
-  /** Function for logging debug messages. */
+  /** Logs debug-level messages. */
   debug: (message: string | undefined | null, metadata?: any) => void;
-  /** Function for logging trace messages. */
+  /** Logs trace-level messages. */
   trace: (message: string | undefined | null, metadata?: any) => void;
 }
 
@@ -69,43 +75,49 @@ export declare class ProsodyClient {
    * Gets the current state of the consumer.
    *
    * @returns The current state of the consumer.
+   * @throws Error if the operation fails.
    */
   consumerState(): Promise<ConsumerState>;
 
   /**
    * Gets the number of partitions assigned to the consumer.
    *
-   * @return The number of assigned partitions, or 0 if the consumer is not in the Running state
+   * @returns The number of assigned partitions, or 0 if the consumer is not in the Running state.
+   * @throws Error if the operation fails.
    */
   assignedPartitionCount(): Promise<number>;
 
   /**
    * Checks if the consumer is stalled.
    *
-   * @return Whether the consumer is stalled, or false if the consumer is not in the Running state
+   * @returns Whether the consumer is stalled, or false if the consumer is not in the Running state.
+   * @throws Error if the operation fails.
    */
   isStalled(): Promise<boolean>;
 
   /**
-   * Sends a message to a specified Kafka topic.
+   * Sends a message to a specified topic.
    *
    * @param topic - The name of the topic to send the message to.
    * @param key - The key of the message.
-   * @param payload - The message payload.
-   * @param signal - An optional AbortSignal that can be used to cancel the send operation.
-   * @returns A promise that resolves when the message has been sent.
+   * @param payload - The message payload (must be JSON-serializable).
+   * @param signal - An optional AbortSignal that can be used to cancel the send operation. When aborted, the promise will reject with the abort reason.
+   * @returns A promise that resolves when the message has been successfully sent.
+   * @throws Error if the send operation fails or is aborted.
    */
   send(
     topic: string,
     key: string,
-    payload: any,
+    payload: unknown,
     signal?: AbortSignal,
   ): Promise<void>;
 
   /**
    * Subscribes to receive messages using the provided event handler.
    *
-   * @param eventHandler - The event handler to process received messages.
+   * @param eventHandler - The event handler to process received messages and timers.
+   * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
+   * @throws Error if the subscription fails to establish.
    */
   subscribe(eventHandler: EventHandler): Promise<void>;
 
@@ -113,6 +125,7 @@ export declare class ProsodyClient {
    * Unsubscribes from receiving messages and shuts down the consumer.
    *
    * @returns A promise that resolves when the unsubscribe operation is complete.
+   * @throws Error if the unsubscribe operation fails.
    */
   unsubscribe(): Promise<void>;
 }
@@ -168,23 +181,31 @@ export function getCurrentLogger(): Logger | null | undefined;
  * Provides a common interface for determining if an error is permanent.
  */
 export abstract class EventHandlerError extends Error {
-  /** Indicates whether the error is permanent and should not be retried. */
+  /**
+   * Indicates whether the error is permanent and should not be retried.
+   */
   abstract get isPermanent(): boolean;
 }
 
 /**
  * Represents a transient error that may be resolved by retrying.
+ * These errors are temporary and the operation should be retried.
  */
 export class TransientError extends EventHandlerError {
-  /** @returns Always false, indicating the error is not permanent. */
+  /**
+   * @returns Always false, indicating the error is not permanent.
+   */
   get isPermanent(): false;
 }
 
 /**
  * Represents a permanent error that should not be retried.
+ * These errors indicate unrecoverable failures.
  */
 export class PermanentError extends EventHandlerError {
-  /** @returns Always true, indicating the error is permanent. */
+  /**
+   * @returns Always true, indicating the error is permanent.
+   */
   get isPermanent(): true;
 }
 

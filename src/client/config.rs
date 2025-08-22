@@ -9,9 +9,7 @@ use prosody::producer::ProducerConfigurationBuilder;
 use prosody::timers::store::cassandra::CassandraConfigurationBuilder;
 use std::time::Duration;
 
-/**
- * Configuration options for the Prosody client.
- */
+/// Configuration options for the Prosody client.
 #[napi(object)]
 pub struct Configuration {
   /// Kafka servers for initial connection.
@@ -100,9 +98,7 @@ pub struct Configuration {
   pub cassandra_retention_seconds: Option<u32>,
 }
 
-/**
- * Enum representing the operating mode of the Prosody client.
- */
+/// Enum representing the operating mode of the Prosody client.
 #[derive(Debug, Default)]
 #[napi(string_enum)]
 pub enum Mode {

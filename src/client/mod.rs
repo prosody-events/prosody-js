@@ -18,9 +18,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
 
-/**
- * A native client wrapper for the Prosody high-level client.
- */
+/// A native client wrapper for the Prosody high-level client.
+/// Provides methods for sending messages, subscribing to topics, and managing consumer state.
 #[napi]
 pub struct NativeClient {
   client: HighLevelClient<JsHandler>,
@@ -28,12 +27,10 @@ pub struct NativeClient {
 
 #[napi]
 impl NativeClient {
-  /**
-   * Creates a new `NativeClient` instance.
-   *
-   * @param config - The configuration for the client.
-   * @throws Error if the client creation fails.
-   */
+  /// Creates a new `NativeClient` instance.
+  ///
+  /// @param config - The configuration for the client
+  /// @throws Error if the client creation fails
   #[allow(clippy::needless_pass_by_value)] // required by NAPI
   #[napi(constructor, writable = false)]
   pub fn new(config: Configuration) -> Result<Self> {
@@ -56,25 +53,25 @@ impl NativeClient {
     Ok(NativeClient { client })
   }
 
-  /**
-   * Gets the current state of the consumer.
-   */
+  /// Gets the current state of the consumer.
+  ///
+  /// @returns The current state of the consumer
+  /// @throws Error if the operation fails
   #[napi(writable = false)]
   pub async fn consumer_state(&self) -> Result<ConsumerState> {
     let state_view = self.client.consumer_state().await;
     Ok((&*state_view).into())
   }
 
-  /**
-   * Sends a message to a specified topic.
-   *
-   * @param topic - The topic to send the message to.
-   * @param key - The key of the message.
-   * @param payload - The payload of the message.
-   * @param otelContext - The OpenTelemetry context for tracing.
-   * @param onAbort - A promise that resolves when the operation should be aborted.
-   * @throws Error if the send operation fails or is aborted.
-   */
+  /// Sends a message to a specified topic.
+  ///
+  /// @param topic - The topic to send the message to
+  /// @param key - The key of the message
+  /// @param payload - The payload of the message (must be JSON-serializable)
+  /// @param otelContext - The OpenTelemetry context for tracing
+  /// @param maybeAbort - Optional promise that resolves when the operation should be aborted
+  /// @returns A promise that resolves when the message has been sent
+  /// @throws Error if the send operation fails or is aborted
   #[napi(writable = false)]
   pub async fn send(
     &self,
@@ -116,12 +113,11 @@ impl NativeClient {
     }
   }
 
-  /**
-   * Subscribes to receive messages using the provided event handler.
-   *
-   * @param eventHandler - The event handler to process received messages.
-   * @throws Error if the subscription fails.
-   */
+  /// Subscribes to receive messages using the provided event handler.
+  ///
+  /// @param eventHandler - The event handler to process received messages and timers
+  /// @returns A promise that resolves when the subscription is established
+  /// @throws Error if the subscription fails
   #[napi(
     writable = false,
     ts_args_type = "eventHandler: { \
@@ -140,31 +136,28 @@ impl NativeClient {
     Ok(())
   }
 
-  /**
-   * Returns the number of partitions assigned to the consumer.
-   *
-   * @return {number} The number of assigned partitions, or 0 if the consumer is not in the Running state
-   */
+  /// Gets the number of partitions assigned to the consumer.
+  ///
+  /// @returns The number of assigned partitions, or 0 if the consumer is not in the Running state
+  /// @throws Error if the operation fails
   #[napi(writable = false)]
   pub async fn assigned_partition_count(&self) -> Result<u32> {
     Ok(self.client.assigned_partition_count().await)
   }
 
-  /**
-   * Checks if the consumer is stalled.
-   *
-   * @return {boolean} Whether the consumer is stalled, or false if the consumer is not in the Running state
-   */
+  /// Checks if the consumer is stalled.
+  ///
+  /// @returns Whether the consumer is stalled, or false if the consumer is not in the Running state
+  /// @throws Error if the operation fails
   #[napi(writable = false)]
   pub async fn is_stalled(&self) -> Result<bool> {
     Ok(self.client.is_stalled().await)
   }
 
-  /**
-   * Unsubscribes from receiving messages.
-   *
-   * @throws Error if the unsubscribe operation fails.
-   */
+  /// Unsubscribes from receiving messages and shuts down the consumer.
+  ///
+  /// @returns A promise that resolves when the unsubscribe operation is complete
+  /// @throws Error if the unsubscribe operation fails
   #[napi(writable = false)]
   pub async fn unsubscribe(&self) -> Result<()> {
     self
@@ -175,9 +168,8 @@ impl NativeClient {
   }
 }
 
-/**
- * Current state of the consumer.
- */
+/// Current state of the consumer.
+/// Represents the lifecycle stages of a Prosody consumer.
 #[derive(Debug)]
 #[napi(string_enum)]
 pub enum ConsumerState {
