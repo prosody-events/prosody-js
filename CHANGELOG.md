@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/cincpro/prosody-js/compare/v1.1.3...v1.1.4) (2025-08-22)
+
+
+### Bug Fixes
+
+* add migration lock and add jitter to timer slab loads ([#97](https://github.com/cincpro/prosody-js/issues/97)) ([beea11c](https://github.com/cincpro/prosody-js/commit/beea11c3f40ba6078d440e467e9a83981d08ca06))
+
 ## [1.1.3](https://github.com/cincpro/prosody-js/compare/v1.1.2...v1.1.3) (2025-08-15)
 
 
