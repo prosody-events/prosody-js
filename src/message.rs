@@ -6,7 +6,6 @@
 
 use chrono::{DateTime, Utc};
 use napi_derive::napi;
-use prosody::consumer::message::{ConsumerMessage, ConsumerMessageValue};
 use serde_json::Value;
 
 /// Represents a message consumed from a Kafka topic.
@@ -32,39 +31,4 @@ pub struct Message {
 
   /// The message payload as a JSON-serializable value.
   pub payload: Value,
-}
-
-impl From<ConsumerMessage> for Message {
-  /// Converts a `ConsumerMessage` into a `Message`.
-  ///
-  /// This implementation extracts the relevant fields from the `ConsumerMessage`
-  /// and constructs a new `Message` instance.
-  ///
-  /// # Arguments
-  ///
-  /// * `message` - The `ConsumerMessage` to convert.
-  ///
-  /// # Returns
-  ///
-  /// A new `Message` instance containing the data from the `ConsumerMessage`.
-  fn from(message: ConsumerMessage) -> Self {
-    let ConsumerMessageValue {
-      topic,
-      partition,
-      offset,
-      key,
-      timestamp,
-      payload,
-      ..
-    } = message.into_value();
-
-    Self {
-      topic: topic.to_string(),
-      partition,
-      offset,
-      timestamp,
-      key: key.to_string(),
-      payload,
-    }
-  }
 }
