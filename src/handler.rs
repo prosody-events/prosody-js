@@ -15,6 +15,7 @@ use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::failure::{ClassifyError, ErrorCategory, FallibleHandler};
 use prosody::consumer::message::ConsumerMessage;
+use prosody::consumer::Keyed;
 use prosody::propagator::new_propagator;
 use prosody::timers::Trigger;
 use std::collections::HashMap;
@@ -259,21 +260,20 @@ impl FallibleHandler for JsHandler {
     C: EventContext,
   {
     let context = Context::new(context.boxed());
-    let message = message.into_value();
     let mut carrier = HashMap::with_capacity(2);
 
     self
       .inner
       .propagator
-      .inject_context(&message.span.context(), &mut carrier);
+      .inject_context(&message.span().context(), &mut carrier);
 
     let message = Message {
-      topic: message.topic.to_string(),
-      partition: message.partition,
-      offset: message.offset,
-      timestamp: message.timestamp,
-      key: message.key.to_string(),
-      payload: message.payload,
+      topic: message.topic().to_string(),
+      partition: message.partition(),
+      offset: message.offset(),
+      timestamp: *message.timestamp(),
+      key: message.key().to_string(),
+      payload: message.payload().clone(),
     };
 
     let Err(error) = self
