@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.5](https://github.com/cincpro/prosody-js/compare/v1.1.4...v1.1.5) (2025-09-12)
+
+
+### Performance Improvements
+
+* bound message buffering ([#99](https://github.com/cincpro/prosody-js/issues/99)) ([c57ce52](https://github.com/cincpro/prosody-js/commit/c57ce5253d7acd5c42abea484c0fc8e9e5d4fa87))
+
 ## [1.1.4](https://github.com/cincpro/prosody-js/compare/v1.1.3...v1.1.4) (2025-08-22)
 
 
