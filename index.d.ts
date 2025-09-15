@@ -96,6 +96,13 @@ export declare class ProsodyClient {
   isStalled(): Promise<boolean>;
 
   /**
+   * Gets the source system identifier configured for the client.
+   *
+   * @returns The source system identifier.
+   */
+  get sourceSystem(): string;
+
+  /**
    * Sends a message to a specified topic.
    *
    * @param topic - The name of the topic to send the message to.
