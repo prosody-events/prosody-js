@@ -37,6 +37,14 @@ impl NativeContext {
     }
   }
 
+  /// Sets up span context from OTEL context carrier.
+  fn setup_span(&self, otel_context: &HashMap<String, String>) -> Span {
+    let context = self.propagator.extract(otel_context);
+    let span = Span::current();
+    span.set_parent(context);
+    span
+  }
+
   /// Checks whether a shutdown has been signaled.
   ///
   /// @returns True if shutdown was requested, otherwise false.
@@ -64,9 +72,7 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let context = self.propagator.extract(&otel_context);
-    let span = Span::current();
-    span.set_parent(context);
+    let span = self.setup_span(&otel_context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -90,9 +96,7 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let context = self.propagator.extract(&otel_context);
-    let span = Span::current();
-    span.set_parent(context);
+    let span = self.setup_span(&otel_context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -115,9 +119,7 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let context = self.propagator.extract(&otel_context);
-    let span = Span::current();
-    span.set_parent(context);
+    let span = self.setup_span(&otel_context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -135,9 +137,7 @@ impl NativeContext {
   /// @throws Error if clearing schedules fails.
   #[napi(writable = false)]
   pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-    let context = self.propagator.extract(&otel_context);
-    let span = Span::current();
-    span.set_parent(context);
+    let span = self.setup_span(&otel_context);
 
     self
       .context
@@ -156,9 +156,7 @@ impl NativeContext {
     &self,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<Vec<DateTime<Utc>>> {
-    let context = self.propagator.extract(&otel_context);
-    let span = Span::current();
-    span.set_parent(context);
+    let span = self.setup_span(&otel_context);
 
     self
       .context
