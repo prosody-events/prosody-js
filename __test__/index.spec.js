@@ -222,6 +222,17 @@ describe("ProsodyClient", () => {
     });
   });
 
+  it("exposes source system identifier", async () => {
+    return tracer.startActiveSpan("test.source_system", async (span) => {
+      try {
+        expect(client.sourceSystem).toBe(SOURCE_NAME);
+        expect(typeof client.sourceSystem).toBe("string");
+      } finally {
+        span.end();
+      }
+    });
+  });
+
   it("subscribes and unsubscribes", async () => {
     return tracer.startActiveSpan(
       "test.subscribe_unsubscribe",

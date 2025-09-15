@@ -166,6 +166,14 @@ impl NativeClient {
       .await
       .map_err(|e| Error::from_reason(e.to_string()))
   }
+
+  /// Gets the source system identifier configured for the client.
+  ///
+  /// @returns The source system identifier
+  #[napi(getter, writable = false)]
+  pub fn source_system(&self) -> &str {
+    self.client.source_system()
+  }
 }
 
 /// Current state of the consumer.

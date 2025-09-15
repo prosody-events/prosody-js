@@ -710,6 +710,7 @@ your changes before merging to `main`.
 - `send(topic: string, key: string, payload: any, signal?: AbortSignal): Promise<void>`: Send a message to a specified
   topic.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
+- `sourceSystem: string`: Get the source system identifier configured for the client.
 - `subscribe(eventHandler: EventHandler): void`: Subscribe to messages using the provided handler.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
 

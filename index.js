@@ -124,6 +124,15 @@ class ProsodyClient {
   }
 
   /**
+   * Gets the source system identifier configured for the client.
+   *
+   * @returns {string} The source system identifier.
+   */
+  get sourceSystem() {
+    return this.nativeClient.sourceSystem;
+  }
+
+  /**
    * Gets the current state of the consumer.
    *
    * @returns {Promise<ConsumerState>} The current state of the consumer.
