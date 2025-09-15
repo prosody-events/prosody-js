@@ -38,7 +38,7 @@ const {
   Mode,
   NativeClient,
   ConsumerState,
-  Context,
+  NativeContext,
   initialize,
   loggerIsSet,
   setLogger: setLoggerInternal,
@@ -236,7 +236,7 @@ class ProsodyClient {
         }
       },
 
-      onMessage: async (err, [context, message, carrier]) => {
+      onMessage: async (err, [nativeContext, message, carrier]) => {
         if (err) throw err;
 
         // Create a new context from the record
@@ -248,7 +248,7 @@ class ProsodyClient {
             const controller = new AbortController();
 
             // signal abort controller on shutdown
-            context
+            nativeContext
               .onShutdown()
               .then(() => {
                 controller.abort("partition revoked");
@@ -257,6 +257,9 @@ class ProsodyClient {
               .catch((error) => {
                 span.recordException(error);
               });
+
+            // Wrap the native context with OTEL context injection
+            const context = new Context(nativeContext);
 
             // process message
             await onMessage(context, message, controller.signal);
@@ -270,7 +273,7 @@ class ProsodyClient {
         });
       },
 
-      onTimer: async (err, [context, timer, carrier]) => {
+      onTimer: async (err, [nativeContext, timer, carrier]) => {
         if (err) throw err;
 
         // Create a new context from the record
@@ -282,7 +285,7 @@ class ProsodyClient {
             const controller = new AbortController();
 
             // signal abort controller on shutdown
-            context
+            nativeContext
               .onShutdown()
               .then(() => {
                 controller.abort("partition revoked");
@@ -291,6 +294,9 @@ class ProsodyClient {
               .catch((error) => {
                 span.recordException(error);
               });
+
+            // Wrap the native context with OTEL context injection
+            const context = new Context(nativeContext);
 
             // process timer
             await onTimer(context, timer, controller.signal);
@@ -439,6 +445,90 @@ const transient = createErrorDecorator(TransientError);
  * @returns {Function} A decorator function.
  */
 const permanent = createErrorDecorator(PermanentError);
+
+/**
+ * Context class that automatically injects OpenTelemetry context for all operations.
+ * This wraps the native Context with automatic OTEL context propagation.
+ */
+class Context {
+  constructor(nativeContext) {
+    this.nativeContext = nativeContext;
+  }
+
+  /**
+   * Checks whether a shutdown has been signaled.
+   * @returns {boolean} True if shutdown was requested, otherwise false.
+   */
+  get shouldShutdown() {
+    return this.nativeContext.shouldShutdown;
+  }
+
+  /**
+   * Waits for a shutdown signal.
+   * @returns {Promise<void>} A promise that resolves when shutdown is signaled.
+   */
+  async onShutdown() {
+    return this.nativeContext.onShutdown();
+  }
+
+  /**
+   * Schedule a timer at the given time.
+   * @param {Date} time - The UTC timestamp to schedule.
+   * @returns {Promise<void>} A promise that resolves when the timer has been scheduled.
+   * @throws {Error} If time conversion or scheduling fails.
+   */
+  async schedule(time) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    return this.nativeContext.schedule(time, carrier);
+  }
+
+  /**
+   * Clear existing timers and schedule a new one at the given time.
+   * @param {Date} time - The UTC timestamp to schedule.
+   * @returns {Promise<void>} A promise that resolves when the timer has been scheduled.
+   * @throws {Error} If time conversion or scheduling fails.
+   */
+  async clearAndSchedule(time) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    return this.nativeContext.clearAndSchedule(time, carrier);
+  }
+
+  /**
+   * Unschedules the timer for the specified time.
+   * @param {Date} time - The time to unschedule.
+   * @returns {Promise<void>} A promise that resolves when the timer has been unscheduled.
+   * @throws {Error} If unscheduling fails.
+   */
+  async unschedule(time) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    return this.nativeContext.unschedule(time, carrier);
+  }
+
+  /**
+   * Clears all scheduled timers.
+   * @returns {Promise<void>} A promise that resolves when all timers have been cleared.
+   * @throws {Error} If clearing schedules fails.
+   */
+  async clearScheduled() {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    return this.nativeContext.clearScheduled(carrier);
+  }
+
+  /**
+   * Retrieves all scheduled times.
+   * @returns {Promise<Date[]>} An array of scheduled times as Date objects.
+   * @throws {Error} If retrieval fails.
+   */
+  async scheduled() {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    return this.nativeContext.scheduled(carrier);
+  }
+}
 
 module.exports = {
   ConsumerState,

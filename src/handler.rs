@@ -4,10 +4,11 @@
 //! consumer and JavaScript event handlers. It enables asynchronous message and timer
 //! processing through thread-safe function calls to JavaScript.
 
-use crate::context::Context;
+use crate::context::NativeContext;
 use crate::message::Message;
 use crate::timer::Timer;
 use napi::bindgen_prelude::{FromNapiValue, Function, Object, Promise};
+use napi::sys::{napi_env, napi_value};
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
@@ -25,11 +26,11 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for message handler arguments.
 #[napi]
-pub type MessageHandlerArgs = (Context, Message, HashMap<String, String>);
+pub type MessageHandlerArgs = (NativeContext, Message, HashMap<String, String>);
 
 /// Type alias for timer handler arguments.
 #[napi]
-pub type TimerHandlerArgs = (Context, Timer, HashMap<String, String>);
+pub type TimerHandlerArgs = (NativeContext, Timer, HashMap<String, String>);
 
 /// Type alias for error classification arguments.
 #[napi]
@@ -107,7 +108,7 @@ struct JsHandlerInner {
     false,
     PERM_QUEUE_SIZE,
   >,
-  propagator: TextMapCompositePropagator,
+  propagator: Arc<TextMapCompositePropagator>,
 }
 
 /// Handles the interaction between Rust and JavaScript for message processing.
@@ -166,7 +167,7 @@ impl JsHandler {
         on_message,
         on_timer,
         is_permanent,
-        propagator: new_propagator(),
+        propagator: Arc::new(new_propagator()),
       }),
     })
   }
@@ -210,10 +211,7 @@ impl FromNapiValue for JsHandler {
   //    which are safe to use across threads
   // 6. No raw pointers or memory are directly manipulated - all operations go through validated NAPI-RS APIs
   #[allow(unsafe_code)]
-  unsafe fn from_napi_value(
-    env: napi::sys::napi_env,
-    napi_val: napi::sys::napi_value,
-  ) -> napi::Result<Self> {
+  unsafe fn from_napi_value(env: napi_env, napi_val: napi_value) -> napi::Result<Self> {
     let obj = Object::from_raw(env, napi_val);
     let on_message = obj
       .get("onMessage")?
@@ -259,7 +257,7 @@ impl FallibleHandler for JsHandler {
   where
     C: EventContext,
   {
-    let context = Context::new(context.boxed());
+    let context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let mut carrier = HashMap::with_capacity(2);
 
     self
@@ -314,7 +312,7 @@ impl FallibleHandler for JsHandler {
       .propagator
       .inject_context(&trigger.span.context(), &mut carrier);
 
-    let context = Context::new(context.boxed());
+    let context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let timer: Timer = trigger.into();
 
     let Err(error) = self
