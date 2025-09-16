@@ -12,7 +12,7 @@ use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info_span, Instrument};
+use tracing::{Instrument, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
