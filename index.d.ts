@@ -7,13 +7,72 @@
 import type {
   Configuration,
   ConsumerState,
-  Context,
   Message,
   Mode,
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Context, Message, Timer, Mode };
+export { Configuration, ConsumerState, Message, Timer, Mode };
+
+/**
+ * Wrapper around `MessageContext` for use in Node.js bindings.
+ * Automatically injects OpenTelemetry context for all operations.
+ */
+export declare class Context {
+  /**
+   * Checks whether a shutdown has been signaled.
+   *
+   * @returns True if shutdown was requested, otherwise false.
+   */
+  get shouldShutdown(): boolean;
+
+  /**
+   * Waits for a shutdown signal.
+   *
+   * @returns A promise that resolves when shutdown is signaled.
+   */
+  onShutdown(): Promise<void>;
+
+  /**
+   * Schedule a timer at the given time.
+   *
+   * @param time - The UTC timestamp to schedule.
+   * @returns A promise that resolves when the timer has been scheduled.
+   * @throws Error if time conversion or scheduling fails.
+   */
+  schedule(time: Date): Promise<void>;
+
+  /**
+   * Clear existing timers and schedule a new one at the given time.
+   *
+   * @param time - The UTC timestamp to schedule.
+   * @returns A promise that resolves when the timer has been scheduled.
+   * @throws Error if time conversion or scheduling fails.
+   */
+  clearAndSchedule(time: Date): Promise<void>;
+
+  /**
+   * Unschedules the timer for the specified time.
+   * @param time - The time to unschedule.
+   * @returns A promise that resolves when the timer has been unscheduled.
+   * @throws Error if unscheduling fails.
+   */
+  unschedule(time: Date): Promise<void>;
+
+  /**
+   * Clears all scheduled timers.
+   * @returns A promise that resolves when all timers have been cleared.
+   * @throws Error if clearing schedules fails.
+   */
+  clearScheduled(): Promise<void>;
+
+  /**
+   * Retrieves all scheduled times.
+   * @returns An array of scheduled times as Date objects.
+   * @throws Error if retrieval fails.
+   */
+  scheduled(): Promise<Array<Date>>;
+}
 
 /**
  * JavaScript logger interface for use with Prosody client.
