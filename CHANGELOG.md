@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/cincpro/prosody-js/compare/v1.1.5...v1.2.0) (2025-09-16)
+
+
+### Features
+
+* add source system to client ([#101](https://github.com/cincpro/prosody-js/issues/101)) ([2ee499b](https://github.com/cincpro/prosody-js/commit/2ee499be8100aac44e4af632aa46bf7db7be084c))
+
+
+### Bug Fixes
+
+* propagate span traces through context methods ([#103](https://github.com/cincpro/prosody-js/issues/103)) ([366e5bc](https://github.com/cincpro/prosody-js/commit/366e5bc2c3f5d5eee1c670e3c32ef86d26d83d44))
+
 ## [1.1.5](https://github.com/cincpro/prosody-js/compare/v1.1.4...v1.1.5) (2025-09-12)
 
 
