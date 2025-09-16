@@ -12,7 +12,7 @@ use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, Span};
+use tracing::{Instrument, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
@@ -35,14 +35,6 @@ impl NativeContext {
       context,
       propagator,
     }
-  }
-
-  /// Sets up span context from OTEL context carrier.
-  fn setup_span(&self, otel_context: &HashMap<String, String>) -> Span {
-    let context = self.propagator.extract(otel_context);
-    let span = Span::current();
-    span.set_parent(context);
-    span
   }
 
   /// Checks whether a shutdown has been signaled.
@@ -72,7 +64,9 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let span = self.setup_span(&otel_context);
+    let context = self.propagator.extract(&otel_context);
+    let span = info_span!("schedule");
+    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -96,7 +90,9 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let span = self.setup_span(&otel_context);
+    let context = self.propagator.extract(&otel_context);
+    let span = info_span!("clear_and_schedule");
+    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -119,7 +115,9 @@ impl NativeContext {
     time: DateTime<Utc>,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
-    let span = self.setup_span(&otel_context);
+    let context = self.propagator.extract(&otel_context);
+    let span = info_span!("unschedule");
+    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
@@ -137,7 +135,9 @@ impl NativeContext {
   /// @throws Error if clearing schedules fails.
   #[napi(writable = false)]
   pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-    let span = self.setup_span(&otel_context);
+    let context = self.propagator.extract(&otel_context);
+    let span = info_span!("clear_scheduled");
+    span.set_parent(context);
 
     self
       .context
@@ -156,7 +156,9 @@ impl NativeContext {
     &self,
     otel_context: HashMap<String, String>,
   ) -> napi::Result<Vec<DateTime<Utc>>> {
-    let span = self.setup_span(&otel_context);
+    let context = self.propagator.extract(&otel_context);
+    let span = info_span!("scheduled");
+    span.set_parent(context);
 
     self
       .context
