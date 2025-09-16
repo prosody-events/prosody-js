@@ -13,15 +13,16 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use prosody::consumer::Keyed;
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::failure::{ClassifyError, ErrorCategory, FallibleHandler};
 use prosody::consumer::message::ConsumerMessage;
+use prosody::consumer::Keyed;
 use prosody::propagator::new_propagator;
 use prosody::timers::Trigger;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for message handler arguments.
@@ -257,13 +258,14 @@ impl FallibleHandler for JsHandler {
   where
     C: EventContext,
   {
+    let span = message.span().clone();
     let context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let mut carrier = HashMap::with_capacity(2);
 
     self
       .inner
       .propagator
-      .inject_context(&message.span().context(), &mut carrier);
+      .inject_context(&span.context(), &mut carrier);
 
     let message = Message {
       topic: message.topic().to_string(),
@@ -278,7 +280,9 @@ impl FallibleHandler for JsHandler {
       .inner
       .on_message
       .call_async(Ok((context, message, carrier)))
+      .instrument(span.clone())
       .await?
+      .instrument(span)
       .await
     else {
       return Ok(());
@@ -306,11 +310,12 @@ impl FallibleHandler for JsHandler {
   where
     C: EventContext,
   {
+    let span = trigger.span.clone();
     let mut carrier = HashMap::with_capacity(2);
     self
       .inner
       .propagator
-      .inject_context(&trigger.span.context(), &mut carrier);
+      .inject_context(&span.context(), &mut carrier);
 
     let context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let timer: Timer = trigger.into();
@@ -319,7 +324,9 @@ impl FallibleHandler for JsHandler {
       .inner
       .on_timer
       .call_async(Ok((context, timer, carrier)))
+      .instrument(span.clone())
       .await?
+      .instrument(span)
       .await
     else {
       return Ok(());

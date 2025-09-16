@@ -12,7 +12,7 @@ use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, info_span};
+use tracing::{info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
@@ -65,11 +65,12 @@ impl NativeContext {
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
     let context = self.propagator.extract(&otel_context);
-    let span = info_span!("schedule");
-    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
+
+    let span = info_span!("schedule", %time);
+    span.set_parent(context);
 
     self
       .context
@@ -91,11 +92,12 @@ impl NativeContext {
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
     let context = self.propagator.extract(&otel_context);
-    let span = info_span!("clear_and_schedule");
-    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
+
+    let span = info_span!("clear_and_schedule", %time);
+    span.set_parent(context);
 
     self
       .context
@@ -116,11 +118,12 @@ impl NativeContext {
     otel_context: HashMap<String, String>,
   ) -> napi::Result<()> {
     let context = self.propagator.extract(&otel_context);
-    let span = info_span!("unschedule");
-    span.set_parent(context);
 
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
+
+    let span = info_span!("unschedule", %time);
+    span.set_parent(context);
 
     self
       .context

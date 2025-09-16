@@ -242,34 +242,35 @@ class ProsodyClient {
         // Create a new context from the record
         const ctx = propagation.extract(otelContext.active(), carrier);
         await otelContext.with(ctx, async () => {
-          const span = tracer.startSpan("javascript-receive");
-          try {
-            // register an abort controller to signal partition shutdown
-            const controller = new AbortController();
+          await tracer.startActiveSpan("onMessage", async (span) => {
+            try {
+              // register an abort controller to signal partition shutdown
+              const controller = new AbortController();
 
-            // signal abort controller on shutdown
-            nativeContext
-              .onShutdown()
-              .then(() => {
-                controller.abort("partition revoked");
-                span.setAttribute("aborted", true);
-              })
-              .catch((error) => {
-                span.recordException(error);
-              });
+              // signal abort controller on shutdown
+              nativeContext
+                .onShutdown()
+                .then(() => {
+                  controller.abort("partition revoked");
+                  span.setAttribute("aborted", true);
+                })
+                .catch((error) => {
+                  span.recordException(error);
+                });
 
-            // Wrap the native context with OTEL context injection
-            const context = new Context(nativeContext);
+              // Wrap the native context with OTEL context injection
+              const context = new Context(nativeContext);
 
-            // process message
-            await onMessage(context, message, controller.signal);
-          } catch (error) {
-            getCurrentLogger()?.error("Message handler error", error);
-            span.recordException(error);
-            throw error;
-          } finally {
-            span.end();
-          }
+              // process message
+              await onMessage(context, message, controller.signal);
+            } catch (error) {
+              getCurrentLogger()?.error("Message handler error", error);
+              span.recordException(error);
+              throw error;
+            } finally {
+              span.end();
+            }
+          });
         });
       },
 
@@ -279,34 +280,35 @@ class ProsodyClient {
         // Create a new context from the record
         const ctx = propagation.extract(otelContext.active(), carrier);
         await otelContext.with(ctx, async () => {
-          const span = tracer.startSpan("javascript-timer");
-          try {
-            // register an abort controller to signal partition shutdown
-            const controller = new AbortController();
+          await tracer.startActiveSpan("onTimer", async (span) => {
+            try {
+              // register an abort controller to signal partition shutdown
+              const controller = new AbortController();
 
-            // signal abort controller on shutdown
-            nativeContext
-              .onShutdown()
-              .then(() => {
-                controller.abort("partition revoked");
-                span.setAttribute("aborted", true);
-              })
-              .catch((error) => {
-                span.recordException(error);
-              });
+              // signal abort controller on shutdown
+              nativeContext
+                .onShutdown()
+                .then(() => {
+                  controller.abort("partition revoked");
+                  span.setAttribute("aborted", true);
+                })
+                .catch((error) => {
+                  span.recordException(error);
+                });
 
-            // Wrap the native context with OTEL context injection
-            const context = new Context(nativeContext);
+              // Wrap the native context with OTEL context injection
+              const context = new Context(nativeContext);
 
-            // process timer
-            await onTimer(context, timer, controller.signal);
-          } catch (error) {
-            getCurrentLogger()?.error("Timer handler error", error);
-            span.recordException(error);
-            throw error;
-          } finally {
-            span.end();
-          }
+              // process timer
+              await onTimer(context, timer, controller.signal);
+            } catch (error) {
+              getCurrentLogger()?.error("Timer handler error", error);
+              span.recordException(error);
+              throw error;
+            } finally {
+              span.end();
+            }
+          });
         });
       },
     });

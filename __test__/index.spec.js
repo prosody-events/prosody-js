@@ -217,6 +217,8 @@ describe("ProsodyClient", () => {
     }
 
     try {
+      // Wait 6 seconds to allow traces to be exported
+      await new Promise((resolve) => setTimeout(resolve, 6000));
       await sdk.shutdown();
     } catch (err) {
       console.error("Error shutting down OpenTelemetry SDK:", err);
