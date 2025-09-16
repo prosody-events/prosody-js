@@ -107,21 +107,33 @@ describe("ProsodyClient", () => {
   ) => {
     return class TimerHandler {
       async onMessage(context, message) {
-        testEvents.emit("messageReceived", { context, message });
-        if (customOnMessage) {
-          await customOnMessage(context, message);
-        }
+        return tracer.startActiveSpan("test.onMessage", async (span) => {
+          try {
+            testEvents.emit("messageReceived", { context, message });
+            if (customOnMessage) {
+              await customOnMessage(context, message);
+            }
+          } finally {
+            span.end();
+          }
+        });
       }
 
       async onTimer(context, timer) {
-        testEvents.emit("timerFired", {
-          context,
-          timer,
-          actualTime: new Date(),
+        return tracer.startActiveSpan("test.onTimer", async (span) => {
+          try {
+            testEvents.emit("timerFired", {
+              context,
+              timer,
+              actualTime: new Date(),
+            });
+            if (customOnTimer) {
+              await customOnTimer(context, timer);
+            }
+          } finally {
+            span.end();
+          }
         });
-        if (customOnTimer) {
-          await customOnTimer(context, timer);
-        }
       }
     };
   };
@@ -239,7 +251,15 @@ describe("ProsodyClient", () => {
       async (span) => {
         try {
           await client.subscribe({
-            onMessage: (_, message) => messageStream.push(message),
+            onMessage: (_, message) => {
+              return tracer.startActiveSpan("test.onMessage", async (span) => {
+                try {
+                  messageStream.push(message);
+                } finally {
+                  span.end();
+                }
+              });
+            },
           });
           expect(await client.consumerState()).toBe(ConsumerState.Running);
 
@@ -256,7 +276,15 @@ describe("ProsodyClient", () => {
     return tracer.startActiveSpan("test.send_receive", async (span) => {
       try {
         await client.subscribe({
-          onMessage: (_, message) => messageStream.push(message),
+          onMessage: (_, message) => {
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                messageStream.push(message);
+              } finally {
+                span.end();
+              }
+            });
+          },
         });
 
         const testMessage = {
@@ -285,7 +313,15 @@ describe("ProsodyClient", () => {
     return tracer.startActiveSpan("test.multiple_messages", async (span) => {
       try {
         await client.subscribe({
-          onMessage: (_, message) => messageStream.push(message),
+          onMessage: (_, message) => {
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                messageStream.push(message);
+              } finally {
+                span.end();
+              }
+            });
+          },
         });
 
         const messagesToSend = [
@@ -357,20 +393,26 @@ describe("ProsodyClient", () => {
 
           await client.subscribe({
             onMessage: (context, message, signal) => {
-              const result = new Promise((resolve) => {
-                signal.addEventListener(
-                  "abort",
-                  () => {
-                    messageAborted = true;
-                    testEvents.emit("processingAborted", message);
-                    resolve();
-                  },
-                  { once: true },
-                );
-              });
+              return tracer.startActiveSpan("test.onMessage", async (span) => {
+                try {
+                  const result = new Promise((resolve) => {
+                    signal.addEventListener(
+                      "abort",
+                      () => {
+                        messageAborted = true;
+                        testEvents.emit("processingAborted", message);
+                        resolve();
+                      },
+                      { once: true },
+                    );
+                  });
 
-              testEvents.emit("processingStarted", message);
-              return result;
+                  testEvents.emit("processingStarted", message);
+                  return result;
+                } finally {
+                  span.end();
+                }
+              });
             },
           });
 
@@ -401,12 +443,18 @@ describe("ProsodyClient", () => {
         class TransientErrorHandler {
           @transient(Error)
           async onMessage(context, message) {
-            messageCount++;
-            if (messageCount === 1) {
-              throw new Error("Transient error occurred");
-            } else {
-              retryEvent.emit("retry");
-            }
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                messageCount++;
+                if (messageCount === 1) {
+                  throw new Error("Transient error occurred");
+                } else {
+                  retryEvent.emit("retry");
+                }
+              } finally {
+                span.end();
+              }
+            });
           }
         }
 
@@ -432,9 +480,15 @@ describe("ProsodyClient", () => {
         class PermanentErrorHandler {
           @permanent(Error)
           async onMessage(_, message) {
-            messageCount++;
-            errorEvent.emit("error-event");
-            throw new Error("Permanent error occurred");
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                messageCount++;
+                errorEvent.emit("error-event");
+                throw new Error("Permanent error occurred");
+              } finally {
+                span.end();
+              }
+            });
           }
         }
 
@@ -720,27 +774,39 @@ describe("ProsodyClient", () => {
 
         class TimerHandler {
           async onMessage(context, message) {
-            testEvents.emit("messageReceived", { context, message });
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                testEvents.emit("messageReceived", { context, message });
 
-            // Schedule multiple timers at the exact same time (same second)
-            // Due to upsert behavior (one timer per key per second), only one should remain
-            const sameTime = new Date(Date.now() + timerDelayMs);
+                // Schedule multiple timers at the exact same time (same second)
+                // Due to upsert behavior (one timer per key per second), only one should remain
+                const sameTime = new Date(Date.now() + timerDelayMs);
 
-            await context.schedule(sameTime);
-            await context.schedule(sameTime); // This should replace the first one
-            await context.schedule(sameTime); // This should replace the second one
+                await context.schedule(sameTime);
+                await context.schedule(sameTime); // This should replace the first one
+                await context.schedule(sameTime); // This should replace the second one
 
-            // Get scheduled times to verify only one remains
-            scheduledTimes = await context.scheduled();
-            testEvents.emit("scheduledRetrieved", {
-              scheduledTimes,
-              expectedTime: sameTime,
+                // Get scheduled times to verify only one remains
+                scheduledTimes = await context.scheduled();
+                testEvents.emit("scheduledRetrieved", {
+                  scheduledTimes,
+                  expectedTime: sameTime,
+                });
+              } finally {
+                span.end();
+              }
             });
           }
 
           async onTimer(context, timer) {
-            timerCount++;
-            testEvents.emit("timerFired", { timer, timerCount });
+            return tracer.startActiveSpan("test.onTimer", async (span) => {
+              try {
+                timerCount++;
+                testEvents.emit("timerFired", { timer, timerCount });
+              } finally {
+                span.end();
+              }
+            });
           }
         }
 
