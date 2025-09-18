@@ -34,13 +34,13 @@ opentelemetry-proto = "=0.30.0"
 
 # x86_64-unknown-linux-gnu: use libz-static
 [target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "3097f573b5e18c4c1c8c881970dac2dc1504154f", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "494af97f143492aafc72b9b81986077e6e05d1ff", features = [
     "libz-static",
 ] }
 
 # All other targets: use external-lz4
 [target.'cfg(not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "3097f573b5e18c4c1c8c881970dac2dc1504154f", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "494af97f143492aafc72b9b81986077e6e05d1ff", features = [
     "external-lz4",
 ] }
 
