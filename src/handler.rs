@@ -258,7 +258,7 @@ impl FallibleHandler for JsHandler {
   where
     C: EventContext,
   {
-    let span = message.span().clone();
+    let span = message.span().as_ref().clone();
     let context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let mut carrier = HashMap::with_capacity(2);
 
@@ -310,7 +310,7 @@ impl FallibleHandler for JsHandler {
   where
     C: EventContext,
   {
-    let span = trigger.span.clone();
+    let span = trigger.span().as_ref().clone();
     let mut carrier = HashMap::with_capacity(2);
     self
       .inner
