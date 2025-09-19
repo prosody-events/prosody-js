@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/cincpro/prosody-js/compare/v1.2.0...v1.2.1) (2025-09-19)
+
+
+### Bug Fixes
+
+* invalidate contexts and flush spans ([#104](https://github.com/cincpro/prosody-js/issues/104)) ([8e432c1](https://github.com/cincpro/prosody-js/commit/8e432c10bc47dba8897bac41a3a6cf479d54b38b))
+
 ## [1.2.0](https://github.com/cincpro/prosody-js/compare/v1.1.5...v1.2.0) (2025-09-16)
 
 
