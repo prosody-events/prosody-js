@@ -96,7 +96,7 @@ impl NativeContext {
     let time =
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
 
-    let span = info_span!("clear_and_schedule", %time);
+    let span = info_span!("clearAndSchedule", %time);
     span.set_parent(context);
 
     self
@@ -139,7 +139,7 @@ impl NativeContext {
   #[napi(writable = false)]
   pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
     let context = self.propagator.extract(&otel_context);
-    let span = info_span!("clear_scheduled");
+    let span = info_span!("clearScheduled");
     span.set_parent(context);
 
     self

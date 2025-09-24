@@ -504,7 +504,9 @@ const messageHandler = {
         const span = tracer.startSpan('process-message');
         try {
             // Process the received message
-            console.log(`Received message: ${JSON.stringify(message)}`);
+            span.addEvent('message.received', {
+                'message.payload': JSON.stringify(message)
+            });
         } finally {
             span.end();
         }
