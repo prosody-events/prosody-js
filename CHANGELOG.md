@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2](https://github.com/cincpro/prosody-js/compare/v1.2.1...v1.2.2) (2025-10-10)
+
+
+### Bug Fixes
+
+* promise heap growth until topic revocation ([#108](https://github.com/cincpro/prosody-js/issues/108)) ([238349a](https://github.com/cincpro/prosody-js/commit/238349adbd6265c7af2dd8e1f90bac5b54b04995))
+* span names ([#106](https://github.com/cincpro/prosody-js/issues/106)) ([d396e17](https://github.com/cincpro/prosody-js/commit/d396e173c8afe982ee4b0606646f860f5b586972))
+
 ## [1.2.1](https://github.com/cincpro/prosody-js/compare/v1.2.0...v1.2.1) (2025-09-19)
 
 
