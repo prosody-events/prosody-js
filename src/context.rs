@@ -15,7 +15,7 @@ use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, error, info_span};
+use tracing::{Instrument, debug, error, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for the abort callback threadsafe function.
@@ -66,12 +66,17 @@ impl NativeContext {
   ///
   /// This is called internally by Rust when shutdown is detected.
   pub async fn abort(&self, reason: String) {
+    debug!(%reason, "aborting context");
+
     let Some(abort_fn) = self.abort_fn.lock().take() else {
+      debug!("no abort function registered");
       return;
     };
 
     if let Err(error) = abort_fn.call_async(reason).await {
       error!("failed to call abort function: {error:#}");
+    } else {
+      debug!("abort function called successfully");
     }
   }
 

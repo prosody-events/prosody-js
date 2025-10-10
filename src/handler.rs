@@ -22,7 +22,7 @@ use prosody::timers::Trigger;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{Instrument, error};
+use tracing::{Instrument, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for message handler arguments.
@@ -278,6 +278,8 @@ impl FallibleHandler for JsHandler {
     };
 
     let handler_fut = async {
+      debug!("processing message");
+
       let result = self
         .inner
         .on_message
@@ -286,7 +288,10 @@ impl FallibleHandler for JsHandler {
         .await;
 
       match result {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+          debug!("message processed successfully");
+          Ok(())
+        }
         Err(error) => {
           // Log error within span context so it's captured in traces
           error!(error = %error, "message handler error");
@@ -346,6 +351,8 @@ impl FallibleHandler for JsHandler {
     let timer: Timer = trigger.into();
 
     let handler_fut = async {
+      debug!("processing timer");
+
       let result = self
         .inner
         .on_timer
@@ -354,7 +361,10 @@ impl FallibleHandler for JsHandler {
         .await;
 
       match result {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+          debug!("timer processed successfully");
+          Ok(())
+        }
         Err(error) => {
           // Log error within span context so it's captured in traces
           error!(error = %error, "timer handler error");
