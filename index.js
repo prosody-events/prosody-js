@@ -32,6 +32,7 @@ const {
   context: otelContext,
   propagation,
   trace,
+  SpanStatusCode,
 } = require("@opentelemetry/api");
 
 const {
@@ -247,16 +248,11 @@ class ProsodyClient {
               // register an abort controller to signal partition shutdown
               const controller = new AbortController();
 
-              // signal abort controller on shutdown
-              nativeContext
-                .onShutdown()
-                .then(() => {
-                  controller.abort("partition revoked");
-                  span.setAttribute("aborted", true);
-                })
-                .catch((error) => {
-                  span.recordException(error);
-                });
+              // Register abort function with Rust to be called on shutdown
+              nativeContext.registerAbort((reason) => {
+                controller.abort(reason);
+                span.setAttribute("abortReason", reason);
+              });
 
               // Wrap the native context with OTEL context injection
               const context = new Context(nativeContext);
@@ -285,16 +281,11 @@ class ProsodyClient {
               // register an abort controller to signal partition shutdown
               const controller = new AbortController();
 
-              // signal abort controller on shutdown
-              nativeContext
-                .onShutdown()
-                .then(() => {
-                  controller.abort("partition revoked");
-                  span.setAttribute("aborted", true);
-                })
-                .catch((error) => {
-                  span.recordException(error);
-                });
+              // Register abort function with Rust to be called on shutdown
+              nativeContext.registerAbort((reason) => {
+                controller.abort(reason);
+                span.setAttribute("abortReason", reason);
+              });
 
               // Wrap the native context with OTEL context injection
               const context = new Context(nativeContext);

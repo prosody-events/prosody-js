@@ -3,6 +3,7 @@ const { EventEmitter } = require("events");
 const {
   ConsumerState,
   ProsodyClient,
+  PermanentError,
   permanent,
   transient,
 } = require("../index.js");
@@ -510,6 +511,45 @@ describe("ProsodyClient", () => {
         span.end();
       }
     });
+  });
+
+  it("handles explicit permanent errors without retry", async () => {
+    return tracer.startActiveSpan(
+      "test.explicit_permanent_error",
+      async (span) => {
+        try {
+          let messageCount = 0;
+          const errorEvent = new EventEmitter();
+
+          await client.subscribe({
+            onMessage: async (context, message) => {
+              return tracer.startActiveSpan("test.onMessage", async (span) => {
+                try {
+                  messageCount++;
+                  errorEvent.emit("error-event");
+                  throw new PermanentError("Explicit permanent error occurred");
+                } finally {
+                  span.end();
+                }
+              });
+            },
+          });
+
+          await client.send(topic, "test-key", {
+            content: "Trigger explicit permanent error",
+          });
+
+          await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
+
+          // Wait a bit to allow for any potential retries
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+
+          expect(messageCount).toBe(1);
+        } finally {
+          span.end();
+        }
+      },
+    );
   });
 
   it("schedules and fires timers at correct time", async () => {

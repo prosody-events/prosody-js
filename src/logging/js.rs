@@ -38,6 +38,7 @@ impl JsLogger {
   /// # Errors
   ///
   /// Returns an error if creating thread-safe functions fails.
+  #[allow(dead_code)]
   pub fn new(logger: &Logger) -> napi::Result<Self> {
     // Create thread-safe functions for each log level
     // Try to create them as weak references to prevent keeping the process alive
