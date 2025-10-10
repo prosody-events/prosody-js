@@ -19,7 +19,7 @@ use tracing::{Instrument, debug, error, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for the abort callback threadsafe function.
-type AbortCallback = ThreadsafeFunction<String, (), String, Status, false, false, 1>;
+type AbortCallback = ThreadsafeFunction<String, (), String, Status, false, true, 1>;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
@@ -56,6 +56,7 @@ impl NativeContext {
       abort_fn
         .build_threadsafe_function()
         .max_queue_size()
+        .weak()
         .build()?,
     );
 
