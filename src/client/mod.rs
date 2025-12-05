@@ -1,6 +1,5 @@
 use crate::client::config::{
-  Configuration, build_cassandra_config, build_consumer_config, build_failure_topic_config,
-  build_producer_config, build_retry_config,
+  Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
 use napi::bindgen_prelude::Promise;
@@ -13,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tokio::select;
 use tracing::field::Empty;
-use tracing::{Instrument, info_span};
+use tracing::{Instrument, error, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
@@ -35,17 +34,13 @@ impl NativeClient {
   #[napi(constructor, writable = false)]
   pub fn new(config: Configuration) -> Result<Self> {
     let mut producer_config = build_producer_config(&config);
-    let consumer_config = build_consumer_config(&config);
-    let retry_config = build_retry_config(&config);
-    let failure_topic_config = build_failure_topic_config(&config);
+    let consumer_builders = build_consumer_builders(&config);
     let cassandra_config = build_cassandra_config(&config);
 
     let client = HighLevelClient::new(
       config.mode.unwrap_or_default().into(),
       &mut producer_config,
-      &consumer_config,
-      &retry_config,
-      &failure_topic_config,
+      &consumer_builders,
       &cassandra_config,
     )
     .map_err(|e| Error::from_reason(e.to_string()))?;
@@ -83,7 +78,9 @@ impl NativeClient {
   ) -> Result<()> {
     let context = self.client.propagator().extract(&otel_context);
     let span = info_span!("javascript-send", %topic, %key, aborted = Empty);
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     let send_future = async {
       self

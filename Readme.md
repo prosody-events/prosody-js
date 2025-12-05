@@ -92,10 +92,62 @@ The `ProsodyClient` constructor accepts these key parameters:
 - `subscribedTopics` (string | string[]): Topics to subscribe to (required for consumption)
 - `sourceSystem` (string): Identifier for the producing system to prevent loops (defaults to groupId)
 - `allowedEvents` (string | string[]): Prefixes of event types to process (processes all if unspecified)
-- `mode` (string): 'pipeline' (default) or 'low-latency'
+- `mode` (string): 'Pipeline' (default), 'LowLatency', or 'BestEffort'
 
-Additional optional parameters control behavior like message committal, polling intervals, and retry logic. Most
-parameters can be set via environment variables (e.g., `PROSODY_BOOTSTRAP_SERVERS`).
+### Advanced Configuration
+
+Additional optional parameters control behavior like message committal, polling intervals, and retry logic:
+
+**Consumer Settings**
+- `maxConcurrency` (number): Maximum concurrent handler invocations
+- `maxUncommitted` (number): Maximum uncommitted messages before pausing consumption
+- `maxEnqueuedPerKey` (number): Maximum enqueued messages per key
+- `stallThresholdMs` (number): Threshold for stall detection in milliseconds
+- `shutdownTimeoutMs` (number): Timeout for in-flight tasks during shutdown
+- `pollIntervalMs` (number): Time between message polls
+- `commitIntervalMs` (number): Time between offset commits
+- `idempotenceCacheSize` (number): Cache size for message deduplication (0 to disable)
+- `slabSizeMs` (number): Timer slab partitioning duration
+
+**Retry Settings**
+- `retryBaseMs` (number): Initial delay for exponential backoff retries
+- `maxRetries` (number): Maximum retry attempts
+- `maxRetryDelayMs` (number): Maximum delay between retries
+- `failureTopic` (string): Topic for failed messages (low-latency mode)
+
+**Scheduler Settings**
+- `schedulerFailureWeight` (number): Proportion of execution time for failure tasks (0.0-1.0)
+- `schedulerMaxWaitMs` (number): Wait duration at which urgency boost reaches maximum
+- `schedulerWaitWeight` (number): Maximum urgency boost in seconds of virtual time
+- `schedulerCacheSize` (number): Cache capacity for per-key virtual time tracking
+
+**Monopolization Detection**
+- `monopolizationThreshold` (number): Detection threshold as fraction of window (0.0-1.0)
+- `monopolizationWindowMs` (number): Rolling window duration for detection
+- `monopolizationCacheSize` (number): Cache size for tracking key execution intervals
+
+**Defer Settings** (for persistent failure handling)
+- `deferBaseMs` (number): Base exponential backoff delay for deferred retries
+- `deferMaxDelayMs` (number): Maximum delay between deferred retries
+- `deferFailureThreshold` (number): Failure rate threshold for enabling deferral (0.0-1.0)
+- `deferFailureWindowMs` (number): Sliding window for failure rate tracking
+- `deferCacheSize` (number): Cache size for defer middleware
+- `deferSeekTimeoutMs` (number): Timeout for Kafka seek operations
+- `deferDiscardThreshold` (number): Messages to read sequentially before seeking
+
+**Timeout Settings**
+- `timeoutMs` (number): Fixed timeout for handler execution (defaults to 80% of stall threshold)
+
+**Cassandra Settings** (required for timer persistence)
+- `cassandraNodes` (string | string[]): Contact nodes
+- `cassandraKeyspace` (string): Keyspace for timer data
+- `cassandraDatacenter` (string): Preferred datacenter
+- `cassandraRack` (string): Preferred rack identifier
+- `cassandraUser` (string): Authentication username
+- `cassandraPassword` (string): Authentication password
+- `cassandraRetentionSeconds` (number): Retention period for timer data
+
+Most parameters can be set via environment variables (e.g., `PROSODY_BOOTSTRAP_SERVERS`, `PROSODY_MAX_CONCURRENCY`).
 
 Refer to the API documentation for detailed information on all parameters and their default values.
 

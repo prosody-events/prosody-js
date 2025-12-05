@@ -12,6 +12,7 @@ use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use parking_lot::Mutex;
 use prosody::consumer::event_context::BoxEventContext;
+use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -97,6 +98,14 @@ impl NativeContext {
     self.context.on_shutdown().await;
   }
 
+  /// Waits for a cancellation signal.
+  ///
+  /// @returns A promise that resolves when cancellation is signaled.
+  #[napi(writable = false)]
+  pub async fn on_cancel(&self) {
+    self.context.on_cancel().await;
+  }
+
   /// Schedule a timer at the given time.
   ///
   /// @param time - The UTC timestamp to schedule.
@@ -114,11 +123,13 @@ impl NativeContext {
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
 
     let span = info_span!("schedule", %time);
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     self
       .context
-      .schedule(time)
+      .schedule(time, TimerType::Application)
       .instrument(span)
       .await
       .map_err(|error| Error::from_reason(error.to_string()))
@@ -141,11 +152,13 @@ impl NativeContext {
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
 
     let span = info_span!("clearAndSchedule", %time);
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     self
       .context
-      .clear_and_schedule(time)
+      .clear_and_schedule(time, TimerType::Application)
       .instrument(span)
       .await
       .map_err(|error| Error::from_reason(error.to_string()))
@@ -167,11 +180,13 @@ impl NativeContext {
       CompactDateTime::try_from(time).map_err(|error| Error::from_reason(error.to_string()))?;
 
     let span = info_span!("unschedule", %time);
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     self
       .context
-      .unschedule(time)
+      .unschedule(time, TimerType::Application)
       .instrument(span)
       .await
       .map_err(|error| Error::from_reason(error.to_string()))
@@ -184,11 +199,13 @@ impl NativeContext {
   pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
     let context = self.propagator.extract(&otel_context);
     let span = info_span!("clearScheduled");
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     self
       .context
-      .clear_scheduled()
+      .clear_scheduled(TimerType::Application)
       .instrument(span)
       .await
       .map_err(|error| Error::from_reason(error.to_string()))
@@ -205,11 +222,13 @@ impl NativeContext {
   ) -> napi::Result<Vec<DateTime<Utc>>> {
     let context = self.propagator.extract(&otel_context);
     let span = info_span!("scheduled");
-    span.set_parent(context);
+    if let Err(err) = span.set_parent(context) {
+      error!("failed to set parent span: {err:#}");
+    }
 
     self
       .context
-      .scheduled()
+      .scheduled(TimerType::Application)
       .map_ok(DateTime::<Utc>::from)
       .map_err(|error| Error::from_reason(error.to_string()))
       .try_collect()

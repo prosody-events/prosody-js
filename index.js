@@ -245,10 +245,10 @@ class ProsodyClient {
         await otelContext.with(ctx, async () => {
           await tracer.startActiveSpan("onMessage", async (span) => {
             try {
-              // register an abort controller to signal partition shutdown
+              // register an abort controller to signal cancellation
               const controller = new AbortController();
 
-              // Register abort function with Rust to be called on shutdown
+              // Register abort function with Rust to be called on cancel
               nativeContext.registerAbort((reason) => {
                 controller.abort(reason);
                 span.setAttribute("abortReason", reason);
@@ -278,10 +278,10 @@ class ProsodyClient {
         await otelContext.with(ctx, async () => {
           await tracer.startActiveSpan("onTimer", async (span) => {
             try {
-              // register an abort controller to signal partition shutdown
+              // register an abort controller to signal cancellation
               const controller = new AbortController();
 
-              // Register abort function with Rust to be called on shutdown
+              // Register abort function with Rust to be called on cancel
               nativeContext.registerAbort((reason) => {
                 controller.abort(reason);
                 span.setAttribute("abortReason", reason);
