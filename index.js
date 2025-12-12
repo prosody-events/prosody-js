@@ -449,19 +449,21 @@ class Context {
   }
 
   /**
-   * Checks whether a shutdown has been signaled.
-   * @returns {boolean} True if shutdown was requested, otherwise false.
+   * Checks whether cancellation has been signaled.
+   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
+   * @returns {boolean} True if cancellation was requested, otherwise false.
    */
-  get shouldShutdown() {
-    return this.nativeContext.shouldShutdown;
+  get shouldCancel() {
+    return this.nativeContext.shouldCancel;
   }
 
   /**
-   * Waits for a shutdown signal.
-   * @returns {Promise<void>} A promise that resolves when shutdown is signaled.
+   * Waits for a cancellation signal.
+   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
+   * @returns {Promise<void>} A promise that resolves when cancellation is signaled.
    */
-  async onShutdown() {
-    return this.nativeContext.onShutdown();
+  async onCancel() {
+    return this.nativeContext.onCancel();
   }
 
   /**

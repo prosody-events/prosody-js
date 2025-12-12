@@ -126,6 +126,10 @@ pub struct Configuration {
   pub scheduler_cache_size: Option<u32>,
 
   // Monopolization configuration
+  /// Whether monopolization detection is enabled.
+  /// When disabled, the monopolization middleware is bypassed.
+  pub monopolization_enabled: Option<bool>,
+
   /// Threshold for monopolization detection (0.0 to 1.0).
   /// If a key's execution time exceeds this fraction of the window duration,
   /// it is considered to be monopolizing execution.
@@ -138,6 +142,10 @@ pub struct Configuration {
   pub monopolization_cache_size: Option<u32>,
 
   // Defer configuration
+  /// Whether deferral is enabled for new messages.
+  /// When disabled, transient failures will not be deferred.
+  pub defer_enabled: Option<bool>,
+
   /// Base exponential backoff delay for deferred retries in milliseconds.
   /// Handles persistent failures that need time to recover.
   pub defer_base_ms: Option<u32>,
@@ -391,6 +399,10 @@ fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuild
 fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigurationBuilder {
   let mut builder = MonopolizationConfigurationBuilder::default();
 
+  if let Some(enabled) = config.monopolization_enabled {
+    builder.enabled(enabled);
+  }
+
   if let Some(threshold) = config.monopolization_threshold {
     builder.monopolization_threshold(threshold);
   }
@@ -417,6 +429,10 @@ fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigur
 /// A `DeferConfigurationBuilder` with the specified configuration options.
 fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
   let mut builder = DeferConfigurationBuilder::default();
+
+  if let Some(enabled) = config.defer_enabled {
+    builder.enabled(enabled);
+  }
 
   if let Some(base_ms) = config.defer_base_ms {
     builder.base(Duration::from_millis(u64::from(base_ms)));

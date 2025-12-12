@@ -82,23 +82,19 @@ impl NativeContext {
     }
   }
 
-  /// Checks whether a shutdown has been signaled.
+  /// Checks whether cancellation has been signaled.
   ///
-  /// @returns True if shutdown was requested, otherwise false.
+  /// Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
+  ///
+  /// @returns True if cancellation was requested, otherwise false.
   #[napi(getter, writable = false)]
-  pub fn should_shutdown(&self) -> bool {
-    self.context.should_shutdown()
-  }
-
-  /// Waits for a shutdown signal.
-  ///
-  /// @returns A promise that resolves when shutdown is signaled.
-  #[napi(writable = false)]
-  pub async fn on_shutdown(&self) {
-    self.context.on_shutdown().await;
+  pub fn should_cancel(&self) -> bool {
+    self.context.should_cancel()
   }
 
   /// Waits for a cancellation signal.
+  ///
+  /// Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
   ///
   /// @returns A promise that resolves when cancellation is signaled.
   #[napi(writable = false)]

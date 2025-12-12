@@ -122,11 +122,13 @@ Additional optional parameters control behavior like message committal, polling 
 - `schedulerCacheSize` (number): Cache capacity for per-key virtual time tracking
 
 **Monopolization Detection**
+- `monopolizationEnabled` (boolean): Whether monopolization detection is enabled (default: true)
 - `monopolizationThreshold` (number): Detection threshold as fraction of window (0.0-1.0)
 - `monopolizationWindowMs` (number): Rolling window duration for detection
 - `monopolizationCacheSize` (number): Cache size for tracking key execution intervals
 
 **Defer Settings** (for persistent failure handling)
+- `deferEnabled` (boolean): Whether deferral is enabled for new messages (default: true)
 - `deferBaseMs` (number): Base exponential backoff delay for deferred retries
 - `deferMaxDelayMs` (number): Maximum delay between deferred retries
 - `deferFailureThreshold` (number): Failure rate threshold for enabling deferral (0.0-1.0)
@@ -790,8 +792,8 @@ Represents a Kafka message with the following properties:
 
 Represents the context of message processing:
 
-- `onShutdown(): Promise<void>`: A method that resolves when the context should shut down.
-- `shouldShutdown: boolean`: A property indicating whether the context should shut down.
+- `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
+- `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
 
 Timer scheduling methods:
 
