@@ -373,7 +373,7 @@ fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuild
   }
 
   if let Some(max_wait_ms) = config.scheduler_max_wait_ms {
-    builder.max_wait_secs(Duration::from_millis(u64::from(max_wait_ms)));
+    builder.max_wait(Duration::from_millis(u64::from(max_wait_ms)));
   }
 
   if let Some(wait_weight) = config.scheduler_wait_weight {
