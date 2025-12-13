@@ -13,12 +13,12 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use prosody::consumer::Keyed;
 use prosody::consumer::event_context::EventContext;
-use prosody::consumer::failure::{ClassifyError, ErrorCategory, FallibleHandler};
 use prosody::consumer::message::ConsumerMessage;
+use prosody::consumer::middleware::{ClassifyError, ErrorCategory, FallibleHandler};
+use prosody::consumer::{DemandType, Keyed};
 use prosody::propagator::new_propagator;
-use prosody::timers::Trigger;
+use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -249,16 +249,22 @@ impl FallibleHandler for JsHandler {
   ///
   /// * `context` - The event context providing shutdown signaling and other utilities.
   /// * `message` - The consumer message to process.
+  /// * `_demand_type` - Whether this is normal processing or failure retry.
   ///
   /// # Errors
   ///
   /// Returns a `JsHandlerError` if the JavaScript callback execution fails
   /// or if error categorization fails.
-  async fn on_message<C>(&self, context: C, message: ConsumerMessage) -> Result<(), Self::Error>
+  async fn on_message<C>(
+    &self,
+    context: C,
+    message: ConsumerMessage,
+    _demand_type: DemandType,
+  ) -> Result<(), Self::Error>
   where
     C: EventContext,
   {
-    let span = message.span().as_ref().clone();
+    let span = message.span();
     let native_context =
       NativeContext::new(context.clone().boxed(), Arc::clone(&self.inner.propagator));
     let mut carrier = HashMap::with_capacity(2);
@@ -301,11 +307,11 @@ impl FallibleHandler for JsHandler {
     }
     .instrument(span.clone());
 
-    let shutdown_fut = async {
-      context.on_shutdown().await;
-      // Log shutdown event within span context
-      error!("partition shutdown during message processing");
-      native_context.abort("partition revoked".to_owned()).await;
+    let cancel_fut = async {
+      context.on_cancel().await;
+      // Log cancel event within span context
+      error!("message cancelled during message processing");
+      native_context.abort("message cancelled".to_owned()).await;
     }
     .instrument(span.clone());
 
@@ -314,7 +320,7 @@ impl FallibleHandler for JsHandler {
             result?;
             Ok(())
         }
-        () = shutdown_fut => {
+        () = cancel_fut => {
           Err(JsHandlerError::Shutdown)
         }
     }
@@ -330,16 +336,27 @@ impl FallibleHandler for JsHandler {
   ///
   /// * `context` - The event context providing shutdown signaling and other utilities.
   /// * `trigger` - The timer trigger to process.
+  /// * `_demand_type` - Whether this is normal processing or failure retry.
   ///
   /// # Errors
   ///
   /// Returns a `JsHandlerError` if the JavaScript callback execution fails
   /// or if error categorization fails.
-  async fn on_timer<C>(&self, context: C, trigger: Trigger) -> Result<(), Self::Error>
+  async fn on_timer<C>(
+    &self,
+    context: C,
+    trigger: Trigger,
+    _demand_type: DemandType,
+  ) -> Result<(), Self::Error>
   where
     C: EventContext,
   {
-    let span = trigger.span().as_ref().clone();
+    // Only process application timers; internal timers are handled by middleware
+    if trigger.timer_type != TimerType::Application {
+      return Ok(());
+    }
+
+    let span = trigger.span();
     let mut carrier = HashMap::with_capacity(2);
     self
       .inner
@@ -374,11 +391,11 @@ impl FallibleHandler for JsHandler {
     }
     .instrument(span.clone());
 
-    let shutdown_fut = async {
-      context.on_shutdown().await;
-      // Log shutdown event within span context
-      error!("partition shutdown during timer processing");
-      native_context.abort("partition revoked".to_owned()).await;
+    let cancel_fut = async {
+      context.on_cancel().await;
+      // Log cancel event within span context
+      error!("timer cancelled during timer processing");
+      native_context.abort("timer cancelled".to_owned()).await;
     }
     .instrument(span.clone());
 
@@ -387,10 +404,18 @@ impl FallibleHandler for JsHandler {
             result?;
             Ok(())
         }
-        () = shutdown_fut => {
+        () = cancel_fut => {
           Err(JsHandlerError::Shutdown)
         }
     }
+  }
+
+  /// Shuts down the handler.
+  ///
+  /// This is a no-op for the JavaScript handler since resources are managed
+  /// by the JavaScript runtime through garbage collection.
+  async fn shutdown(self) {
+    // No cleanup required - JavaScript handles resource cleanup via GC
   }
 }
 

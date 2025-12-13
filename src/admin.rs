@@ -5,7 +5,7 @@
 
 use napi::{Either, Error};
 use napi_derive::napi;
-use prosody::admin::ProsodyAdminClient;
+use prosody::admin::{AdminConfiguration, ProsodyAdminClient, TopicConfiguration};
 
 /// Represents a client for performing administrative operations on a Prosody cluster.
 #[napi]
@@ -26,8 +26,11 @@ impl AdminClient {
       Either::B(servers) => servers,
     };
 
+    let admin_config =
+      AdminConfiguration::new(bootstrap_servers).map_err(|e| Error::from_reason(e.to_string()))?;
+
     let client =
-      ProsodyAdminClient::new(&bootstrap_servers).map_err(|e| Error::from_reason(e.to_string()))?;
+      ProsodyAdminClient::new(&admin_config).map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(Self { client })
   }
@@ -45,9 +48,16 @@ impl AdminClient {
     partition_count: u16,
     replication_factor: u16,
   ) -> napi::Result<()> {
+    let topic_config = TopicConfiguration::builder()
+      .name(name)
+      .partition_count(partition_count)
+      .replication_factor(replication_factor)
+      .build()
+      .map_err(|e| Error::from_reason(e.to_string()))?;
+
     self
       .client
-      .create_topic(&name, partition_count, replication_factor)
+      .create_topic(&topic_config)
       .await
       .map_err(|e| Error::from_reason(e.to_string()))
   }

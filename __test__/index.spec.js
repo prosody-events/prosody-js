@@ -15,7 +15,7 @@ const opentelemetry = require("@opentelemetry/api");
 const { NodeSDK } = require("@opentelemetry/sdk-node");
 const {
   OTLPTraceExporter,
-} = require("@opentelemetry/exporter-trace-otlp-http");
+} = require("@opentelemetry/exporter-trace-otlp-proto");
 
 const sdk = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
