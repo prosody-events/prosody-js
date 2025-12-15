@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/cincpro/prosody-js/compare/v2.0.0...v2.0.1) (2025-12-15)
+
+
+### Bug Fixes
+
+* **ci:** use git CLI for Cargo on Windows ([#112](https://github.com/cincpro/prosody-js/issues/112)) ([e5f3c9b](https://github.com/cincpro/prosody-js/commit/e5f3c9ba3e46ba91f079260f4e25d7ec203dcf11))
+
 ## [2.0.0](https://github.com/cincpro/prosody-js/compare/v1.2.2...v2.0.0) (2025-12-13)
 
 
