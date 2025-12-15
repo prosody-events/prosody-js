@@ -21,24 +21,24 @@ educe = "0.6"
 futures = "0.3"
 napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.1"
-opentelemetry = "0.30"
+opentelemetry = "0.31"
 parking_lot = "0.12"
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.47"
 tracing = { version = "0.1", features = ["log-always"] }
-tracing-opentelemetry = "0.31"
+tracing-opentelemetry = "0.32"
 tracing-subscriber = "0.3"
 
 # x86_64-unknown-linux-gnu: use libz-static
 [target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "494af97f143492aafc72b9b81986077e6e05d1ff", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "46fa386dcfe351ab83158e742a43d96ff0a4f7d4", features = [
     "libz-static",
 ] }
 
 # All other targets: use external-lz4
 [target.'cfg(not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "494af97f143492aafc72b9b81986077e6e05d1ff", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "46fa386dcfe351ab83158e742a43d96ff0a4f7d4", features = [
     "external-lz4",
 ] }
 
@@ -83,7 +83,6 @@ self_named_module_files = "warn"
 semicolon_outside_block = "warn"
 str_to_string = "warn"
 string_lit_chars_any = "warn"
-string_to_string = "warn"
 todo = "warn"
 try_err = "warn"
 unimplemented = "warn"

@@ -34,6 +34,13 @@
 ```
 
 ## Testing
-- Run tests with: `npm test`
+- Build debug and run tests: `npm run build:debug && npm test`
 - Run linting with: `npm run lint` (if available)
 - Run type checking with: `npm run typecheck` (if available)
+
+**Important:** Integration tests take a long time to run. NEVER pipe test output to `head`, `tail`, `grep`, or similar commands. If you need to filter output, write the full output to a temp file first so you can investigate without re-running the entire test suite:
+```bash
+npm run build:debug && npm test 2>&1 | tee /tmp/test-output.txt
+# Then filter the file as needed
+grep "FAIL" /tmp/test-output.txt
+```

@@ -20,18 +20,20 @@ export { Configuration, ConsumerState, Message, Timer, Mode };
  */
 export declare class Context {
   /**
-   * Checks whether a shutdown has been signaled.
+   * Checks whether cancellation has been signaled.
+   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
    *
-   * @returns True if shutdown was requested, otherwise false.
+   * @returns True if cancellation was requested, otherwise false.
    */
-  get shouldShutdown(): boolean;
+  get shouldCancel(): boolean;
 
   /**
-   * Waits for a shutdown signal.
+   * Waits for a cancellation signal.
+   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
    *
-   * @returns A promise that resolves when shutdown is signaled.
+   * @returns A promise that resolves when cancellation is signaled.
    */
-  onShutdown(): Promise<void>;
+  onCancel(): Promise<void>;
 
   /**
    * Schedule a timer at the given time.
