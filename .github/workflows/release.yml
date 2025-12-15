@@ -91,6 +91,11 @@ jobs:
         run: yarn install
       - name: Build
         if: ${{ !matrix.settings.use_docker }}
+        env:
+          # Fix for Windows: libgit2's WinHTTP backend can't parse GitHub's extended
+          # WWW-Authenticate headers. Using git CLI bypasses this issue.
+          # See: https://github.com/libgit2/libgit2/issues/6624
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: yarn build --target ${{ matrix.settings.target }}
       
       # Docker builds (Linux)
