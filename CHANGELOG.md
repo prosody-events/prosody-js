@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/cincpro/prosody-js/compare/v2.0.1...v2.0.2) (2025-12-16)
+
+
+### Bug Fixes
+
+* **deps:** update prosody to prevent cross-topic key collisions ([#114](https://github.com/cincpro/prosody-js/issues/114)) ([83cf6cf](https://github.com/cincpro/prosody-js/commit/83cf6cf6f619f8dbe92933cc978e9c94ddccd162))
+
 ## [2.0.1](https://github.com/cincpro/prosody-js/compare/v2.0.0...v2.0.1) (2025-12-15)
 
 
