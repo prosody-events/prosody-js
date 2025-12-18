@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/cincpro/prosody-js/compare/v2.0.2...v2.0.3) (2025-12-18)
+
+
+### Bug Fixes
+
+* downgrade span parent extraction failures to debug level ([#116](https://github.com/cincpro/prosody-js/issues/116)) ([86d4080](https://github.com/cincpro/prosody-js/commit/86d4080f5001b484da332fd33b5a65399188a381))
+
 ## [2.0.2](https://github.com/cincpro/prosody-js/compare/v2.0.1...v2.0.2) (2025-12-16)
 
 
