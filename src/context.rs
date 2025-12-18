@@ -120,7 +120,7 @@ impl NativeContext {
 
     let span = info_span!("schedule", %time);
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     self
@@ -149,7 +149,7 @@ impl NativeContext {
 
     let span = info_span!("clearAndSchedule", %time);
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     self
@@ -177,7 +177,7 @@ impl NativeContext {
 
     let span = info_span!("unschedule", %time);
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     self
@@ -196,7 +196,7 @@ impl NativeContext {
     let context = self.propagator.extract(&otel_context);
     let span = info_span!("clearScheduled");
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     self
@@ -219,7 +219,7 @@ impl NativeContext {
     let context = self.propagator.extract(&otel_context);
     let span = info_span!("scheduled");
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     self

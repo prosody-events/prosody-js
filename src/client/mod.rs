@@ -11,8 +11,9 @@ use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::select;
+use tracing::debug;
 use tracing::field::Empty;
-use tracing::{Instrument, error, info_span};
+use tracing::{Instrument, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
@@ -79,7 +80,7 @@ impl NativeClient {
     let context = self.client.propagator().extract(&otel_context);
     let span = info_span!("javascript-send", %topic, %key, aborted = Empty);
     if let Err(err) = span.set_parent(context) {
-      error!("failed to set parent span: {err:#}");
+      debug!("failed to set parent span: {err:#}");
     }
 
     let send_future = async {
