@@ -32,13 +32,13 @@ tracing-subscriber = "0.3"
 
 # x86_64-unknown-linux-gnu: use libz-static
 [target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "32ea6c2e888d8cfabc68166b50f57007a17d11da", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "af754255ede9d50db6a785b44e8cece9f74000a9", features = [
     "libz-static",
 ] }
 
 # All other targets: use external-lz4
 [target.'cfg(not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "32ea6c2e888d8cfabc68166b50f57007a17d11da", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "af754255ede9d50db6a785b44e8cece9f74000a9", features = [
     "external-lz4",
 ] }
 
