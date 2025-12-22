@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.4](https://github.com/cincpro/prosody-js/compare/v2.0.3...v2.0.4) (2025-12-22)
+
+
+### Bug Fixes
+
+* cache parent context instead of span in Kafka loader ([288d560](https://github.com/cincpro/prosody-js/commit/288d5606ee3d4695fa4d745a27b13590008692e1))
+
 ## [2.0.3](https://github.com/cincpro/prosody-js/compare/v2.0.2...v2.0.3) (2025-12-18)
 
 
