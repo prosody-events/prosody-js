@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.6](https://github.com/cincpro/prosody-js/compare/v2.0.5...v2.0.6) (2026-01-14)
+
+
+### Bug Fixes
+
+* bump dependencies to fix napi memory leak ([#121](https://github.com/cincpro/prosody-js/issues/121)) ([087a193](https://github.com/cincpro/prosody-js/commit/087a1937e14cdd3a412c76d8f13c07efd75cbfef))
+
 ## [2.0.5](https://github.com/cincpro/prosody-js/compare/v2.0.4...v2.0.5) (2026-01-10)
 
 
