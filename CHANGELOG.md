@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.7](https://github.com/cincpro/prosody-js/compare/v2.0.6...v2.0.7) (2026-01-18)
+
+
+### Bug Fixes
+
+* update prosody to fix partition resume after rebalance ([#124](https://github.com/cincpro/prosody-js/issues/124)) ([b6bc9d6](https://github.com/cincpro/prosody-js/commit/b6bc9d679bcc1e8fd69ea43aeec47226b059dad8))
+
 ## [2.0.6](https://github.com/cincpro/prosody-js/compare/v2.0.5...v2.0.6) (2026-01-14)
 
 
