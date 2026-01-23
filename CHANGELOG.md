@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/cincpro/prosody-js/compare/v2.0.7...v2.1.0) (2026-01-23)
+
+
+### Features
+
+* non-blocking timer retry ([#128](https://github.com/cincpro/prosody-js/issues/128)) ([5e35e00](https://github.com/cincpro/prosody-js/commit/5e35e008855372794b0074d26be0c33d015a5725))
+
 ## [2.0.7](https://github.com/cincpro/prosody-js/compare/v2.0.6...v2.0.7) (2026-01-18)
 
 
