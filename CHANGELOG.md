@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/cincpro/prosody-js/compare/v2.1.0...v2.1.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* wait for handler to complete after cancellation ([#130](https://github.com/cincpro/prosody-js/issues/130)) ([68ede52](https://github.com/cincpro/prosody-js/commit/68ede52aeca7511d680b03b23cfcd952f62515fe))
+
 ## [2.1.0](https://github.com/cincpro/prosody-js/compare/v2.0.7...v2.1.0) (2026-01-23)
 
 
