@@ -5,7 +5,6 @@ Cargo.lock
 npm
 .eslintrc
 .prettierignore
-rustfmt.toml
 yarn.lock
 *.node
 .yarn
