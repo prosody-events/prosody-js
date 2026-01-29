@@ -850,7 +850,7 @@ describe("ProsodyClient", () => {
         await waitForEvent(testEvents, "allMessagesProcessed", MESSAGE_TIMEOUT);
 
         // Give time for onCancel promises to resolve
-        await waitForEvent(testEvents, "allCancelsResolved", 5000);
+        await waitForEvent(testEvents, "allCancelsResolved", MESSAGE_TIMEOUT);
 
         // All onCancel promises should have resolved (one per message)
         expect(onCancelCount).toBe(numMessages);
