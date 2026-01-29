@@ -266,8 +266,7 @@ impl FallibleHandler for JsHandler {
     C: EventContext,
   {
     let span = message.span();
-    let native_context =
-      NativeContext::new(context.clone().boxed(), Arc::clone(&self.inner.propagator));
+    let native_context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let mut carrier = HashMap::with_capacity(2);
 
     self
@@ -284,46 +283,25 @@ impl FallibleHandler for JsHandler {
       payload: message.payload().clone(),
     };
 
-    let handler_fut = async {
-      debug!("processing message");
+    debug!("processing message");
 
-      let result = self
-        .inner
-        .on_message
-        .call_async(Ok((native_context.clone(), message, carrier)))
-        .await?
-        .await;
+    let result = self
+      .inner
+      .on_message
+      .call_async(Ok((native_context, message, carrier)))
+      .instrument(span.clone())
+      .await?
+      .await;
 
-      match result {
-        Ok(()) => {
-          debug!("message processed successfully");
-          Ok(())
-        }
-        Err(error) => {
-          // Log error within span context so it's captured in traces
-          error!(error = %error, "message handler error");
-          Err(self.categorize_error(error).await?)
-        }
+    match result {
+      Ok(()) => {
+        debug!("message processed successfully");
+        Ok(())
       }
-    }
-    .instrument(span.clone());
-
-    let cancel_fut = async {
-      context.on_cancel().await;
-      // Log cancel event within span context
-      error!("message cancelled during message processing");
-      native_context.abort("message cancelled".to_owned()).await;
-    }
-    .instrument(span.clone());
-
-    tokio::select! {
-        result = handler_fut => {
-            result?;
-            Ok(())
-        }
-        () = cancel_fut => {
-          Err(JsHandlerError::Shutdown)
-        }
+      Err(error) => {
+        error!(error = %error, "message handler error");
+        Err(self.categorize_error(error).await?)
+      }
     }
   }
 
@@ -364,50 +342,28 @@ impl FallibleHandler for JsHandler {
       .propagator
       .inject_context(&span.context(), &mut carrier);
 
-    let native_context =
-      NativeContext::new(context.clone().boxed(), Arc::clone(&self.inner.propagator));
+    let native_context = NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
     let timer: Timer = trigger.into();
 
-    let handler_fut = async {
-      debug!("processing timer");
+    debug!("processing timer");
 
-      let result = self
-        .inner
-        .on_timer
-        .call_async(Ok((native_context.clone(), timer, carrier)))
-        .await?
-        .await;
+    let result = self
+      .inner
+      .on_timer
+      .call_async(Ok((native_context, timer, carrier)))
+      .instrument(span.clone())
+      .await?
+      .await;
 
-      match result {
-        Ok(()) => {
-          debug!("timer processed successfully");
-          Ok(())
-        }
-        Err(error) => {
-          // Log error within span context so it's captured in traces
-          error!(error = %error, "timer handler error");
-          Err(self.categorize_error(error).await?)
-        }
+    match result {
+      Ok(()) => {
+        debug!("timer processed successfully");
+        Ok(())
       }
-    }
-    .instrument(span.clone());
-
-    let cancel_fut = async {
-      context.on_cancel().await;
-      // Log cancel event within span context
-      error!("timer cancelled during timer processing");
-      native_context.abort("timer cancelled".to_owned()).await;
-    }
-    .instrument(span.clone());
-
-    tokio::select! {
-        result = handler_fut => {
-            result?;
-            Ok(())
-        }
-        () = cancel_fut => {
-          Err(JsHandlerError::Shutdown)
-        }
+      Err(error) => {
+        error!(error = %error, "timer handler error");
+        Err(self.categorize_error(error).await?)
+      }
     }
   }
 
@@ -434,28 +390,14 @@ pub enum JsHandlerError {
   /// Wraps an `napi::Error` that is marked as permanent by JavaScript code.
   #[error(transparent)]
   Permanent(napi::Error),
-
-  /// Indicates that partition shutdown was triggered during message processing.
-  #[error("shutdown")]
-  Shutdown,
 }
 
 impl ClassifyError for JsHandlerError {
-  /// Classifies the error as transient, permanent, or terminal for Prosody's retry logic.
-  ///
-  /// This implementation supports Prosody's error handling framework by
-  /// categorizing JavaScript errors based on their type.
-  ///
-  /// # Returns
-  ///
-  /// Returns `ErrorCategory::Transient` for `Js` errors (should be retried),
-  /// `ErrorCategory::Permanent` for `Permanent` errors (should not be retried),
-  /// and `ErrorCategory::Terminal` for `Shutdown` errors (abort processing).
+  /// Classifies the error as transient or permanent for Prosody's retry logic.
   fn classify_error(&self) -> ErrorCategory {
     match self {
       JsHandlerError::Js(_) => ErrorCategory::Transient,
       JsHandlerError::Permanent(_) => ErrorCategory::Permanent,
-      JsHandlerError::Shutdown => ErrorCategory::Terminal,
     }
   }
 }

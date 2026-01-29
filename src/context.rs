@@ -5,30 +5,22 @@
 
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
-use napi::bindgen_prelude::Function;
-use napi::threadsafe_function::ThreadsafeFunction;
-use napi::{Error, Status};
+use napi::Error;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use parking_lot::Mutex;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, debug, error, info_span};
+use tracing::{Instrument, debug, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-/// Type alias for the abort callback threadsafe function.
-type AbortCallback = ThreadsafeFunction<String, (), String, Status, false, true, 1>;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
-#[derive(Clone)]
 pub struct NativeContext {
   context: BoxEventContext,
   propagator: Arc<TextMapCompositePropagator>,
-  abort_fn: Arc<Mutex<Option<AbortCallback>>>,
 }
 
 #[napi]
@@ -43,42 +35,6 @@ impl NativeContext {
     Self {
       context,
       propagator,
-      abort_fn: Arc::new(Mutex::new(None)),
-    }
-  }
-
-  /// Registers an abort function to be called when shutdown occurs.
-  ///
-  /// @param abortFn - A function that takes a reason string and aborts an `AbortController`
-  #[allow(clippy::needless_pass_by_value)]
-  #[napi]
-  pub fn register_abort(&self, abort_fn: Function<String, ()>) -> napi::Result<()> {
-    *self.abort_fn.lock() = Some(
-      abort_fn
-        .build_threadsafe_function()
-        .max_queue_size()
-        .weak()
-        .build()?,
-    );
-
-    Ok(())
-  }
-
-  /// Calls the registered abort function with the given reason.
-  ///
-  /// This is called internally by Rust when shutdown is detected.
-  pub async fn abort(&self, reason: String) {
-    debug!(%reason, "aborting context");
-
-    let Some(abort_fn) = self.abort_fn.lock().take() else {
-      debug!("no abort function registered");
-      return;
-    };
-
-    if let Err(error) = abort_fn.call_async(reason).await {
-      error!("failed to call abort function: {error:#}");
-    } else {
-      debug!("abort function called successfully");
     }
   }
 
