@@ -240,30 +240,29 @@ class ProsodyClient {
       onMessage: async (err, [nativeContext, message, carrier]) => {
         if (err) throw err;
 
-        // Create a new context from the record
         const ctx = propagation.extract(otelContext.active(), carrier);
         await otelContext.with(ctx, async () => {
           await tracer.startActiveSpan("onMessage", async (span) => {
+            const controller = new AbortController();
+            let completed = false;
+
+            // Signal abort when cancellation occurs (before handler completes)
+            nativeContext.onCancel().then(() => {
+              if (!completed) {
+                span.setAttribute("cancelled", true);
+                controller.abort("message cancelled");
+              }
+            });
+
             try {
-              // register an abort controller to signal cancellation
-              const controller = new AbortController();
-
-              // Register abort function with Rust to be called on cancel
-              nativeContext.registerAbort((reason) => {
-                controller.abort(reason);
-                span.setAttribute("abortReason", reason);
-              });
-
-              // Wrap the native context with OTEL context injection
               const context = new Context(nativeContext);
-
-              // process message
               await onMessage(context, message, controller.signal);
             } catch (error) {
               getCurrentLogger()?.error("Message handler error", error);
               span.recordException(error);
               throw error;
             } finally {
+              completed = true;
               span.end();
             }
           });
@@ -273,30 +272,29 @@ class ProsodyClient {
       onTimer: async (err, [nativeContext, timer, carrier]) => {
         if (err) throw err;
 
-        // Create a new context from the record
         const ctx = propagation.extract(otelContext.active(), carrier);
         await otelContext.with(ctx, async () => {
           await tracer.startActiveSpan("onTimer", async (span) => {
+            const controller = new AbortController();
+            let completed = false;
+
+            // Signal abort when cancellation occurs (before handler completes)
+            nativeContext.onCancel().then(() => {
+              if (!completed) {
+                span.setAttribute("cancelled", true);
+                controller.abort("timer cancelled");
+              }
+            });
+
             try {
-              // register an abort controller to signal cancellation
-              const controller = new AbortController();
-
-              // Register abort function with Rust to be called on cancel
-              nativeContext.registerAbort((reason) => {
-                controller.abort(reason);
-                span.setAttribute("abortReason", reason);
-              });
-
-              // Wrap the native context with OTEL context injection
               const context = new Context(nativeContext);
-
-              // process timer
               await onTimer(context, timer, controller.signal);
             } catch (error) {
               getCurrentLogger()?.error("Timer handler error", error);
               span.recordException(error);
               throw error;
             } finally {
+              completed = true;
               span.end();
             }
           });

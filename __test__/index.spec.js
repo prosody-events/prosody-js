@@ -807,6 +807,59 @@ describe("ProsodyClient", () => {
     });
   });
 
+  it("resolves onCancel for each message (no promise accumulation)", async () => {
+    return tracer.startActiveSpan("test.oncancel_per_message", async (span) => {
+      try {
+        const testEvents = new EventEmitter();
+        let onCancelCount = 0;
+        let messageCount = 0;
+        const numMessages = 5;
+
+        await client.subscribe({
+          onMessage: async (context, message, signal) => {
+            return tracer.startActiveSpan("test.onMessage", async (span) => {
+              try {
+                messageCount++;
+
+                // Track when onCancel resolves for this message
+                context.onCancel().then(() => {
+                  onCancelCount++;
+                  if (onCancelCount === numMessages) {
+                    testEvents.emit("allCancelsResolved");
+                  }
+                });
+
+                // Complete handler normally
+                messageStream.push(message);
+                if (messageCount === numMessages) {
+                  testEvents.emit("allMessagesProcessed");
+                }
+              } finally {
+                span.end();
+              }
+            });
+          },
+        });
+
+        // Send multiple messages
+        for (let i = 0; i < numMessages; i++) {
+          await client.send(topic, `key-${i}`, { content: `Message ${i}` });
+        }
+
+        // Wait for all messages to be processed
+        await waitForEvent(testEvents, "allMessagesProcessed", MESSAGE_TIMEOUT);
+
+        // Give time for onCancel promises to resolve
+        await waitForEvent(testEvents, "allCancelsResolved", 5000);
+
+        // All onCancel promises should have resolved (one per message)
+        expect(onCancelCount).toBe(numMessages);
+      } finally {
+        span.end();
+      }
+    });
+  });
+
   it("demonstrates upsert behavior for timers at same time", async () => {
     return tracer.startActiveSpan("test.timer_upsert", async (span) => {
       try {
