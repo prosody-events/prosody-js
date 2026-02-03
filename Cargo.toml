@@ -22,13 +22,15 @@ futures = "0.3"
 napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.1"
 opentelemetry = "0.31"
-parking_lot = "0.12"
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.47"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.32"
 tracing-subscriber = "0.3"
+
+#[cfg(not(target_env = "msvc"))]
+tikv-jemallocator = "0.6"
 
 # x86_64-unknown-linux-gnu: use libz-static
 [target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]

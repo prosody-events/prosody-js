@@ -8,6 +8,8 @@
 //! The crate is organized into several modules, each responsible for a specific
 //! aspect of the library's functionality:
 
+use tikv_jemallocator::Jemalloc;
+
 /// Module for handling administrative operations on a Prosody cluster.
 mod admin;
 
@@ -30,3 +32,7 @@ mod message;
 
 /// Module dealing with timer-related functionality and structures.
 mod timer;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
