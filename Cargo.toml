@@ -32,16 +32,8 @@ tracing-subscriber = "0.3"
 #[cfg(not(target_env = "msvc"))]
 tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls"] }
 
-# x86_64-unknown-linux-gnu: use libz-static
-[target.'cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "438fedb5fa8e58f4f754f09c30dd43514723e0c8", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "7b5b5e3508b10e508823586cb59a270b8b0eff9a", default-features = false, features = [
     "libz-static",
-] }
-
-# All other targets: use external-lz4
-[target.'cfg(not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")))'.dependencies]
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "438fedb5fa8e58f4f754f09c30dd43514723e0c8", features = [
-    "external-lz4",
 ] }
 
 [build-dependencies]

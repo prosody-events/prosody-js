@@ -92,8 +92,13 @@ impl JsLogger {
 
 impl<S: Subscriber> Layer<S> for JsLogger {
     fn on_event(&self, event: &Event, _ctx: Context<S>) {
+        let metadata = event.metadata();
+        if !metadata.is_event() {
+            return;
+        }
+
         // Select the appropriate logging function based on the event level
-        let function = match *event.metadata().level() {
+        let function = match *metadata.level() {
             Level::ERROR => &self.error,
             Level::WARN => &self.warn,
             Level::INFO => &self.info,
@@ -102,7 +107,7 @@ impl<S: Subscriber> Layer<S> for JsLogger {
         };
 
         // Collect event metadata and fields
-        let mut visitor = MetadataVisitor::new(event.metadata());
+        let mut visitor = MetadataVisitor::new(metadata);
         event.record(&mut visitor);
 
         // Call the JavaScript logging function asynchronously
