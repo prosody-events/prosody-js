@@ -16,29 +16,25 @@ permissions:
 
 on:
   push:
-    branches:
-      - main
 
 jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Release Please Action
-        id: release
-        uses: google-github-actions/release-please-action@v3
-        with:
-          release-type: node
-          package-name: prosody
-          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+#  release-please:
+#    name: Release Please
+#    runs-on: ubuntu-latest
+#    outputs:
+#      release_created: ${{ steps.release.outputs.release_created }}
+#      tag_name: ${{ steps.release.outputs.tag_name }}
+#    steps:
+#      - uses: actions/checkout@v4
+#      - name: Release Please Action
+#        id: release
+#        uses: google-github-actions/release-please-action@v3
+#        with:
+#          release-type: node
+#          package-name: prosody
+#          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -97,7 +93,7 @@ jobs:
           # See: https://github.com/libgit2/libgit2/issues/6624
           CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: yarn build --target ${{ matrix.settings.target }}
-      
+
       # Docker builds (Linux)
       - uses: actions/checkout@v4
         if: ${{ matrix.settings.use_docker }}
@@ -130,18 +126,18 @@ jobs:
               git config --global user.email 'actions@github.com'
               echo 'https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com' > ~/.git-credentials
               chmod 600 ~/.git-credentials
-          
+
               # Test git access
               echo 'Testing git access...'
               git ls-remote https://github.com/cincpro/prosody.git HEAD || echo 'Git access test failed'
-          
+
               # Install Rust stable
-              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
-              . ~/.cargo/env && 
-          
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
+              . ~/.cargo/env &&
+
               # Install build dependencies
               apt-get update && apt-get install -y cmake
-          
+
               # Add ARM64 target if needed
               if [ '${{ matrix.settings.target }}' = 'aarch64-unknown-linux-gnu' ]; then
                 rustup target add aarch64-unknown-linux-gnu
@@ -151,9 +147,9 @@ jobs:
                 export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
                 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
               fi
-          
+
               # Build with target specification
-              yarn install && 
+              yarn install &&
               yarn build --target ${{ matrix.settings.target }}
             "
       - name: Upload artifact
@@ -184,10 +180,10 @@ jobs:
             runner: ubuntu-latest
             needs_qemu: true
     runs-on: ${{ matrix.runner }}
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       # ECR access for Docker image pulls
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -215,7 +211,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      
+
       # Set up Kafka and Cassandra services
       - name: Create Docker network
         run: docker network create kafka-test-network
@@ -242,7 +238,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           for i in {1..60}; do
             if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
@@ -258,7 +254,7 @@ jobs:
             fi
           done
 
-          # Wait for Kafka  
+          # Wait for Kafka
           for i in {1..60}; do
             if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
               echo "✅ Kafka is ready after ${i} attempts"
@@ -272,9 +268,9 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
-      
+
       # Run tests in Docker
       - name: Test bindings
         run: |
@@ -287,40 +283,40 @@ jobs:
             558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-${{ matrix.node }} \
             sh -c "yarn install && yarn test"
 
-  publish:
-    name: Publish
-    runs-on: ubuntu-latest
-    needs:
-      - release-please
-      - build
-      - test-linux-bindings
-    if: ${{ needs.release-please.outputs.release_created }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: "https://npm.pkg.github.com"
-          cache: yarn
-          scope: "@cincpro"
-      - name: Install dependencies
-        run: yarn install
-      - name: Download bindings js and types
-        uses: actions/download-artifact@v4
-        with:
-          name: bindings-x86_64-unknown-linux-gnu
-          path: .
-          pattern: "bindings.*"
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Move artifacts
-        run: yarn artifacts
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
-        run: |
-          npm config set provenance true
-          npm publish --access public
+#  publish:
+#    name: Publish
+#    runs-on: ubuntu-latest
+#    needs:
+#      - release-please
+#      - build
+#      - test-linux-bindings
+#    if: ${{ needs.release-please.outputs.release_created }}
+#    steps:
+#      - uses: actions/checkout@v4
+#      - name: Setup node
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: 22
+#          registry-url: "https://npm.pkg.github.com"
+#          cache: yarn
+#          scope: "@cincpro"
+#      - name: Install dependencies
+#        run: yarn install
+#      - name: Download bindings js and types
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: bindings-x86_64-unknown-linux-gnu
+#          path: .
+#          pattern: "bindings.*"
+#      - name: Download all artifacts
+#        uses: actions/download-artifact@v4
+#        with:
+#          path: artifacts
+#      - name: Move artifacts
+#        run: yarn artifacts
+#      - name: Publish
+#        env:
+#          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
+#        run: |
+#          npm config set provenance true
+#          npm publish --access public
