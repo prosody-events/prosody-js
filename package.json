@@ -23,22 +23,22 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/exporter-trace-otlp-proto": "^0.208.0"
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.212.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.28.5",
-    "@babel/plugin-proposal-decorators": "^7.28.0",
-    "@babel/preset-env": "^7.28.5",
-    "@napi-rs/cli": "^3.5.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.67.2",
-    "@opentelemetry/core": "^2.2.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.208.0",
-    "@opentelemetry/sdk-metrics": "^2.2.0",
-    "@opentelemetry/sdk-node": "^0.208.0",
-    "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "@opentelemetry/sdk-trace-node": "^2.2.0",
+    "@babel/core": "^7.29.0",
+    "@babel/plugin-proposal-decorators": "^7.29.0",
+    "@babel/preset-env": "^7.29.0",
+    "@napi-rs/cli": "^3.5.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.70.1",
+    "@opentelemetry/core": "^2.5.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.212.0",
+    "@opentelemetry/sdk-metrics": "^2.5.1",
+    "@opentelemetry/sdk-node": "^0.212.0",
+    "@opentelemetry/sdk-trace-base": "^2.5.1",
+    "@opentelemetry/sdk-trace-node": "^2.5.1",
     "jest": "^30.2.0",
-    "prettier": "^3.7.4",
+    "prettier": "^3.8.1",
     "yarn-upgrade-all": "^0.7.5"
   },
   "engines": {
