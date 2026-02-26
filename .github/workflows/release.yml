@@ -37,15 +37,13 @@ jobs:
           token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
-    needs: release-please
+    needs: [ release-please ]
     if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
         settings:
-          # Native builds - commented out for testing
-          - target: x86_64-apple-darwin
-            host: macos-latest
+          # Native builds
           - target: aarch64-apple-darwin
             host: macos-latest
           - target: x86_64-pc-windows-msvc
@@ -97,7 +95,7 @@ jobs:
           # See: https://github.com/libgit2/libgit2/issues/6624
           CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: yarn build --target ${{ matrix.settings.target }}
-      
+
       # Docker builds (Linux)
       - uses: actions/checkout@v4
         if: ${{ matrix.settings.use_docker }}
@@ -130,30 +128,33 @@ jobs:
               git config --global user.email 'actions@github.com'
               echo 'https://Joshua-Griffith_fnf:${{ secrets.TEMP_GH_ALL_REPOS_RW }}@github.com' > ~/.git-credentials
               chmod 600 ~/.git-credentials
-          
+
               # Test git access
               echo 'Testing git access...'
               git ls-remote https://github.com/cincpro/prosody.git HEAD || echo 'Git access test failed'
-          
+
               # Install Rust stable
-              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
-              . ~/.cargo/env && 
-          
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
+              . ~/.cargo/env &&
+
               # Install build dependencies
-              apt-get update && apt-get install -y cmake
-          
+              apt-get update && apt-get install -y cmake libcurl4-openssl-dev
+
               # Add ARM64 target if needed
               if [ '${{ matrix.settings.target }}' = 'aarch64-unknown-linux-gnu' ]; then
                 rustup target add aarch64-unknown-linux-gnu
                 apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-                # Set up cross-compilation environment
+                dpkg --add-architecture arm64
+                apt-get update
+                apt-get install -y zlib1g-dev:arm64 libcurl4-openssl-dev:arm64
+                ln -sf /usr/include/aarch64-linux-gnu/curl /usr/aarch64-linux-gnu/include/curl
                 export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
                 export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
                 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
               fi
-          
+
               # Build with target specification
-              yarn install && 
+              yarn install &&
               yarn build --target ${{ matrix.settings.target }}
             "
       - name: Upload artifact
@@ -184,10 +185,10 @@ jobs:
             runner: ubuntu-latest
             needs_qemu: true
     runs-on: ${{ matrix.runner }}
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       # ECR access for Docker image pulls
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -215,7 +216,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      
+
       # Set up Kafka and Cassandra services
       - name: Create Docker network
         run: docker network create kafka-test-network
@@ -242,7 +243,7 @@ jobs:
       - name: Wait for services to be ready
         run: |
           echo "Waiting for Cassandra and Kafka to be ready..."
-          
+
           # Wait for Cassandra
           for i in {1..60}; do
             if docker exec cassandra cqlsh -e "SELECT cluster_name FROM system.local;" >/dev/null 2>&1; then
@@ -258,7 +259,7 @@ jobs:
             fi
           done
 
-          # Wait for Kafka  
+          # Wait for Kafka
           for i in {1..60}; do
             if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
               echo "✅ Kafka is ready after ${i} attempts"
@@ -272,9 +273,9 @@ jobs:
               sleep 1
             fi
           done
-          
+
           echo "🎉 Both services are ready!"
-      
+
       # Run tests in Docker
       - name: Test bindings
         run: |
