@@ -48,9 +48,6 @@ pub struct Configuration {
     /// Max number of uncommitted messages.
     pub max_uncommitted: Option<u16>,
 
-    /// Max enqueued messages per key.
-    pub max_enqueued_per_key: Option<u16>,
-
     /// Threshold determining when message processing has stalled.
     pub stall_threshold_ms: Option<u32>,
 
@@ -277,10 +274,6 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
     if let Some(max_uncommitted) = config.max_uncommitted {
         builder.max_uncommitted(max_uncommitted as usize);
-    }
-
-    if let Some(max_enqueued_per_key) = config.max_enqueued_per_key {
-        builder.max_enqueued_per_key(max_enqueued_per_key as usize);
     }
 
     if let Some(timeout) = config.stall_threshold_ms {

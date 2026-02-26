@@ -179,7 +179,6 @@ Configure via constructor options or environment variables. Options fall back to
 |-----------------------------------------|------------------------------------------------------|------------------------|
 | `maxConcurrency` / `PROSODY_MAX_CONCURRENCY` | Max messages being processed simultaneously     | 32                     |
 | `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED` | Max queued messages before pausing consumption  | 64                     |
-| `maxEnqueuedPerKey` / `PROSODY_MAX_ENQUEUED_PER_KEY` | Max queued messages per key before pausing | 8                   |
 | `timeoutMs` / `PROSODY_TIMEOUT`         | Cancel handler if it runs longer than this           | 80% of stall threshold |
 | `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL` | How often to save progress to Kafka            | 1s                     |
 | `pollIntervalMs` / `PROSODY_POLL_INTERVAL` | How often to fetch new messages from Kafka        | 100ms                  |
