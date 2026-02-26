@@ -29,9 +29,6 @@ tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.32"
 tracing-subscriber = "0.3"
 
-#[cfg(not(target_env = "msvc"))]
-tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls"] }
-
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "7b5b5e3508b10e508823586cb59a270b8b0eff9a", features = [
     "libz-static",
 ] }
@@ -89,3 +86,6 @@ verbose_file_reads = "warn"
 [profile.release]
 codegen-units = 1
 lto = "fat"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls"] }

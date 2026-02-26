@@ -40,8 +40,6 @@ jobs:
       matrix:
         settings:
           # Native builds - commented out for testing
-          - target: x86_64-apple-darwin
-            host: macos-latest
           - target: aarch64-apple-darwin
             host: macos-latest
           - target: x86_64-pc-windows-msvc
@@ -92,6 +90,7 @@ jobs:
           # WWW-Authenticate headers. Using git CLI bypasses this issue.
           # See: https://github.com/libgit2/libgit2/issues/6624
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          CFLAGS: "-UWITH_OAUTHBEARER_OIDC"
         run: yarn build --target ${{ matrix.settings.target }}
 
       # Docker builds (Linux)
@@ -149,6 +148,7 @@ jobs:
               fi
 
               # Build with target specification
+              export CFLAGS="-UWITH_OAUTHBEARER_OIDC" &&
               yarn install &&
               yarn build --target ${{ matrix.settings.target }}
             "
