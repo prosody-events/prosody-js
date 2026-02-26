@@ -8,6 +8,7 @@
 //! The crate is organized into several modules, each responsible for a specific
 //! aspect of the library's functionality:
 
+#[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
 /// Module for handling administrative operations on a Prosody cluster.
