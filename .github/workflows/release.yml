@@ -136,7 +136,7 @@ jobs:
               . ~/.cargo/env &&
 
               # Install build dependencies
-              apt-get update && apt-get install -y cmake
+              apt-get update && apt-get install -y cmake libcurl4-openssl-dev
 
               # Add ARM64 target if needed
               if [ '${{ matrix.settings.target }}' = 'aarch64-unknown-linux-gnu' ]; then
