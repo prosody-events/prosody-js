@@ -16,30 +16,34 @@ permissions:
 
 on:
   push:
+    branches:
+      - main
 
 jobs:
-#  release-please:
-#    name: Release Please
-#    runs-on: ubuntu-latest
-#    outputs:
-#      release_created: ${{ steps.release.outputs.release_created }}
-#      tag_name: ${{ steps.release.outputs.tag_name }}
-#    steps:
-#      - uses: actions/checkout@v4
-#      - name: Release Please Action
-#        id: release
-#        uses: google-github-actions/release-please-action@v3
-#        with:
-#          release-type: node
-#          package-name: prosody
-#          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release Please Action
+        id: release
+        uses: google-github-actions/release-please-action@v3
+        with:
+          release-type: node
+          package-name: prosody
+          token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
 
   build:
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
         settings:
-          # Native builds - commented out for testing
+          # Native builds
           - target: aarch64-apple-darwin
             host: macos-latest
           - target: x86_64-pc-windows-msvc
@@ -284,40 +288,40 @@ jobs:
             558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-${{ matrix.node }} \
             sh -c "yarn install && yarn test"
 
-#  publish:
-#    name: Publish
-#    runs-on: ubuntu-latest
-#    needs:
-#      - release-please
-#      - build
-#      - test-linux-bindings
-#    if: ${{ needs.release-please.outputs.release_created }}
-#    steps:
-#      - uses: actions/checkout@v4
-#      - name: Setup node
-#        uses: actions/setup-node@v4
-#        with:
-#          node-version: 22
-#          registry-url: "https://npm.pkg.github.com"
-#          cache: yarn
-#          scope: "@cincpro"
-#      - name: Install dependencies
-#        run: yarn install
-#      - name: Download bindings js and types
-#        uses: actions/download-artifact@v4
-#        with:
-#          name: bindings-x86_64-unknown-linux-gnu
-#          path: .
-#          pattern: "bindings.*"
-#      - name: Download all artifacts
-#        uses: actions/download-artifact@v4
-#        with:
-#          path: artifacts
-#      - name: Move artifacts
-#        run: yarn artifacts
-#      - name: Publish
-#        env:
-#          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
-#        run: |
-#          npm config set provenance true
-#          npm publish --access public
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs:
+      - release-please
+      - build
+      - test-linux-bindings
+    if: ${{ needs.release-please.outputs.release_created }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://npm.pkg.github.com"
+          cache: yarn
+          scope: "@cincpro"
+      - name: Install dependencies
+        run: yarn install
+      - name: Download bindings js and types
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: .
+          pattern: "bindings.*"
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Move artifacts
+        run: yarn artifacts
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN_RW }}
+        run: |
+          npm config set provenance true
+          npm publish --access public
