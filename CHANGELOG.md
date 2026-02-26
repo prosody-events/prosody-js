@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.2](https://github.com/cincpro/prosody-js/compare/v2.1.1...v2.1.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* graceful slab_loader shutdown, remove timer backpressure gaps, and new API surface ([#138](https://github.com/cincpro/prosody-js/issues/138)) ([cec8d8d](https://github.com/cincpro/prosody-js/commit/cec8d8d8bdba2dddc1ce8a1885cb480ee716b40b))
+* only log events, not spans ([#136](https://github.com/cincpro/prosody-js/issues/136)) ([facb432](https://github.com/cincpro/prosody-js/commit/facb4329505ea922db82ef6ddddfc0cad4e701d5))
+
+
+### Performance Improvements
+
+* use jemalloc allocator ([#133](https://github.com/cincpro/prosody-js/issues/133)) ([ddc325a](https://github.com/cincpro/prosody-js/commit/ddc325a918e75ab9797534193c9c1d7bb763d18d))
+
 ## [2.1.1](https://github.com/cincpro/prosody-js/compare/v2.1.0...v2.1.1) (2026-01-29)
 
 
