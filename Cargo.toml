@@ -29,7 +29,7 @@ tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.32"
 tracing-subscriber = "0.3"
 
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "7b5b5e3508b10e508823586cb59a270b8b0eff9a", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "d21e645c8a644b28aa60178c7b8625201d93006f", features = [
     "libz-static",
 ] }
 
