@@ -1631,7 +1631,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.12.0"
-source = "git+https://github.com/cincpro/prosody.git?rev=d21e645c8a644b28aa60178c7b8625201d93006f#d21e645c8a644b28aa60178c7b8625201d93006f"
+source = "git+https://github.com/cincpro/prosody.git?rev=a304c2902dba38c011d56bf2b463df4e6af6e762#a304c2902dba38c011d56bf2b463df4e6af6e762"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -1640,6 +1640,7 @@ dependencies = [
  "async-trait",
  "axum",
  "axum-extra",
+ "bytes",
  "chrono",
  "crossbeam-utils",
  "derive_builder",
@@ -2419,6 +2420,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
