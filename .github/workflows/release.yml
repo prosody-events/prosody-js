@@ -18,6 +18,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      release_as:
+        description: 'Force release version (e.g. 2.2.0-beta.1)'
+        required: false
+        type: string
 
 jobs:
   release-please:
@@ -35,6 +41,7 @@ jobs:
           release-type: node
           package-name: prosody
           token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
+          release-as: ${{ inputs.release_as }}
 
   build:
     needs: [ release-please ]
