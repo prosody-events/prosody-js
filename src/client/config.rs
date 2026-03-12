@@ -1,4 +1,4 @@
-use napi::Either;
+use napi::{Either, Error, Result};
 use napi::bindgen_prelude::Null;
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
@@ -503,7 +503,7 @@ fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
 /// # Returns
 ///
 /// A `TelemetryEmitterConfiguration` with the specified configuration options.
-fn build_emitter_config(config: &Configuration) -> TelemetryEmitterConfiguration {
+fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfiguration> {
     let mut builder = TelemetryEmitterConfiguration::builder();
 
     if let Some(topic) = &config.telemetry_topic {
@@ -516,7 +516,7 @@ fn build_emitter_config(config: &Configuration) -> TelemetryEmitterConfiguration
 
     builder
         .build()
-        .unwrap_or_else(|e| panic!("invalid telemetry emitter configuration: {e:#}"))
+        .map_err(|e| Error::from_reason(e.to_string()))
 }
 
 /// Builds `ConsumerBuilders` from the given Configuration.
@@ -528,8 +528,8 @@ fn build_emitter_config(config: &Configuration) -> TelemetryEmitterConfiguration
 /// # Returns
 ///
 /// A `ConsumerBuilders` containing all consumer-related configuration builders.
-pub fn build_consumer_builders(config: &Configuration) -> ConsumerBuilders {
-    ConsumerBuilders {
+pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
+    Ok(ConsumerBuilders {
         consumer: build_consumer_config(config),
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),
@@ -537,8 +537,8 @@ pub fn build_consumer_builders(config: &Configuration) -> ConsumerBuilders {
         monopolization: build_monopolization_config(config),
         defer: build_defer_config(config),
         timeout: build_timeout_config(config),
-        emitter: build_emitter_config(config),
-    }
+        emitter: build_emitter_config(config)?,
+    })
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.

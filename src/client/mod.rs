@@ -36,7 +36,7 @@ impl NativeClient {
     #[napi(constructor, writable = false)]
     pub fn new(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
-        let consumer_builders = build_consumer_builders(&config);
+        let consumer_builders = build_consumer_builders(&config)?;
         let cassandra_config = build_cassandra_config(&config);
 
         let client = within_runtime_if_available(|| {
