@@ -41,7 +41,7 @@ jobs:
           release-type: node
           package-name: prosody
           token: ${{ secrets.TEMP_GH_ALL_REPOS_RW }}
-          release-as: ${{ inputs.release_as }}
+          release-as: ${{ github.event.inputs.release_as }}
 
   build:
     needs: [ release-please ]
