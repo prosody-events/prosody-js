@@ -2,7 +2,7 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
-use napi::bindgen_prelude::Promise;
+use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
@@ -36,15 +36,17 @@ impl NativeClient {
     #[napi(constructor, writable = false)]
     pub fn new(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
-        let consumer_builders = build_consumer_builders(&config);
+        let consumer_builders = build_consumer_builders(&config)?;
         let cassandra_config = build_cassandra_config(&config);
 
-        let client = HighLevelClient::new(
-            config.mode.unwrap_or_default().into(),
-            &mut producer_config,
-            &consumer_builders,
-            &cassandra_config,
-        )
+        let client = within_runtime_if_available(|| {
+            HighLevelClient::new(
+                config.mode.unwrap_or_default().into(),
+                &mut producer_config,
+                &consumer_builders,
+                &cassandra_config,
+            )
+        })
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(NativeClient { client })
