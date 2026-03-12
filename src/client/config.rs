@@ -1,5 +1,5 @@
-use napi::{Either, Error, Result};
 use napi::bindgen_prelude::Null;
+use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
