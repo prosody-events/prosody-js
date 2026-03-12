@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/cincpro/prosody-js/compare/v2.1.3...v2.2.0) (2026-03-12)
+
+
+### Features
+
+* wire telemetry emitter configuration to JS client ([#146](https://github.com/cincpro/prosody-js/issues/146)) ([4a3a840](https://github.com/cincpro/prosody-js/commit/4a3a840c0eb71e3f63710cfa5ee94b609aa6a5a8))
+
 ## [2.1.3](https://github.com/cincpro/prosody-js/compare/v2.1.2...v2.1.3) (2026-03-05)
 
 
