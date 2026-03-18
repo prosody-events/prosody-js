@@ -1694,7 +1694,6 @@ dependencies = [
  "arc-swap",
  "chrono",
  "educe",
- "futures",
  "napi",
  "napi-build",
  "napi-derive",
