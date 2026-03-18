@@ -5,7 +5,6 @@
 //! Node.js through NAPI.
 
 use chrono::{DateTime, Utc};
-use futures::TryStreamExt;
 use napi::Error;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
@@ -180,10 +179,9 @@ impl NativeContext {
 
         self.context
             .scheduled(TimerType::Application)
-            .map_ok(DateTime::<Utc>::from)
-            .map_err(|error| Error::from_reason(error.to_string()))
-            .try_collect()
             .instrument(span)
             .await
+            .map(|times| times.into_iter().map(DateTime::<Utc>::from).collect())
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 }

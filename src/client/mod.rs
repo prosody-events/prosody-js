@@ -59,6 +59,11 @@ impl NativeClient {
     #[napi(writable = false)]
     pub async fn consumer_state(&self) -> Result<ConsumerState> {
         let state_view = self.client.consumer_state().await;
+        if let ProsodyConsumerState::ConfigurationFailed(err) = &*state_view {
+            return Err(Error::from_reason(format!(
+                "consumer configuration failed: {err:#}"
+            )));
+        }
         Ok((&*state_view).into())
     }
 
@@ -187,12 +192,16 @@ pub enum ConsumerState {
 
     /// The consumer is actively running
     Running,
+
+    /// The consumer configuration failed
+    ConfigurationFailed,
 }
 
 impl<T> From<&ProsodyConsumerState<T>> for ConsumerState {
     fn from(value: &ProsodyConsumerState<T>) -> Self {
         match value {
             ProsodyConsumerState::Unconfigured => Self::Unconfigured,
+            ProsodyConsumerState::ConfigurationFailed(_) => Self::ConfigurationFailed,
             ProsodyConsumerState::Configured(_) => Self::Configured,
             ProsodyConsumerState::Running { .. } => Self::Running,
         }
