@@ -1,5 +1,5 @@
-use napi::Either;
 use napi::bindgen_prelude::Null;
+use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
@@ -12,6 +12,7 @@ use prosody::consumer::middleware::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::ConsumerBuilders;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
+use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use std::time::Duration;
 
 /// Configuration options for the Prosody client.
@@ -179,6 +180,13 @@ pub struct Configuration {
     /// Fixed timeout duration for handler execution in milliseconds.
     /// If unset, defaults to 80% of stall threshold.
     pub timeout_ms: Option<u32>,
+
+    // Telemetry emitter configuration
+    /// Kafka topic to produce telemetry events to.
+    pub telemetry_topic: Option<String>,
+
+    /// Whether the telemetry emitter is enabled.
+    pub telemetry_enabled: Option<bool>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -486,6 +494,31 @@ fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
     builder
 }
 
+/// Builds a `TelemetryEmitterConfiguration` from the given Configuration.
+///
+/// # Arguments
+///
+/// * `config` - The Configuration to build from.
+///
+/// # Returns
+///
+/// A `TelemetryEmitterConfiguration` with the specified configuration options.
+fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfiguration> {
+    let mut builder = TelemetryEmitterConfiguration::builder();
+
+    if let Some(topic) = &config.telemetry_topic {
+        builder.topic(topic.clone());
+    }
+
+    if let Some(enabled) = config.telemetry_enabled {
+        builder.enabled(enabled);
+    }
+
+    builder
+        .build()
+        .map_err(|e| Error::from_reason(e.to_string()))
+}
+
 /// Builds `ConsumerBuilders` from the given Configuration.
 ///
 /// # Arguments
@@ -495,8 +528,8 @@ fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
 /// # Returns
 ///
 /// A `ConsumerBuilders` containing all consumer-related configuration builders.
-pub fn build_consumer_builders(config: &Configuration) -> ConsumerBuilders {
-    ConsumerBuilders {
+pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
+    Ok(ConsumerBuilders {
         consumer: build_consumer_config(config),
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),
@@ -504,7 +537,8 @@ pub fn build_consumer_builders(config: &Configuration) -> ConsumerBuilders {
         monopolization: build_monopolization_config(config),
         defer: build_defer_config(config),
         timeout: build_timeout_config(config),
-    }
+        emitter: build_emitter_config(config)?,
+    })
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.
