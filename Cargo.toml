@@ -18,11 +18,10 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
-futures = "0.3"
 napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.1"
 opentelemetry = "0.31"
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "cc5f003b0b957d1b9ba4fc55abd38dbf670ae85e", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "ed0528ffec1285270ffac04ea6320648dd9c2c1f", features = [
     "libz-static",
 ] } # replace once we have a package manager
 serde_json = "1.0"
