@@ -449,7 +449,7 @@ Deduplication uses a two-tier approach:
 
 - **Global in-memory cache**: A single cache shared across all partitions within the same consumer instance. Survives
   partition reassignments within the same process. Controlled by `idempotenceCacheSize` (default 8192).
-- **Cassandra-backed persistent store**: Surviving restarts and rebalances across instances. TTL controlled by
+- **Cassandra-backed persistent store**: Survives restarts and rebalances across instances. TTL controlled by
   `idempotenceTtlS` (default 7 days, i.e. 604800s).
 
 Setting `idempotenceCacheSize` to `0` disables the **entire** deduplication middleware, including both the in-memory
