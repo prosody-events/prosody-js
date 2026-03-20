@@ -3,6 +3,7 @@ use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
+use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
 use prosody::consumer::middleware::monopolization::MonopolizationConfigurationBuilder;
 use prosody::consumer::middleware::retry::RetryConfigurationBuilder;
@@ -30,8 +31,20 @@ pub struct Configuration {
     /// Consumer group name.
     pub group_id: Option<String>,
 
-    /// Size of LRU caches for deduplicating messages. Set to 0 to disable.
+    /// Global shared cache capacity across all partitions for deduplicating messages.
+    /// Set to 0 to disable deduplication entirely.
     pub idempotence_cache_size: Option<u32>,
+
+    /// Version string for cache-busting deduplication hashes.
+    ///
+    /// Changing this value invalidates all previously recorded dedup entries,
+    /// causing messages to be reprocessed.
+    pub idempotence_version: Option<String>,
+
+    /// TTL for deduplication records in Cassandra in seconds.
+    ///
+    /// Must be at least 1 minute. Defaults to 7 days.
+    pub idempotence_ttl_s: Option<u32>,
 
     /// Topics to subscribe to.
     pub subscribed_topics: Option<Either<String, Vec<String>>>,
@@ -266,10 +279,6 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
 
     if let Some(group_id) = &config.group_id {
         builder.group_id(group_id);
-    }
-
-    if let Some(idempotence_cache_size) = config.idempotence_cache_size {
-        builder.idempotence_cache_size(idempotence_cache_size as usize);
     }
 
     if let Some(topics) = &config.subscribed_topics {
@@ -519,6 +528,33 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
         .map_err(|e| Error::from_reason(e.to_string()))
 }
 
+/// Builds a `DeduplicationConfigurationBuilder` from the given Configuration.
+///
+/// # Arguments
+///
+/// * `config` - The Configuration to build from.
+///
+/// # Returns
+///
+/// A `DeduplicationConfigurationBuilder` with the specified configuration options.
+fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuilder {
+    let mut builder = DeduplicationConfigurationBuilder::default();
+
+    if let Some(cache_capacity) = config.idempotence_cache_size {
+        builder.cache_capacity(cache_capacity as usize);
+    }
+
+    if let Some(version) = &config.idempotence_version {
+        builder.version(version.clone());
+    }
+
+    if let Some(ttl_s) = config.idempotence_ttl_s {
+        builder.ttl(Duration::from_secs(u64::from(ttl_s)));
+    }
+
+    builder
+}
+
 /// Builds `ConsumerBuilders` from the given Configuration.
 ///
 /// # Arguments
@@ -531,6 +567,7 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
     Ok(ConsumerBuilders {
         consumer: build_consumer_config(config),
+        dedup: build_dedup_config(config),
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),
         scheduler: build_scheduler_config(config),

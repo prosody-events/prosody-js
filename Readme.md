@@ -186,7 +186,9 @@ Configure via constructor options or environment variables. Options fall back to
 | `stallThresholdMs` / `PROSODY_STALL_THRESHOLD` | Report unhealthy if no progress for this long  | 5m                     |
 | `probePort` / `PROSODY_PROBE_PORT`      | HTTP port for health checks (null to disable)        | 8000                   |
 | `failureTopic` / `PROSODY_FAILURE_TOPIC` | Send unprocessable messages here (dead letter queue) | -                     |
-| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Track this many message IDs to skip duplicates | 4096           |
+| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for deduplicating messages. Set to 0 to disable the entire deduplication middleware (both in-memory cache and Cassandra persistent store) | 8192 |
+| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION` | Version string for cache-busting dedup hashes | 1              |
+| `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds | 604800  |
 | `slabSizeMs` / `PROSODY_SLAB_SIZE`      | Timer storage granularity (rarely needs changing)    | 1h                     |
 
 ### Producer
@@ -318,11 +320,12 @@ All messages must be processed. Retries indefinitely. Uses defer and monopolizat
 
 **Middleware stack:**
 ```
-Kafka → Retry → Defer → Monopolization → Shutdown → Scheduler → Timeout → Telemetry → Handler
+Kafka → Deduplication → Retry → Defer → Monopolization → Shutdown → Scheduler → Timeout → Telemetry → Handler
 ```
 
 | Layer          | Purpose                                                  |
 |----------------|----------------------------------------------------------|
+| Deduplication  | Skips messages whose ID was already processed            |
 | Retry          | Retries transient errors indefinitely                    |
 | Defer          | Stores failing messages for timer-based retry            |
 | Monopolization | Rejects keys exceeding execution time threshold          |
@@ -442,6 +445,16 @@ This prevents endless loops where a service consumes its own produced messages.
 Prosody automatically deduplicates messages using the `id` field in their JSON payload. Consecutive messages with the
 same ID and key are processed only once.
 
+Deduplication uses a two-tier approach:
+
+- **Global in-memory cache**: A single cache shared across all partitions within the same consumer instance. Survives
+  partition reassignments within the same process. Controlled by `idempotenceCacheSize` (default 8192).
+- **Cassandra-backed persistent store**: Surviving restarts and rebalances across instances. TTL controlled by
+  `idempotenceTtlS` (default 7 days, i.e. 604800s).
+
+Setting `idempotenceCacheSize` to `0` disables the **entire** deduplication middleware, including both the in-memory
+cache and the Cassandra persistent store. No dedup lookups or writes will occur.
+
 ```javascript
 // Messages with IDs are deduplicated per key
 await client.send("my-topic", "key1", {
@@ -460,13 +473,13 @@ await client.send("my-topic", "key2", {
 });
 ```
 
-Deduplication can be disabled by setting:
+The entire deduplication middleware (both in-memory cache and Cassandra persistent store) can be disabled by setting `idempotenceCacheSize: 0`:
 
 ```javascript
 const client = new ProsodyClient({
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
-    idempotenceCacheSize: 0  // Disable deduplication
+    idempotenceCacheSize: 0  // Disable deduplication entirely
 });
 ```
 
@@ -476,8 +489,21 @@ Or via environment variable:
 PROSODY_IDEMPOTENCE_CACHE_SIZE=0
 ```
 
-Note that this deduplication is best-effort and not guaranteed. Because identifiers are cached ephemerally in memory,
-duplicates can still occur when instances rebalance or restart.
+To invalidate all previously recorded dedup entries (forcing reprocessing of messages), change the version:
+
+```javascript
+const client = new ProsodyClient({
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+    idempotenceVersion: "2"  // Changing this invalidates all previously recorded entries
+});
+```
+
+Or via environment variable:
+
+```bash
+PROSODY_IDEMPOTENCE_VERSION=2
+```
 
 ## Timer Functionality
 
