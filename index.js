@@ -46,6 +46,25 @@ const {
   setLoggerIfUnset: setLoggerIfUnsetInternal,
 } = require("./bindings");
 
+let _sentryResolved = false;
+let _sentry = null;
+function getSentry() {
+  if (_sentryResolved) return _sentry;
+  _sentryResolved = true;
+  if (!process.env.SENTRY_DSN) return null;
+  try {
+    const Sentry = require("@sentry/node");
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      tracesSampleRate: 0, // OTel is already managed by prosody
+    });
+    _sentry = Sentry;
+  } catch {
+    // @sentry/node not installed — no-op
+  }
+  return _sentry;
+}
+
 const defaultLogger = {
   error: (message, metadata) => console.error(message, metadata),
   warn: (message, metadata) => console.warn(message, metadata),
@@ -260,6 +279,19 @@ class ProsodyClient {
             } catch (error) {
               getCurrentLogger()?.error("Message handler error", error);
               span.recordException(error);
+              const Sentry = getSentry();
+              if (Sentry) {
+                Sentry.withScope((scope) => {
+                  scope.setTag("prosody.event_type", "message");
+                  scope.setContext("prosody", {
+                    topic: message.topic,
+                    partition: message.partition,
+                    key: message.key,
+                    offset: message.offset,
+                  });
+                  Sentry.captureException(error);
+                });
+              }
               throw error;
             } finally {
               completed = true;
@@ -292,6 +324,17 @@ class ProsodyClient {
             } catch (error) {
               getCurrentLogger()?.error("Timer handler error", error);
               span.recordException(error);
+              const Sentry = getSentry();
+              if (Sentry) {
+                Sentry.withScope((scope) => {
+                  scope.setTag("prosody.event_type", "timer");
+                  scope.setContext("prosody", {
+                    key: timer.key,
+                    time: timer.time,
+                  });
+                  Sentry.captureException(error);
+                });
+              }
               throw error;
             } finally {
               completed = true;

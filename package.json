@@ -21,6 +21,12 @@
     ]
   },
   "license": "UNLICENSED",
+  "peerDependencies": {
+    "@sentry/node": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@sentry/node": { "optional": true }
+  },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.212.0"
