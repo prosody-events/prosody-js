@@ -187,7 +187,7 @@ Configure via constructor options or environment variables. Options fall back to
 | `probePort` / `PROSODY_PROBE_PORT`      | HTTP port for health checks (null to disable)        | 8000                   |
 | `failureTopic` / `PROSODY_FAILURE_TOPIC` | Send unprocessable messages here (dead letter queue) | -                     |
 | `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for deduplicating messages. Set to 0 to disable the entire deduplication middleware (both in-memory cache and Cassandra persistent store) | 8192 |
-| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION` | Version string for cache-busting dedup hashes | 1              |
+| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION` | Version string for cache-busting dedup hashes | `"1"`          |
 | `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds | 604800  |
 | `slabSizeMs` / `PROSODY_SLAB_SIZE`      | Timer storage granularity (rarely needs changing)    | 1h                     |
 
