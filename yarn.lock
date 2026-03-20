@@ -1520,6 +1520,11 @@ __metadata:
     jest: "npm:^30.2.0"
     prettier: "npm:^3.8.1"
     yarn-upgrade-all: "npm:^0.7.5"
+  peerDependencies:
+    "@sentry/node": ">=8.0.0"
+  peerDependenciesMeta:
+    "@sentry/node":
+      optional: true
   languageName: unknown
   linkType: soft
 
