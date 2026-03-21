@@ -46,34 +46,24 @@ const {
   setLoggerIfUnset: setLoggerIfUnsetInternal,
 } = require("./bindings");
 
-let _sentryResolved = false;
 let _sentry = null;
 function getSentry() {
-  if (_sentryResolved) return _sentry;
-  _sentryResolved = true;
-  if (!process.env.SENTRY_DSN) return null;
+  if (_sentry) return _sentry;
   try {
     const Sentry = require("@sentry/node");
-    if (!Sentry.isInitialized()) {
-      Sentry.init({
-        dsn: process.env.SENTRY_DSN,
-        tracesSampleRate: 0, // OTel is already managed by prosody
-      });
+    if (Sentry.isInitialized()) {
+      _sentry = Sentry;
     }
-    _sentry = Sentry;
+    return _sentry;
   } catch (err) {
     if (
-      err &&
-      err.code === "MODULE_NOT_FOUND" &&
-      typeof err.message === "string" &&
-      err.message.includes("@sentry/node")
+      err?.code !== "MODULE_NOT_FOUND" ||
+      !err.message?.includes("@sentry/node")
     ) {
-      // @sentry/node not installed — no-op
-    } else {
-      getCurrentLogger()?.warn("Failed to initialize Sentry", err);
+      getCurrentLogger()?.warn("Unexpected error loading @sentry/node", err);
     }
+    return null;
   }
-  return _sentry;
 }
 
 const defaultLogger = {
