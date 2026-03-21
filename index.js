@@ -54,13 +54,24 @@ function getSentry() {
   if (!process.env.SENTRY_DSN) return null;
   try {
     const Sentry = require("@sentry/node");
-    Sentry.init({
-      dsn: process.env.SENTRY_DSN,
-      tracesSampleRate: 0, // OTel is already managed by prosody
-    });
+    if (!Sentry.isInitialized()) {
+      Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        tracesSampleRate: 0, // OTel is already managed by prosody
+      });
+    }
     _sentry = Sentry;
-  } catch {
-    // @sentry/node not installed — no-op
+  } catch (err) {
+    if (
+      err &&
+      err.code === "MODULE_NOT_FOUND" &&
+      typeof err.message === "string" &&
+      err.message.includes("@sentry/node")
+    ) {
+      // @sentry/node not installed — no-op
+    } else {
+      getCurrentLogger()?.warn("Failed to initialize Sentry", err);
+    }
   }
   return _sentry;
 }
