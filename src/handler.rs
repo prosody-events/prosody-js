@@ -23,10 +23,8 @@ use prosody::error::{ClassifyError, ErrorCategory};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
-use std::error::Error as StdError;
-use std::fmt;
 use std::sync::Arc;
-use tracing::{Instrument, debug, error};
+use tracing::{debug, error, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for message handler arguments.
@@ -203,11 +201,17 @@ impl JsHandler {
     /// Returns a `napi::Result<JsHandlerError>` if the JavaScript function call
     /// fails.
     async fn categorize_error(&self, error: Error) -> napi::Result<JsHandlerError> {
+        let message = error
+            .cause
+            .as_ref()
+            .map(|c| c.reason.clone())
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| error.reason.clone());
         let is_permanent = self.inner.is_permanent.call_async((error,)).await?;
         Ok(if is_permanent {
-            JsHandlerError::Permanent(Error::from_reason("Permanent error"))
+            JsHandlerError::Permanent(message)
         } else {
-            JsHandlerError::Js(Error::from_reason("Transient error"))
+            JsHandlerError::Js(message)
         })
     }
 }
@@ -398,53 +402,20 @@ impl FallibleHandler for JsHandler {
 /// This enum distinguishes between transient errors (which may be retried)
 /// and permanent errors (which should not be retried) to support Prosody's
 /// error handling and retry logic.
+#[derive(Debug, thiserror::Error)]
 pub enum JsHandlerError {
-    /// Wraps an `napi::Error` that occurred during JavaScript execution
-    /// (transient).
-    Js(napi::Error),
+    /// A transient error from the JavaScript handler (eligible for retry).
+    #[error("{0}")]
+    Js(String),
 
-    /// Wraps an `napi::Error` that is marked as permanent by JavaScript code.
-    Permanent(napi::Error),
-}
-
-impl fmt::Debug for JsHandlerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (name, error) = match self {
-            JsHandlerError::Js(e) => ("Js", e),
-            JsHandlerError::Permanent(e) => ("Permanent", e),
-        };
-        let mut tup = f.debug_tuple(name);
-        tup.field(error);
-        if let Some(cause) = &error.cause {
-            tup.field(cause);
-        }
-        tup.finish()
-    }
-}
-
-impl fmt::Display for JsHandlerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let error = match self {
-            JsHandlerError::Js(e) | JsHandlerError::Permanent(e) => e,
-        };
-        match error.cause.as_deref().filter(|c| !c.reason.is_empty()) {
-            Some(cause) => f.write_str(&cause.reason),
-            None => fmt::Display::fmt(error, f),
-        }
-    }
-}
-
-impl StdError for JsHandlerError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            JsHandlerError::Js(e) | JsHandlerError::Permanent(e) => Some(e),
-        }
-    }
+    /// A permanent error from the JavaScript handler (not retried).
+    #[error("{0}")]
+    Permanent(String),
 }
 
 impl From<napi::Error> for JsHandlerError {
     fn from(e: napi::Error) -> Self {
-        JsHandlerError::Js(e)
+        JsHandlerError::Js(e.reason.clone())
     }
 }
 
