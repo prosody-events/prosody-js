@@ -23,8 +23,9 @@ use prosody::error::{ClassifyError, ErrorCategory};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
+use std::error::Error as StdError;
+use std::fmt;
 use std::sync::Arc;
-use thiserror::Error;
 use tracing::{Instrument, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -397,16 +398,54 @@ impl FallibleHandler for JsHandler {
 /// This enum distinguishes between transient errors (which may be retried)
 /// and permanent errors (which should not be retried) to support Prosody's
 /// error handling and retry logic.
-#[derive(Debug, Error)]
 pub enum JsHandlerError {
     /// Wraps an `napi::Error` that occurred during JavaScript execution
     /// (transient).
-    #[error(transparent)]
-    Js(#[from] napi::Error),
+    Js(napi::Error),
 
     /// Wraps an `napi::Error` that is marked as permanent by JavaScript code.
-    #[error(transparent)]
     Permanent(napi::Error),
+}
+
+impl fmt::Debug for JsHandlerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (name, error) = match self {
+            JsHandlerError::Js(e) => ("Js", e),
+            JsHandlerError::Permanent(e) => ("Permanent", e),
+        };
+        let mut tup = f.debug_tuple(name);
+        tup.field(error);
+        if let Some(cause) = &error.cause {
+            tup.field(cause);
+        }
+        tup.finish()
+    }
+}
+
+impl fmt::Display for JsHandlerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let error = match self {
+            JsHandlerError::Js(e) | JsHandlerError::Permanent(e) => e,
+        };
+        match error.cause.as_deref().filter(|c| !c.reason.is_empty()) {
+            Some(cause) => f.write_str(&cause.reason),
+            None => fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl StdError for JsHandlerError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            JsHandlerError::Js(e) | JsHandlerError::Permanent(e) => Some(e),
+        }
+    }
+}
+
+impl From<napi::Error> for JsHandlerError {
+    fn from(e: napi::Error) -> Self {
+        JsHandlerError::Js(e)
+    }
 }
 
 impl ClassifyError for JsHandlerError {
