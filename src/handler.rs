@@ -24,7 +24,6 @@ use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use thiserror::Error;
 use tracing::{Instrument, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -202,11 +201,17 @@ impl JsHandler {
     /// Returns a `napi::Result<JsHandlerError>` if the JavaScript function call
     /// fails.
     async fn categorize_error(&self, error: Error) -> napi::Result<JsHandlerError> {
+        let message = error
+            .cause
+            .as_ref()
+            .map(|c| c.reason.clone())
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| error.reason.clone());
         let is_permanent = self.inner.is_permanent.call_async((error,)).await?;
         Ok(if is_permanent {
-            JsHandlerError::Permanent(Error::from_reason("Permanent error"))
+            JsHandlerError::Permanent(message)
         } else {
-            JsHandlerError::Js(Error::from_reason("Transient error"))
+            JsHandlerError::Js(message)
         })
     }
 }
@@ -397,16 +402,21 @@ impl FallibleHandler for JsHandler {
 /// This enum distinguishes between transient errors (which may be retried)
 /// and permanent errors (which should not be retried) to support Prosody's
 /// error handling and retry logic.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum JsHandlerError {
-    /// Wraps an `napi::Error` that occurred during JavaScript execution
-    /// (transient).
-    #[error(transparent)]
-    Js(#[from] napi::Error),
+    /// A transient error from the JavaScript handler (eligible for retry).
+    #[error("{0}")]
+    Js(String),
 
-    /// Wraps an `napi::Error` that is marked as permanent by JavaScript code.
-    #[error(transparent)]
-    Permanent(napi::Error),
+    /// A permanent error from the JavaScript handler (not retried).
+    #[error("{0}")]
+    Permanent(String),
+}
+
+impl From<napi::Error> for JsHandlerError {
+    fn from(e: napi::Error) -> Self {
+        JsHandlerError::Js(e.reason.clone())
+    }
 }
 
 impl ClassifyError for JsHandlerError {

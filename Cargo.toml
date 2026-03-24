@@ -18,8 +18,11 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
-napi = { version = "3.1", features = ["async", "chrono_date", "serde-json"] }
-napi-derive = "3.1"
+# Pinned to fork pending https://github.com/napi-rs/napi-rs/pull/3162,
+# which fixes napi::Error::cause not being populated in ThreadsafeFunction
+# callee-handled callbacks.
+napi = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc", features = ["async", "chrono_date", "serde-json"] }
+napi-derive = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc" }
 opentelemetry = "0.31"
 prosody = { git = "https://github.com/cincpro/prosody.git", rev = "6c0cbfedc389a97f74a1d7353373d46a9e7b3232", features = [
     "libz-static",

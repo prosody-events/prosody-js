@@ -46,12 +46,49 @@ const {
   setLoggerIfUnset: setLoggerIfUnsetInternal,
 } = require("./bindings");
 
+let _sentry = undefined;
+function getSentry() {
+  if (_sentry !== undefined) return _sentry;
+  _sentry = null;
+  if (!process.env.SENTRY_DSN) return null;
+  try {
+    const Sentry = require("@sentry/node");
+    if (!Sentry.isInitialized()) {
+      Sentry.init({ dsn: process.env.SENTRY_DSN });
+    }
+    _sentry = Sentry;
+    return Sentry;
+  } catch (err) {
+    const isMissing =
+      err?.code === "MODULE_NOT_FOUND" &&
+      err.message?.includes("@sentry/node");
+    if (isMissing) {
+      getCurrentLogger()?.error(
+        "SENTRY_DSN is set but @sentry/node is not installed. Run: npm install @sentry/node"
+      );
+    } else {
+      getCurrentLogger()?.warn("Unexpected error loading @sentry/node", err);
+    }
+    return null;
+  }
+}
+
+function captureException(error, eventType, context) {
+  const Sentry = getSentry();
+  if (!Sentry) return;
+  Sentry.withScope((scope) => {
+    scope.setTag("prosody.event_type", eventType);
+    scope.setContext("prosody", context);
+    Sentry.captureException(error.cause ?? error);
+  });
+}
+
 const defaultLogger = {
-  error: (message, metadata) => console.error(message, metadata),
-  warn: (message, metadata) => console.warn(message, metadata),
-  info: (message, metadata) => console.info(message, metadata),
-  debug: (message, metadata) => console.debug(message, metadata),
-  trace: (message, metadata) => console.debug(message, metadata),
+  error: (message, metadata) => metadata !== undefined ? console.error(message, metadata) : console.error(message),
+  warn: (message, metadata) => metadata !== undefined ? console.warn(message, metadata) : console.warn(message),
+  info: (message, metadata) => metadata !== undefined ? console.info(message, metadata) : console.info(message),
+  debug: (message, metadata) => metadata !== undefined ? console.debug(message, metadata) : console.debug(message),
+  trace: (message, metadata) => metadata !== undefined ? console.debug(message, metadata) : console.debug(message),
 };
 
 // Keep reference to current logger for use in handlers
@@ -258,8 +295,14 @@ class ProsodyClient {
               const context = new Context(nativeContext);
               await onMessage(context, message, controller.signal);
             } catch (error) {
-              getCurrentLogger()?.error("Message handler error", error);
-              span.recordException(error);
+              getCurrentLogger()?.error("Message handler error", error.cause ?? error);
+              span.recordException(error.cause ?? error);
+              captureException(error, "message", {
+                topic: message.topic,
+                partition: message.partition,
+                key: message.key,
+                offset: message.offset,
+              });
               throw error;
             } finally {
               completed = true;
@@ -290,8 +333,12 @@ class ProsodyClient {
               const context = new Context(nativeContext);
               await onTimer(context, timer, controller.signal);
             } catch (error) {
-              getCurrentLogger()?.error("Timer handler error", error);
-              span.recordException(error);
+              getCurrentLogger()?.error("Timer handler error", error.cause ?? error);
+              span.recordException(error.cause ?? error);
+              captureException(error, "timer", {
+                key: timer.key,
+                time: timer.time,
+              });
               throw error;
             } finally {
               completed = true;

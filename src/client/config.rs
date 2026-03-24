@@ -31,8 +31,8 @@ pub struct Configuration {
     /// Consumer group name.
     pub group_id: Option<String>,
 
-    /// Global shared cache capacity across all partitions for deduplicating messages.
-    /// Set to 0 to disable deduplication entirely.
+    /// Global shared cache capacity across all partitions for deduplicating
+    /// messages. Set to 0 to disable deduplication entirely.
     pub idempotence_cache_size: Option<u32>,
 
     /// Version string for cache-busting deduplication hashes.
@@ -536,7 +536,8 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 ///
 /// # Returns
 ///
-/// A `DeduplicationConfigurationBuilder` with the specified configuration options.
+/// A `DeduplicationConfigurationBuilder` with the specified configuration
+/// options.
 fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuilder {
     let mut builder = DeduplicationConfigurationBuilder::default();
 

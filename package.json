@@ -21,6 +21,14 @@
     ]
   },
   "license": "UNLICENSED",
+  "peerDependencies": {
+    "@sentry/node": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@sentry/node": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.212.0"
@@ -37,6 +45,7 @@
     "@opentelemetry/sdk-node": "^0.212.0",
     "@opentelemetry/sdk-trace-base": "^2.5.1",
     "@opentelemetry/sdk-trace-node": "^2.5.1",
+    "@sentry/node": "^10.45.0",
     "jest": "^30.2.0",
     "prettier": "^3.8.1",
     "yarn-upgrade-all": "^0.7.5"
