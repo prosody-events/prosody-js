@@ -65,8 +65,8 @@ pub struct Configuration {
     /// Threshold determining when message processing has stalled.
     pub stall_threshold_ms: Option<u32>,
 
-    /// Timeout to wait for in-flight tasks to complete during partition
-    /// shutdown.
+    /// Shutdown budget; handlers complete freely before cancellation fires
+    /// near the deadline.
     pub shutdown_timeout_ms: Option<u32>,
 
     /// Time between message polls in milliseconds.
