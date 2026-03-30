@@ -190,6 +190,8 @@ Configure via constructor options or environment variables. Options fall back to
 | `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION` | Version string for cache-busting dedup hashes | `"1"`          |
 | `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds | 604800  |
 | `slabSizeMs` / `PROSODY_SLAB_SIZE`      | Timer storage granularity (rarely needs changing)    | 1h                     |
+| `messageSpans` / `PROSODY_MESSAGE_SPANS` | Span linking for message execution: `child` (child-of) or `follows_from` | `child` |
+| `timerSpans` / `PROSODY_TIMER_SPANS`    | Span linking for timer execution: `child` (child-of) or `follows_from`   | `follows_from` |
 
 ### Producer
 
@@ -725,6 +727,16 @@ const messageHandler = {
 
 client.subscribe(messageHandler);
 ```
+
+### Span Linking
+
+By default, message execution spans use **`child`** (child-of relationship — the execution span is part of
+the same trace as the producer). Timer execution spans use **`follows_from`** (the execution span starts a
+new trace with a span link back to the scheduling span, since timer execution is causally related but not part of
+the same operation).
+
+Both strategies are configurable via the `messageSpans` / `PROSODY_MESSAGE_SPANS` and `timerSpans` /
+`PROSODY_TIMER_SPANS` options. Accepted values: `'child'`, `'follows_from'`.
 
 ## Best Practices
 
