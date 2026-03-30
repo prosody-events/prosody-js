@@ -3,6 +3,7 @@ use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
+use prosody::consumer::SpanRelation;
 use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
 use prosody::consumer::middleware::monopolization::MonopolizationConfigurationBuilder;
@@ -11,11 +12,10 @@ use prosody::consumer::middleware::scheduler::SchedulerConfigurationBuilder;
 use prosody::consumer::middleware::timeout::TimeoutConfigurationBuilder;
 use prosody::consumer::middleware::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::ConsumerBuilders;
-use prosody::consumer::SpanRelation;
 use prosody::high_level::mode::Mode as ProsodyMode;
-use std::str::FromStr;
 use prosody::producer::ProducerConfigurationBuilder;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Configuration options for the Prosody client.
@@ -206,14 +206,14 @@ pub struct Configuration {
     // OTel span linking configuration
     /// Span linking for message execution spans.
     ///
-    /// Controls how the receive span connects to the OTel context propagated
+    /// Controls how the receive span connects to the `OTel` context propagated
     /// from the Kafka message producer. Accepted values: `"child"` (child-of
     /// relationship) or `"follows_from"`. Default: `"child"`.
     pub message_spans: Option<String>,
 
     /// Span linking for timer execution spans.
     ///
-    /// Controls how timer spans connect to the OTel context stored when the
+    /// Controls how timer spans connect to the `OTel` context stored when the
     /// timer was scheduled. Accepted values: `"child"` (child-of relationship)
     /// or `"follows_from"`. Default: `"follows_from"`.
     pub timer_spans: Option<String>,
@@ -338,14 +338,12 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
     }
 
     if let Some(ref s) = config.message_spans {
-        let relation = SpanRelation::from_str(s)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let relation = SpanRelation::from_str(s).map_err(|e| Error::from_reason(e.to_string()))?;
         builder.message_spans(relation);
     }
 
     if let Some(ref s) = config.timer_spans {
-        let relation = SpanRelation::from_str(s)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let relation = SpanRelation::from_str(s).map_err(|e| Error::from_reason(e.to_string()))?;
         builder.timer_spans(relation);
     }
 
