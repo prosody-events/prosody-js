@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.0](https://github.com/cincpro/prosody-js/compare/v2.3.0...v2.4.0) (2026-03-31)
+
+
+### Features
+
+* persistent deduplication with global cache and Cassandra backend ([#153](https://github.com/cincpro/prosody-js/issues/153)) ([7c0012d](https://github.com/cincpro/prosody-js/commit/7c0012d9ba27f72aa34d051f9fda51dd02bdcb53))
+* Sentry error monitoring for handler dispatch ([#155](https://github.com/cincpro/prosody-js/issues/155)) ([ae1fc9b](https://github.com/cincpro/prosody-js/commit/ae1fc9bb1aa0a868c3fc79df9850a2a103bbd7a6))
+* shutdown grace period and configurable span relation ([#157](https://github.com/cincpro/prosody-js/issues/157)) ([c26e198](https://github.com/cincpro/prosody-js/commit/c26e19893334bca28107019853e48de687b21afe))
+
 ## [2.3.0](https://github.com/cincpro/prosody-js/compare/v2.2.1...v2.3.0) (2026-03-19)
 
 
