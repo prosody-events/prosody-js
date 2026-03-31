@@ -282,7 +282,8 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
 ///
 /// # Returns
 ///
-/// A `ConsumerConfigurationBuilder` with the specified configuration options.
+/// A `Result` containing the `ConsumerConfigurationBuilder` with the specified
+/// configuration options, or an error if a configuration value is invalid.
 pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigurationBuilder> {
     let mut builder = ConsumerConfigurationBuilder::default();
 
@@ -338,12 +339,14 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
     }
 
     if let Some(ref s) = config.message_spans {
-        let relation = SpanRelation::from_str(s).map_err(|e| Error::from_reason(e.to_string()))?;
+        let relation = SpanRelation::from_str(s)
+            .map_err(|e| Error::from_reason(format!("message_spans: {e}")))?;
         builder.message_spans(relation);
     }
 
     if let Some(ref s) = config.timer_spans {
-        let relation = SpanRelation::from_str(s).map_err(|e| Error::from_reason(e.to_string()))?;
+        let relation = SpanRelation::from_str(s)
+            .map_err(|e| Error::from_reason(format!("timer_spans: {e}")))?;
         builder.timer_spans(relation);
     }
 
