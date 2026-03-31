@@ -21,7 +21,7 @@ export { Configuration, ConsumerState, Message, Timer, Mode };
 export declare class Context {
   /**
    * Checks whether cancellation has been signaled.
-   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
+   * Cancellation includes message-level cancellation (e.g., timeout) and partition shutdown. During shutdown, cancellation is delayed until near the end of the shutdown timeout to allow in-flight work to complete.
    *
    * @returns True if cancellation was requested, otherwise false.
    */
@@ -29,7 +29,7 @@ export declare class Context {
 
   /**
    * Waits for a cancellation signal.
-   * Cancellation includes both message-level cancellation (e.g., timeout) and partition shutdown.
+   * Cancellation includes message-level cancellation (e.g., timeout) and partition shutdown. During shutdown, cancellation is delayed until near the end of the shutdown timeout to allow in-flight work to complete.
    *
    * @returns A promise that resolves when cancellation is signaled.
    */

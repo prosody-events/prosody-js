@@ -41,8 +41,9 @@ impl NativeContext {
 
     /// Checks whether cancellation has been signaled.
     ///
-    /// Cancellation includes both message-level cancellation (e.g., timeout)
-    /// and partition shutdown.
+    /// Cancellation includes message-level cancellation (e.g., timeout) and
+    /// partition shutdown. During shutdown, cancellation is delayed until near
+    /// the end of the shutdown timeout to allow in-flight work to complete.
     ///
     /// @returns True if cancellation was requested, otherwise false.
     #[napi(getter, writable = false)]
@@ -52,8 +53,9 @@ impl NativeContext {
 
     /// Waits for a cancellation signal.
     ///
-    /// Cancellation includes both message-level cancellation (e.g., timeout)
-    /// and partition shutdown.
+    /// Cancellation includes message-level cancellation (e.g., timeout) and
+    /// partition shutdown. During shutdown, cancellation is delayed until near
+    /// the end of the shutdown timeout to allow in-flight work to complete.
     ///
     /// @returns A promise that resolves when cancellation is signaled.
     #[napi(writable = false)]

@@ -24,7 +24,7 @@ educe = "0.6"
 napi = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc" }
 opentelemetry = "0.31"
-prosody = { git = "https://github.com/cincpro/prosody.git", rev = "6c0cbfedc389a97f74a1d7353373d46a9e7b3232", features = [
+prosody = { git = "https://github.com/cincpro/prosody.git", rev = "e528e7cb95cb1fe57b5601dd291b88b41dcfd1b8", features = [
     "libz-static",
 ] } # replace once we have a package manager
 serde_json = "1.0"

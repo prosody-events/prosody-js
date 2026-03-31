@@ -3,6 +3,7 @@ use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
+use prosody::consumer::SpanRelation;
 use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
 use prosody::consumer::middleware::monopolization::MonopolizationConfigurationBuilder;
@@ -14,6 +15,7 @@ use prosody::high_level::ConsumerBuilders;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Configuration options for the Prosody client.
@@ -65,8 +67,8 @@ pub struct Configuration {
     /// Threshold determining when message processing has stalled.
     pub stall_threshold_ms: Option<u32>,
 
-    /// Timeout to wait for in-flight tasks to complete during partition
-    /// shutdown.
+    /// Shutdown budget; handlers complete freely before cancellation fires
+    /// near the deadline.
     pub shutdown_timeout_ms: Option<u32>,
 
     /// Time between message polls in milliseconds.
@@ -200,6 +202,21 @@ pub struct Configuration {
 
     /// Whether the telemetry emitter is enabled.
     pub telemetry_enabled: Option<bool>,
+
+    // OTel span linking configuration
+    /// Span linking for message execution spans.
+    ///
+    /// Controls how the receive span connects to the `OTel` context propagated
+    /// from the Kafka message producer. Accepted values: `"child"` (child-of
+    /// relationship) or `"follows_from"`. Default: `"child"`.
+    pub message_spans: Option<String>,
+
+    /// Span linking for timer execution spans.
+    ///
+    /// Controls how timer spans connect to the `OTel` context stored when the
+    /// timer was scheduled. Accepted values: `"child"` (child-of relationship)
+    /// or `"follows_from"`. Default: `"follows_from"`.
+    pub timer_spans: Option<String>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -265,8 +282,9 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
 ///
 /// # Returns
 ///
-/// A `ConsumerConfigurationBuilder` with the specified configuration options.
-pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBuilder {
+/// A `Result` containing the `ConsumerConfigurationBuilder` with the specified
+/// configuration options, or an error if a configuration value is invalid.
+pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigurationBuilder> {
     let mut builder = ConsumerConfigurationBuilder::default();
 
     if let Some(servers) = &config.bootstrap_servers {
@@ -320,7 +338,19 @@ pub fn build_consumer_config(config: &Configuration) -> ConsumerConfigurationBui
         builder.slab_size(Duration::from_millis(u64::from(slab_size_ms)));
     }
 
-    builder
+    if let Some(ref s) = config.message_spans {
+        let relation = SpanRelation::from_str(s)
+            .map_err(|e| Error::from_reason(format!("message_spans: {e}")))?;
+        builder.message_spans(relation);
+    }
+
+    if let Some(ref s) = config.timer_spans {
+        let relation = SpanRelation::from_str(s)
+            .map_err(|e| Error::from_reason(format!("timer_spans: {e}")))?;
+        builder.timer_spans(relation);
+    }
+
+    Ok(builder)
 }
 
 /// Builds a `RetryConfigurationBuilder` from the given Configuration.
@@ -567,7 +597,7 @@ fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuild
 /// A `ConsumerBuilders` containing all consumer-related configuration builders.
 pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
     Ok(ConsumerBuilders {
-        consumer: build_consumer_config(config),
+        consumer: build_consumer_config(config)?,
         dedup: build_dedup_config(config),
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),

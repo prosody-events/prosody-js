@@ -934,6 +934,51 @@ describe("ProsodyClient", () => {
       }
     });
   });
+
+  describe("configuration validation", () => {
+    it("accepts valid messageSpans and timerSpans values", () => {
+      expect(
+        () =>
+          new ProsodyClient({
+            bootstrapServers: BOOTSTRAP_SERVERS,
+            groupId: GROUP_NAME,
+            sourceSystem: SOURCE_NAME,
+            subscribedTopics: "test-topic",
+            mock: true,
+            messageSpans: "child",
+            timerSpans: "follows_from",
+          }),
+      ).not.toThrow();
+    });
+
+    it("rejects invalid messageSpans with field name in error", () => {
+      expect(
+        () =>
+          new ProsodyClient({
+            bootstrapServers: BOOTSTRAP_SERVERS,
+            groupId: GROUP_NAME,
+            sourceSystem: SOURCE_NAME,
+            subscribedTopics: "test-topic",
+            mock: true,
+            messageSpans: "invalid",
+          }),
+      ).toThrow(/message_spans/);
+    });
+
+    it("rejects invalid timerSpans with field name in error", () => {
+      expect(
+        () =>
+          new ProsodyClient({
+            bootstrapServers: BOOTSTRAP_SERVERS,
+            groupId: GROUP_NAME,
+            sourceSystem: SOURCE_NAME,
+            subscribedTopics: "test-topic",
+            mock: true,
+            timerSpans: "invalid",
+          }),
+      ).toThrow(/timer_spans/);
+    });
+  });
 });
 
 const waitForEvent = (emitter, eventName, timeout) => {
