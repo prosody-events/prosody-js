@@ -12,7 +12,7 @@
     "prosody.darwin-x64.node"
   ],
   "description": "Javascript bindings for the Prosody Kafka client library",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">= 10"
   },
