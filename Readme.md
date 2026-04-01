@@ -977,3 +977,7 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 - `key: string`: The entity key identifying what this timer belongs to
 - `time: Date`: The time when this timer was scheduled to fire
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
