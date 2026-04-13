@@ -1,6 +1,6 @@
 # Prosody: JavaScript Bindings for Kafka
 
-Prosody offers JavaScript bindings to the [Prosody Kafka client](https://github.com/cincpro/prosody), providing
+Prosody offers JavaScript bindings to the [Prosody Kafka client](https://github.com/prosody-events/prosody), providing
 features for message production and consumption, including configurable retry mechanisms, failure handling
 strategies, and integrated OpenTelemetry support for distributed tracing.
 
@@ -18,7 +18,7 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 ## Installation
 
 ```bash
-npm install @cincpro/prosody
+npm install @prosody-events/prosody
 ```
 
 **Note**: For Linux deployments, use the `558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-22` base image, which provides optimized memory allocation and cross-compilation support.
@@ -26,7 +26,7 @@ npm install @cincpro/prosody
 ## Quick Start
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
+const {ProsodyClient} = require('@prosody-events/prosody');
 
 // Initialize the client with Kafka bootstrap servers, consumer group, and topics
 const client = new ProsodyClient({
@@ -598,7 +598,7 @@ If you're using TypeScript or a JavaScript environment that supports decorators,
 to classify exceptions that should not be retried:
 
 ```javascript
-import {permanent, ProsodyClient} from '@cincpro/prosody';
+import {permanent, ProsodyClient} from '@prosody-events/prosody';
 
 class MyHandler {
     @permanent(TypeError, AttributeError)
@@ -618,7 +618,7 @@ client.subscribe(new MyHandler());
 If you're not using decorators, you can still classify errors as permanent by throwing a `PermanentError`:
 
 ```javascript
-import {PermanentError, ProsodyClient} from '@cincpro/prosody';
+import {PermanentError, ProsodyClient} from '@prosody-events/prosody';
 
 const messageHandler = {
     onMessage: async (context, message, signal) => {
@@ -701,7 +701,7 @@ After initializing tracing, you can define spans in your application, and they w
 Kafka:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
+const {ProsodyClient} = require('@prosody-events/prosody');
 const opentelemetry = require('@opentelemetry/api');
 
 const tracer = opentelemetry.trace.getTracer('my-service-name');
@@ -795,7 +795,7 @@ This ensures:
 Implement shutdown handling in your application:
 
 ```javascript
-const {ProsodyClient} = require('@cincpro/prosody');
+const {ProsodyClient} = require('@prosody-events/prosody');
 
 async function main() {
     const client = new ProsodyClient({

@@ -1,3 +1,3 @@
-# `@cincpro/prosody-linux-arm-musleabihf`
+# `@prosody-events/prosody-linux-arm-musleabihf`
 
-This is the **armv7-unknown-linux-musleabihf** binary for `@cincpro/prosody`
+This is the **armv7-unknown-linux-musleabihf** binary for `@prosody-events/prosody`

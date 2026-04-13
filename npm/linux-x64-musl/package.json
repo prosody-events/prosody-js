@@ -1,5 +1,5 @@
 {
-  "name": "@cincpro/prosody-linux-x64-musl",
+  "name": "@prosody-events/prosody-linux-x64-musl",
   "version": "0.0.0",
   "os": [
     "linux"
@@ -16,7 +16,7 @@
   "engines": {
     "node": ">= 10"
   },
-  "repository": "https://github.com/cincpro/prosody-js",
+  "repository": "https://github.com/prosody-events/prosody-js",
   "libc": [
     "musl"
   ]

@@ -1500,9 +1500,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@cincpro/prosody@workspace:.":
+"@prosody-events/prosody@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@cincpro/prosody@workspace:."
+  resolution: "@prosody-events/prosody@workspace:."
   dependencies:
     "@babel/core": "npm:^7.29.0"
     "@babel/plugin-proposal-decorators": "npm:^7.29.0"
