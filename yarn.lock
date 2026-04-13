@@ -1500,35 +1500,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@prosody-events/prosody@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "@prosody-events/prosody@workspace:."
-  dependencies:
-    "@babel/core": "npm:^7.29.0"
-    "@babel/plugin-proposal-decorators": "npm:^7.29.0"
-    "@babel/preset-env": "npm:^7.29.0"
-    "@napi-rs/cli": "npm:^3.5.1"
-    "@opentelemetry/api": "npm:^1.9.0"
-    "@opentelemetry/auto-instrumentations-node": "npm:^0.70.1"
-    "@opentelemetry/core": "npm:^2.5.1"
-    "@opentelemetry/exporter-trace-otlp-http": "npm:^0.212.0"
-    "@opentelemetry/exporter-trace-otlp-proto": "npm:^0.212.0"
-    "@opentelemetry/sdk-metrics": "npm:^2.5.1"
-    "@opentelemetry/sdk-node": "npm:^0.212.0"
-    "@opentelemetry/sdk-trace-base": "npm:^2.5.1"
-    "@opentelemetry/sdk-trace-node": "npm:^2.5.1"
-    "@sentry/node": "npm:^10.45.0"
-    jest: "npm:^30.2.0"
-    prettier: "npm:^3.8.1"
-    yarn-upgrade-all: "npm:^0.7.5"
-  peerDependencies:
-    "@sentry/node": ">=8.0.0"
-  peerDependenciesMeta:
-    "@sentry/node":
-      optional: true
-  languageName: unknown
-  linkType: soft
-
 "@emnapi/core@npm:^1.4.3, @emnapi/core@npm:^1.7.1":
   version: 1.7.1
   resolution: "@emnapi/core@npm:1.7.1"
@@ -4422,6 +4393,35 @@ __metadata:
   checksum: 10c0/9d6dc55b051d0e09811f2d456f39ade8195619e18698861a94ea1eaa96a50dfb80d2cca906695b81bac41ca2be0d96dd92576c32d2958a338e02b0ec19da76d5
   languageName: node
   linkType: hard
+
+"@prosody-events/prosody@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@prosody-events/prosody@workspace:."
+  dependencies:
+    "@babel/core": "npm:^7.29.0"
+    "@babel/plugin-proposal-decorators": "npm:^7.29.0"
+    "@babel/preset-env": "npm:^7.29.0"
+    "@napi-rs/cli": "npm:^3.5.1"
+    "@opentelemetry/api": "npm:^1.9.0"
+    "@opentelemetry/auto-instrumentations-node": "npm:^0.70.1"
+    "@opentelemetry/core": "npm:^2.5.1"
+    "@opentelemetry/exporter-trace-otlp-http": "npm:^0.212.0"
+    "@opentelemetry/exporter-trace-otlp-proto": "npm:^0.212.0"
+    "@opentelemetry/sdk-metrics": "npm:^2.5.1"
+    "@opentelemetry/sdk-node": "npm:^0.212.0"
+    "@opentelemetry/sdk-trace-base": "npm:^2.5.1"
+    "@opentelemetry/sdk-trace-node": "npm:^2.5.1"
+    "@sentry/node": "npm:^10.45.0"
+    jest: "npm:^30.2.0"
+    prettier: "npm:^3.8.1"
+    yarn-upgrade-all: "npm:^0.7.5"
+  peerDependencies:
+    "@sentry/node": ">=8.0.0"
+  peerDependenciesMeta:
+    "@sentry/node":
+      optional: true
+  languageName: unknown
+  linkType: soft
 
 "@protobufjs/aspromise@npm:^1.1.1, @protobufjs/aspromise@npm:^1.1.2":
   version: 1.1.2
