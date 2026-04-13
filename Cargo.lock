@@ -397,9 +397,9 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.6.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "424e0138278faeb2b401f174ad17e715c829512d74f3d1e81eb43365c2e0590e"
+checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
  "dtor",
@@ -525,9 +525,9 @@ dependencies = [
 
 [[package]]
 name = "dtor"
-version = "0.1.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "404d02eeb088a82cfd873006cb713fe411306c7d182c344905e101fb1167d301"
+checksum = "f1057d6c64987086ff8ed0fd3fbf377a6b7d205cc7715868cd401705f715cbe4"
 dependencies = [
  "dtor-proc-macro",
 ]
@@ -1308,14 +1308,15 @@ dependencies = [
 
 [[package]]
 name = "napi"
-version = "3.8.3"
-source = "git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc#889fd4e6ed11db3993580602aba8509169e0e5cc"
+version = "3.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb7848c221fb7bb789e02f01875287ebb1e078b92a6566a34de01ef8806e7c2b"
 dependencies = [
  "bitflags",
  "chrono",
  "ctor",
  "futures",
- "napi-build 2.3.1 (git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc)",
+ "napi-build",
  "napi-sys",
  "nohash-hasher",
  "rustc-hash",
@@ -1331,14 +1332,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d376940fd5b723c6893cd1ee3f33abbfd86acb1cd1ec079f3ab04a2a3bc4d3b1"
 
 [[package]]
-name = "napi-build"
-version = "2.3.1"
-source = "git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc#889fd4e6ed11db3993580602aba8509169e0e5cc"
-
-[[package]]
 name = "napi-derive"
-version = "3.5.2"
-source = "git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc#889fd4e6ed11db3993580602aba8509169e0e5cc"
+version = "3.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60867ff9a6f76e82350e0c3420cb0736f5866091b61d7d8a024baa54b0ec17dd"
 dependencies = [
  "convert_case",
  "ctor",
@@ -1351,7 +1348,8 @@ dependencies = [
 [[package]]
 name = "napi-derive-backend"
 version = "5.0.2"
-source = "git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc#889fd4e6ed11db3993580602aba8509169e0e5cc"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0864cf6a82e2cfb69067374b64c9253d7e910e5b34db833ed7495dda56ccb18"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -1363,7 +1361,8 @@ dependencies = [
 [[package]]
 name = "napi-sys"
 version = "3.2.1"
-source = "git+https://github.com/hadronzoo/napi-rs.git?rev=889fd4e6ed11db3993580602aba8509169e0e5cc#889fd4e6ed11db3993580602aba8509169e0e5cc"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb602b84d7c1edae45e50bbf1374696548f36ae179dfa667f577e384bb90c2b"
 dependencies = [
  "libloading",
 ]
@@ -1751,7 +1750,7 @@ dependencies = [
  "chrono",
  "educe",
  "napi",
- "napi-build 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "napi-build",
  "napi-derive",
  "opentelemetry",
  "prosody",
