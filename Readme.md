@@ -891,20 +891,15 @@ Prosody uses an automated release process managed by GitHub Actions. Here's an o
     - When the PR is merged, it creates a GitHub release and a git tag.
 
 3. **Build Process**: If a new release is created, the following build jobs are triggered:
-    - Linux builds for x86_64, aarch64, and armv7 architectures (both glibc and musl variants).
-    - Windows build for x64 and aarch64 architectures.
-    - macOS builds for x86_64 and aarch64 architectures.
-    - Universal macOS binary creation.
+    - Linux builds for x86_64 and aarch64 (glibc).
+    - Windows build for x64.
+    - macOS build for aarch64 (Apple Silicon).
 
-4. **Testing**: The built binaries are tested on various platforms and Node.js versions:
-    - Linux x64 (glibc and musl) with Node.js 18 and 20
-    - Linux aarch64 (glibc and musl) with Node.js LTS
-    - Linux armv7 (gnueabihf) with Node.js 18 and 20
+4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 20 and 22.
 
 5. **Artifact Upload**: Each build job uploads its artifacts (Node.js native addons) to GitHub Actions.
 
-6. **Publication**: If all builds and tests are successful, the final step publishes the package to the GitHub Packages
-   registry.
+6. **Publication**: If all builds and tests are successful, the final step publishes the package to the npm registry.
 
 ### Contributing to Releases
 
@@ -923,7 +918,7 @@ While the process is automated, manual intervention may sometimes be necessary:
 - You can manually trigger the release workflow from the GitHub Actions tab if needed.
 - If you need to make changes to the release PR created by Release Please, you can do so before merging it.
 
-Remember, all releases are automatically published to the GitHub Packages registry. Ensure you have thoroughly tested
+Remember, all releases are automatically published to the npm registry. Ensure you have thoroughly tested
 your changes before merging to `main`.
 
 ## API Reference
