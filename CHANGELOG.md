@@ -1,0 +1,91 @@
+# Changelog
+
+## 0.1.0 (2026-04-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* add QoS middleware and rename shutdown to cancel ([#110](https://github.com/prosody-events/prosody-js/issues/110))
+* **timers:** persistence ([#64](https://github.com/prosody-events/prosody-js/issues/64))
+
+### Features
+
+* add event filtering, source tracking, and fix backpressure deadlock ([#33](https://github.com/prosody-events/prosody-js/issues/33)) ([166cffa](https://github.com/prosody-events/prosody-js/commit/166cffa5aa7dd7d6dc7d09ad9522ce4fc3b74336))
+* add permanent error support ([#4](https://github.com/prosody-events/prosody-js/issues/4)) ([96676d7](https://github.com/prosody-events/prosody-js/commit/96676d7011d3f8cc724df0b8d39920582a111233))
+* add QoS middleware and rename shutdown to cancel ([#110](https://github.com/prosody-events/prosody-js/issues/110)) ([efd1fc1](https://github.com/prosody-events/prosody-js/commit/efd1fc15ad21eea5a20817602163b916c468ac58))
+* add source system to client ([#101](https://github.com/prosody-events/prosody-js/issues/101)) ([2ee499b](https://github.com/prosody-events/prosody-js/commit/2ee499be8100aac44e4af632aa46bf7db7be084c))
+* best effort mode ([#25](https://github.com/prosody-events/prosody-js/issues/25)) ([1b3ada0](https://github.com/prosody-events/prosody-js/commit/1b3ada0ed539eda5f2826b1112cc34449769173e))
+* configuration error surfacing, per-type timer semaphores, timer read performance ([#151](https://github.com/prosody-events/prosody-js/issues/151)) ([0a06104](https://github.com/prosody-events/prosody-js/commit/0a0610420db7c7b2f534d9a2e0fe215b6bc1ecf6))
+* **consumer:** add health check probes and stall detection ([#15](https://github.com/prosody-events/prosody-js/issues/15)) ([154fc1a](https://github.com/prosody-events/prosody-js/commit/154fc1adb3d656c7444dc095304267289441c828))
+* **consumer:** add shutdown timeout parameter ([#44](https://github.com/prosody-events/prosody-js/issues/44)) ([90f72a8](https://github.com/prosody-events/prosody-js/commit/90f72a83e913da0c9181216d94309541199d5068))
+* non-blocking timer retry ([#128](https://github.com/prosody-events/prosody-js/issues/128)) ([5e35e00](https://github.com/prosody-events/prosody-js/commit/5e35e008855372794b0074d26be0c33d015a5725))
+* persistent deduplication with global cache and Cassandra backend ([#153](https://github.com/prosody-events/prosody-js/issues/153)) ([7c0012d](https://github.com/prosody-events/prosody-js/commit/7c0012d9ba27f72aa34d051f9fda51dd02bdcb53))
+* Sentry error monitoring for handler dispatch ([#155](https://github.com/prosody-events/prosody-js/issues/155)) ([ae1fc9b](https://github.com/prosody-events/prosody-js/commit/ae1fc9bb1aa0a868c3fc79df9850a2a103bbd7a6))
+* shutdown grace period and configurable span relation ([#157](https://github.com/prosody-events/prosody-js/issues/157)) ([c26e198](https://github.com/prosody-events/prosody-js/commit/c26e19893334bca28107019853e48de687b21afe))
+* Support message deduplication ([#29](https://github.com/prosody-events/prosody-js/issues/29)) ([c59c7d1](https://github.com/prosody-events/prosody-js/commit/c59c7d1448d221074a1b1556eaeea29a9f33860f))
+* timers (non-persistent only) ([#57](https://github.com/prosody-events/prosody-js/issues/57)) ([a882253](https://github.com/prosody-events/prosody-js/commit/a882253a4c7565a7869cfd4da196a8dcbe90d9da))
+* **timers:** persistence ([#64](https://github.com/prosody-events/prosody-js/issues/64)) ([ee27ee9](https://github.com/prosody-events/prosody-js/commit/ee27ee9d81e96d84b1b2f300e3898aa21cbbeda9))
+* upgrade to NAPI version 3 ([#87](https://github.com/prosody-events/prosody-js/issues/87)) ([763fbda](https://github.com/prosody-events/prosody-js/commit/763fbda469e4576a36d42fbbc3b3f2f79751cedc))
+* wire telemetry emitter configuration to JS client ([#146](https://github.com/prosody-events/prosody-js/issues/146)) ([4a3a840](https://github.com/prosody-events/prosody-js/commit/4a3a840c0eb71e3f63710cfa5ee94b609aa6a5a8))
+
+
+### Bug Fixes
+
+* add healthchecks to tests ([#69](https://github.com/prosody-events/prosody-js/issues/69)) ([05b099e](https://github.com/prosody-events/prosody-js/commit/05b099e909e26a3841118a2b5b080b40d0992411))
+* add migration lock and add jitter to timer slab loads ([#97](https://github.com/prosody-events/prosody-js/issues/97)) ([beea11c](https://github.com/prosody-events/prosody-js/commit/beea11c3f40ba6078d440e467e9a83981d08ca06))
+* add timer export and make EventHandler methods optional ([#61](https://github.com/prosody-events/prosody-js/issues/61)) ([6ab6254](https://github.com/prosody-events/prosody-js/commit/6ab6254a7d25ae977f536fdfc535a760337dc14a))
+* always check for shutdown before retrying ([#39](https://github.com/prosody-events/prosody-js/issues/39)) ([efcac0b](https://github.com/prosody-events/prosody-js/commit/efcac0b7b4fbb4ee9fc08dcba133e5076326e9f2))
+* bump dependencies to fix napi memory leak ([#121](https://github.com/prosody-events/prosody-js/issues/121)) ([087a193](https://github.com/prosody-events/prosody-js/commit/087a1937e14cdd3a412c76d8f13c07efd75cbfef))
+* cache parent context instead of span in Kafka loader ([288d560](https://github.com/prosody-events/prosody-js/commit/288d5606ee3d4695fa4d745a27b13590008692e1))
+* **ci:** use git CLI for Cargo on Windows ([#112](https://github.com/prosody-events/prosody-js/issues/112)) ([e5f3c9b](https://github.com/prosody-events/prosody-js/commit/e5f3c9ba3e46ba91f079260f4e25d7ec203dcf11))
+* **consumer:** multiple prosody fixes and max concurrency parameter ([#48](https://github.com/prosody-events/prosody-js/issues/48)) ([42862da](https://github.com/prosody-events/prosody-js/commit/42862da950f66f11afd62573d05611086af04873))
+* create mock broker topics ([#76](https://github.com/prosody-events/prosody-js/issues/76)) ([10b2cae](https://github.com/prosody-events/prosody-js/commit/10b2cae1d9d2a69ff292724caa2cf26a489b7af8))
+* deadlock ([#35](https://github.com/prosody-events/prosody-js/issues/35)) ([e44fce3](https://github.com/prosody-events/prosody-js/commit/e44fce384b76fd855c53acdd862eee621f461b36))
+* **deps:** update prosody and librdkafka ([#80](https://github.com/prosody-events/prosody-js/issues/80)) ([15faecc](https://github.com/prosody-events/prosody-js/commit/15faecc7fa52f3a562084d397383b79dbe9b87e0))
+* **deps:** update prosody to prevent cross-topic key collisions ([#114](https://github.com/prosody-events/prosody-js/issues/114)) ([83cf6cf](https://github.com/prosody-events/prosody-js/commit/83cf6cf6f619f8dbe92933cc978e9c94ddccd162))
+* disable OTEL TLS ([#91](https://github.com/prosody-events/prosody-js/issues/91)) ([5d55924](https://github.com/prosody-events/prosody-js/commit/5d55924203293e2b52b5210a1f987afc0e0bc268))
+* don’t execute timer commands while shutting down the partition ([#83](https://github.com/prosody-events/prosody-js/issues/83)) ([8516bac](https://github.com/prosody-events/prosody-js/commit/8516bacf40bd9243a35edfd15a395322bb920d77))
+* don’t try to create a gh release twice ([#6](https://github.com/prosody-events/prosody-js/issues/6)) ([579dac7](https://github.com/prosody-events/prosody-js/commit/579dac714d7e499db88d3cda53817fac76ed311d))
+* downgrade span parent extraction failures to debug level ([#116](https://github.com/prosody-events/prosody-js/issues/116)) ([86d4080](https://github.com/prosody-events/prosody-js/commit/86d4080f5001b484da332fd33b5a65399188a381))
+* export non-const enums in TS type stubs ([#54](https://github.com/prosody-events/prosody-js/issues/54)) ([3f8d2b4](https://github.com/prosody-events/prosody-js/commit/3f8d2b439b590e168d4615846a627342154482f7))
+* fix ci and update deps ([#18](https://github.com/prosody-events/prosody-js/issues/18)) ([8022d82](https://github.com/prosody-events/prosody-js/commit/8022d82d059369c4d95cbb0091a70809bec807d2))
+* gh release flag ([#9](https://github.com/prosody-events/prosody-js/issues/9)) ([b0d7633](https://github.com/prosody-events/prosody-js/commit/b0d7633742899dfe7185c315c54fb587b5856cb6))
+* graceful slab_loader shutdown, remove timer backpressure gaps, and new API surface ([#138](https://github.com/prosody-events/prosody-js/issues/138)) ([cec8d8d](https://github.com/prosody-events/prosody-js/commit/cec8d8d8bdba2dddc1ce8a1885cb480ee716b40b))
+* group id and source system env var fallback ([#37](https://github.com/prosody-events/prosody-js/issues/37)) ([d1e0f2a](https://github.com/prosody-events/prosody-js/commit/d1e0f2abf2041bc5ef697acfb93b07cdc44f4594))
+* improve warnings, logs, and table names ([#74](https://github.com/prosody-events/prosody-js/issues/74)) ([b759925](https://github.com/prosody-events/prosody-js/commit/b759925a11ed0b37ab70f1a8a065aa22a9545b42))
+* invalidate contexts and flush spans ([#104](https://github.com/prosody-events/prosody-js/issues/104)) ([8e432c1](https://github.com/prosody-events/prosody-js/commit/8e432c10bc47dba8897bac41a3a6cf479d54b38b))
+* make abort signal explicitly optional ([#93](https://github.com/prosody-events/prosody-js/issues/93)) ([da7e5e1](https://github.com/prosody-events/prosody-js/commit/da7e5e1f9edffdb0d55501bdb4e09594f6c61488))
+* only log events, not spans ([#136](https://github.com/prosody-events/prosody-js/issues/136)) ([facb432](https://github.com/prosody-events/prosody-js/commit/facb4329505ea922db82ef6ddddfc0cad4e701d5))
+* prepublish release argument ([#89](https://github.com/prosody-events/prosody-js/issues/89)) ([e814ceb](https://github.com/prosody-events/prosody-js/commit/e814cebb700bbb190086b9e42becf3aa52915c6b))
+* prevent false OffsetDeleted errors from concurrent loader requests ([#142](https://github.com/prosody-events/prosody-js/issues/142)) ([9631f93](https://github.com/prosody-events/prosody-js/commit/9631f9365b5b8cf84e056021fa161bb74707b397))
+* prevent initializing the library more than once ([#50](https://github.com/prosody-events/prosody-js/issues/50)) ([f3a6126](https://github.com/prosody-events/prosody-js/commit/f3a6126260d7414291a545bd1078700b21c19b27))
+* promise heap growth until topic revocation ([#108](https://github.com/prosody-events/prosody-js/issues/108)) ([238349a](https://github.com/prosody-events/prosody-js/commit/238349adbd6265c7af2dd8e1f90bac5b54b04995))
+* propagate span traces through context methods ([#103](https://github.com/prosody-events/prosody-js/issues/103)) ([366e5bc](https://github.com/prosody-events/prosody-js/commit/366e5bc2c3f5d5eee1c670e3c32ef86d26d83d44))
+* releases ([#23](https://github.com/prosody-events/prosody-js/issues/23)) ([d0547ae](https://github.com/prosody-events/prosody-js/commit/d0547ae7ac07d8d8dff9ca7bda60b160db70e3b7))
+* remove access public flag ([#8](https://github.com/prosody-events/prosody-js/issues/8)) ([2fa41df](https://github.com/prosody-events/prosody-js/commit/2fa41df3c7b54146c269e510a1bf0df8745e2b0b))
+* remove flaky/racy test ([#78](https://github.com/prosody-events/prosody-js/issues/78)) ([d8957ad](https://github.com/prosody-events/prosody-js/commit/d8957ad317d2d996ac930e257c0827cb8f43b2d8))
+* remove Scylla TLS to improve build compatibility ([#67](https://github.com/prosody-events/prosody-js/issues/67)) ([0089453](https://github.com/prosody-events/prosody-js/commit/0089453dca35d51a7b5ef1a960011f103205c0e2))
+* respect stall threshold ([#46](https://github.com/prosody-events/prosody-js/issues/46)) ([7ffee4e](https://github.com/prosody-events/prosody-js/commit/7ffee4e236db8da582b86bf0aae1335b0c122bf2))
+* select correct zig version ([0914445](https://github.com/prosody-events/prosody-js/commit/091444581eac9ae2a79e40d246b8a38d112af6a3))
+* span names ([#106](https://github.com/prosody-events/prosody-js/issues/106)) ([d396e17](https://github.com/prosody-events/prosody-js/commit/d396e173c8afe982ee4b0606646f860f5b586972))
+* support all OTEL OTLP protocols and to add OTEL error logging ([#85](https://github.com/prosody-events/prosody-js/issues/85)) ([67dbdb9](https://github.com/prosody-events/prosody-js/commit/67dbdb9d22c512815f01cc2aea552b3869700c3c))
+* telemetry event_time uses millisecond precision with Z suffix ([#149](https://github.com/prosody-events/prosody-js/issues/149)) ([f1439e7](https://github.com/prosody-events/prosody-js/commit/f1439e76fb71b22da3145be47538759dbaef090e))
+* test addresses ([#71](https://github.com/prosody-events/prosody-js/issues/71)) ([0e70e53](https://github.com/prosody-events/prosody-js/commit/0e70e5322b66077ec719b084237d8a4b4e6d37b0))
+* update prosody to fix partition resume after rebalance ([#124](https://github.com/prosody-events/prosody-js/issues/124)) ([b6bc9d6](https://github.com/prosody-events/prosody-js/commit/b6bc9d679bcc1e8fd69ea43aeec47226b059dad8))
+* update prosody to fix timeout-induced partition stalls ([#119](https://github.com/prosody-events/prosody-js/issues/119)) ([32ee221](https://github.com/prosody-events/prosody-js/commit/32ee2215771cb4ce26c5ea567c862580154d114a))
+* use JS to destructure setLogger ([#56](https://github.com/prosody-events/prosody-js/issues/56)) ([f02bc80](https://github.com/prosody-events/prosody-js/commit/f02bc809905d7d5df171dfdb48f72177c456fceb))
+* wait for handler to complete after cancellation ([#130](https://github.com/prosody-events/prosody-js/issues/130)) ([68ede52](https://github.com/prosody-events/prosody-js/commit/68ede52aeca7511d680b03b23cfcd952f62515fe))
+
+
+### Performance Improvements
+
+* bound message buffering ([#99](https://github.com/prosody-events/prosody-js/issues/99)) ([c57ce52](https://github.com/prosody-events/prosody-js/commit/c57ce5253d7acd5c42abea484c0fc8e9e5d4fa87))
+* don’t select if we don’t need to in send ([#96](https://github.com/prosody-events/prosody-js/issues/96)) ([9297d85](https://github.com/prosody-events/prosody-js/commit/9297d853cbb7d56eaff4c6153faaaa8760265d15))
+* use jemalloc allocator ([#133](https://github.com/prosody-events/prosody-js/issues/133)) ([ddc325a](https://github.com/prosody-events/prosody-js/commit/ddc325a918e75ab9797534193c9c1d7bb763d18d))
+
+
+### Miscellaneous Chores
+
+* begin 0.1.0 release line ([07826a3](https://github.com/prosody-events/prosody-js/commit/07826a3e0b7384ed1f5ef191965fffc026dc2ee1))
+* release 0.1.3 ([64f79dd](https://github.com/prosody-events/prosody-js/commit/64f79dd8da27e9a0a1bd25ed1a6d26179e150a1b))
+* release 0.2.1 ([4789683](https://github.com/prosody-events/prosody-js/commit/4789683edd829d24b2ff73f5558ec8d1b3877a80))
