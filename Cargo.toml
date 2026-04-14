@@ -1,14 +1,13 @@
 [package]
-authors = ["Josh Griffith <joshua.griffith@realgeeks.com>"]
 categories = ["api-bindings", "asynchronous", "database"]
 description = "Javascript bindings for the Prosody Kafka client library"
 edition = "2024"
-homepage = "https://github.com/cincpro/prosody-js"
+homepage = "https://github.com/prosody-events/prosody-js"
 keywords = ["bindings", "client", "javascript", "kafka", "prosody"]
 license = "MIT"
 name = "prosody-js"
-readme = "Readme.md"
-repository = "https://github.com/cincpro/prosody-js"
+readme = "README.md"
+repository = "https://github.com/prosody-events/prosody-js"
 version = "0.0.0"
 
 [lib]
@@ -18,11 +17,8 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
-# Pinned to fork pending https://github.com/napi-rs/napi-rs/pull/3162,
-# which fixes napi::Error::cause not being populated in ThreadsafeFunction
-# callee-handled callbacks.
-napi = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc", features = ["async", "chrono_date", "serde-json"] }
-napi-derive = { git = "https://github.com/hadronzoo/napi-rs.git", rev = "889fd4e6ed11db3993580602aba8509169e0e5cc" }
+napi = { version = "3.8", features = ["async", "chrono_date", "serde-json"] }
+napi-derive = "3.5"
 opentelemetry = "0.31"
 prosody = { version = "0.1", features = ["libz-static"] }
 serde_json = "1.0"

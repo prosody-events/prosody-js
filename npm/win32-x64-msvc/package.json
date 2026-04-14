@@ -1,5 +1,5 @@
 {
-  "name": "@cincpro/prosody-win32-x64-msvc",
+  "name": "@prosody-events/prosody-win32-x64-msvc",
   "version": "0.0.0",
   "os": [
     "win32"
@@ -16,5 +16,5 @@
   "engines": {
     "node": ">= 10"
   },
-  "repository": "https://github.com/cincpro/prosody-js"
+  "repository": "https://github.com/prosody-events/prosody-js"
 }

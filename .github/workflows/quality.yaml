@@ -15,15 +15,14 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: de-vri-es/setup-git-credentials@v2
-        with:
-          credentials: https://Joshua-Griffith_fnf:${{ secrets.GH_PAT }}@github.com/
+      - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

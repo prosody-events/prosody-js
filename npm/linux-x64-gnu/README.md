@@ -1,3 +1,3 @@
-# `@cincpro/prosody-linux-x64-gnu`
+# `@prosody-events/prosody-linux-x64-gnu`
 
-This is the **x86_64-unknown-linux-gnu** binary for `@cincpro/prosody`
+This is the **x86_64-unknown-linux-gnu** binary for `@prosody-events/prosody`

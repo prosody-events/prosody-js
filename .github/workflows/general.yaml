@@ -10,6 +10,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 permissions:
   contents: write
   pages: write
@@ -50,10 +51,8 @@ jobs:
           --health-timeout 10s
           --health-retries 15
     steps:
-      - uses: actions/checkout@v3
-      - uses: de-vri-es/setup-git-credentials@v2
-        with:
-          credentials: https://Joshua-Griffith_fnf:${{ secrets.GH_PAT }}@github.com/
+      - uses: actions/checkout@v4
+
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -82,7 +81,7 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -100,10 +99,8 @@ jobs:
     name: Dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: de-vri-es/setup-git-credentials@v2
-        with:
-          credentials: https://Joshua-Griffith_fnf:${{ secrets.GH_PAT }}@github.com/
+      - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install udeps from crates.io
@@ -124,10 +121,8 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: de-vri-es/setup-git-credentials@v2
-        with:
-          credentials: https://Joshua-Griffith_fnf:${{ secrets.GH_PAT }}@github.com/
+      - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install build dependencies
