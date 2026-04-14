@@ -99,27 +99,13 @@ jobs:
       # Docker builds (Linux)
       - uses: actions/checkout@v4
         if: ${{ matrix.settings.use_docker }}
-      - name: Configure AWS Credentials
-        if: ${{ matrix.settings.use_docker }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::558529356944:role/global-iamr-github-actions-image-build
-          role-session-name: GitHubImageBuild
-      - name: Login to ECR
-        if: ${{ matrix.settings.use_docker }}
-        uses: docker/login-action@v3
-        with:
-          registry: 558529356944.dkr.ecr.us-east-1.amazonaws.com
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       - name: Build in Docker
         if: ${{ matrix.settings.use_docker }}
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
-            558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-22 \
+            node:22-bookworm \
             sh -c "
               # Install Rust stable
               curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
@@ -160,7 +146,6 @@ jobs:
     needs: [ build ]
     permissions:
       contents: read
-      id-token: write  # Required for AWS OIDC
     strategy:
       fail-fast: false
       matrix:
@@ -176,21 +161,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      # ECR access for Docker image pulls
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::558529356944:role/global-iamr-github-actions-image-build
-          role-session-name: GitHubImageBuild
-
-      - name: Login to ECR
-        uses: docker/login-action@v3
-        with:
-          registry: 558529356944.dkr.ecr.us-east-1.amazonaws.com
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -276,12 +246,13 @@ jobs:
             -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
             -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
             -v ${{ github.workspace }}:/build -w /build \
-            558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-${{ matrix.node }} \
+            node:${{ matrix.node }}-bookworm \
             sh -c "yarn install && yarn test"
 
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    environment: release
     needs:
       - release-please
       - build

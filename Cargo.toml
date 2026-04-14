@@ -1,5 +1,4 @@
 [package]
-authors = ["Josh Griffith <joshua.griffith@realgeeks.com>"]
 categories = ["api-bindings", "asynchronous", "database"]
 description = "Javascript bindings for the Prosody Kafka client library"
 edition = "2024"
@@ -7,7 +6,7 @@ homepage = "https://github.com/prosody-events/prosody-js"
 keywords = ["bindings", "client", "javascript", "kafka", "prosody"]
 license = "MIT"
 name = "prosody-js"
-readme = "Readme.md"
+readme = "README.md"
 repository = "https://github.com/prosody-events/prosody-js"
 version = "0.0.0"
 
