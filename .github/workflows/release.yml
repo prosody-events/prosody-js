@@ -155,8 +155,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
-            needs_qemu: true
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -167,13 +166,6 @@ jobs:
         with:
           name: bindings-${{ matrix.target }}
           path: .
-
-      # Set up QEMU for ARM64 testing
-      - name: Set up QEMU
-        if: ${{ matrix.needs_qemu }}
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       # Set up Kafka and Cassandra services
       - name: Create Docker network
@@ -241,7 +233,6 @@ jobs:
       - name: Test bindings
         run: |
           docker run --rm --network kafka-test-network \
-            ${{ matrix.needs_qemu && '--platform linux/arm64' || '' }} \
             -e PROSODY_BOOTSTRAP_SERVERS=kafka:9092 \
             -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
             -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
