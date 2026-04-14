@@ -21,8 +21,6 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 npm install @prosody-events/prosody
 ```
 
-**Note**: For Linux deployments, use the `558529356944.dkr.ecr.us-east-1.amazonaws.com/jemalloc-images:node-22` base image, which provides optimized memory allocation and cross-compilation support.
-
 ## Quick Start
 
 ```javascript
