@@ -11,7 +11,6 @@ env:
 
 permissions:
   contents: write
-  id-token: write
   packages: write
   pull-requests: write
 
@@ -244,6 +243,9 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      id-token: write
+      contents: read
     needs:
       - release-please
       - build
