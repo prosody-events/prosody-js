@@ -184,6 +184,10 @@ pub struct Configuration {
     /// Controls capacity for store cache and loader cache.
     pub defer_cache_size: Option<u32>,
 
+    /// Maximum deferred store cache entries per Cassandra defer store.
+    /// Env: `PROSODY_DEFER_STORE_CACHE_SIZE`. Default: 8192.
+    pub defer_store_cache_size: Option<u32>,
+
     /// Timeout for Kafka seek operations in milliseconds.
     pub defer_seek_timeout_ms: Option<u32>,
 
@@ -501,6 +505,10 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
 
     if let Some(cache_size) = config.defer_cache_size {
         builder.cache_size(cache_size as usize);
+    }
+
+    if let Some(store_cache_size) = config.defer_store_cache_size {
+        builder.store_cache_size(store_cache_size as usize);
     }
 
     if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {

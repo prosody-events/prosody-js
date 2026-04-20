@@ -217,6 +217,7 @@ When a handler fails, retry with exponential backoff:
 | `deferFailureThreshold` / `PROSODY_DEFER_FAILURE_THRESHOLD` | Disable deferral when failure rate exceeds this | 0.9 |
 | `deferFailureWindowMs` / `PROSODY_DEFER_FAILURE_WINDOW` | Measure failure rate over this time window | 5m      |
 | `deferCacheSize` / `PROSODY_DEFER_CACHE_SIZE` | Track this many deferred keys in memory      | 1024    |
+| `deferStoreCacheSize` / `PROSODY_DEFER_STORE_CACHE_SIZE` | Maximum deferred store cache entries per Cassandra defer store | 8192 |
 | `deferSeekTimeoutMs` / `PROSODY_DEFER_SEEK_TIMEOUT` | Timeout when loading deferred messages     | 30s     |
 | `deferDiscardThreshold` / `PROSODY_DEFER_DISCARD_THRESHOLD` | Read optimization (rarely needs changing) | 100   |
 
