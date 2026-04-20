@@ -33,7 +33,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Release Please Action
         id: release
         uses: googleapis/release-please-action@v4
@@ -66,12 +66,12 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       # Native builds (macOS/Windows)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: ${{ !matrix.settings.use_docker }}
 
       - name: Setup node
         if: ${{ !matrix.settings.use_docker }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: yarn
@@ -82,7 +82,7 @@ jobs:
           targets: ${{ matrix.settings.target }}
       - name: Cache cargo
         if: ${{ !matrix.settings.use_docker }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo
@@ -96,7 +96,7 @@ jobs:
         run: yarn build --target ${{ matrix.settings.target }}
 
       # Docker builds (Linux)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: ${{ matrix.settings.use_docker }}
       - name: Build in Docker
         if: ${{ matrix.settings.use_docker }}
@@ -131,7 +131,7 @@ jobs:
               yarn build --target ${{ matrix.settings.target }}
             "
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bindings-${{ matrix.settings.target }}
           path: |
@@ -158,10 +158,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bindings-${{ matrix.target }}
           path: .
@@ -252,23 +252,23 @@ jobs:
       - test-linux-bindings
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
           cache: yarn
       - name: Install dependencies
         run: yarn install
       - name: Download bindings js and types
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
           pattern: "bindings.*"
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Move artifacts
