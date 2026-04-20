@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.1...prosody-v0.1.2) (2026-04-20)
+
+
+### Bug Fixes
+
+* **ci:** remove NPM_TOKEN in favour of OIDC trusted publishing ([#12](https://github.com/prosody-events/prosody-js/issues/12)) ([f313bc8](https://github.com/prosody-events/prosody-js/commit/f313bc8d3348746967f4a226cbee9f42d2aec5a1))
+
 ## [0.1.1](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.0...prosody-v0.1.1) (2026-04-20)
 
 
