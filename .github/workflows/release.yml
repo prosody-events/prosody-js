@@ -272,6 +272,4 @@ jobs:
       - name: Move artifacts
         run: yarn artifacts
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public
