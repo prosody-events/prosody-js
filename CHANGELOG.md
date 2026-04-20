@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.2...prosody-v0.1.3) (2026-04-20)
+
+
+### Bug Fixes
+
+* **ci:** upgrade publish job to Node 24 and setup-node v6 for npm trusted publishing ([#15](https://github.com/prosody-events/prosody-js/issues/15)) ([a3670ce](https://github.com/prosody-events/prosody-js/commit/a3670cee47ddf60a846d1f70849aa7690a97e7d7))
+
 ## [0.1.2](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.1...prosody-v0.1.2) (2026-04-20)
 
 
