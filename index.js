@@ -296,8 +296,9 @@ class ProsodyClient {
               await onMessage(context, message, controller.signal);
             } catch (error) {
               getCurrentLogger()?.error("Message handler error", error.cause ?? error);
-              span.recordException(error.cause ?? error);
-              span.setStatus({ code: SpanStatusCode.ERROR, message: (error.cause ?? error).message });
+              const cause = error.cause ?? error;
+              span.recordException(cause);
+              span.setStatus({ code: SpanStatusCode.ERROR, message: cause.message });
               captureException(error, "message", {
                 topic: message.topic,
                 partition: message.partition,
@@ -335,8 +336,9 @@ class ProsodyClient {
               await onTimer(context, timer, controller.signal);
             } catch (error) {
               getCurrentLogger()?.error("Timer handler error", error.cause ?? error);
-              span.recordException(error.cause ?? error);
-              span.setStatus({ code: SpanStatusCode.ERROR, message: (error.cause ?? error).message });
+              const cause = error.cause ?? error;
+              span.recordException(cause);
+              span.setStatus({ code: SpanStatusCode.ERROR, message: cause.message });
               captureException(error, "timer", {
                 key: timer.key,
                 time: timer.time,
