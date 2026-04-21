@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.3...prosody-v0.1.4) (2026-04-21)
+
+
+### Bug Fixes
+
+* **tracing:** set error status on onMessage and onTimer spans ([#17](https://github.com/prosody-events/prosody-js/issues/17)) ([48268a3](https://github.com/prosody-events/prosody-js/commit/48268a392cd27e67870577b0d63275495f30aaeb))
+
 ## [0.1.3](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.2...prosody-v0.1.3) (2026-04-20)
 
 
