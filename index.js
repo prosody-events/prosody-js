@@ -297,6 +297,7 @@ class ProsodyClient {
             } catch (error) {
               getCurrentLogger()?.error("Message handler error", error.cause ?? error);
               span.recordException(error.cause ?? error);
+              span.setStatus({ code: SpanStatusCode.ERROR, message: (error.cause ?? error).message });
               captureException(error, "message", {
                 topic: message.topic,
                 partition: message.partition,
@@ -335,6 +336,7 @@ class ProsodyClient {
             } catch (error) {
               getCurrentLogger()?.error("Timer handler error", error.cause ?? error);
               span.recordException(error.cause ?? error);
+              span.setStatus({ code: SpanStatusCode.ERROR, message: (error.cause ?? error).message });
               captureException(error, "timer", {
                 key: timer.key,
                 time: timer.time,
