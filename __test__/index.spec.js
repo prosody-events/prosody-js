@@ -437,6 +437,31 @@ describe("ProsodyClient", () => {
     );
   });
 
+  it("preserves non-Error abort reasons when send rejects", async () => {
+    return tracer.startActiveSpan(
+      "test.abort_non_error_reason",
+      async (span) => {
+        try {
+          const controller = new AbortController();
+          controller.abort("timer cancelled");
+
+          await expect(
+            client.send(
+              topic,
+              "aborted-key",
+              { content: "ignored" },
+              controller.signal,
+            ),
+          ).rejects.toEqual(
+            expect.objectContaining({ message: "timer cancelled" }),
+          );
+        } finally {
+          span.end();
+        }
+      },
+    );
+  });
+
   it("handles transient errors with retry", async () => {
     return tracer.startActiveSpan("test.transient_error", async (span) => {
       try {
