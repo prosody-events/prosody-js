@@ -287,7 +287,7 @@ class ProsodyClient {
             nativeContext.onCancel().then(() => {
               if (!completed) {
                 span.setAttribute("cancelled", true);
-                controller.abort("message cancelled");
+                controller.abort(new Error("message cancelled"));
               }
             });
 
@@ -327,7 +327,7 @@ class ProsodyClient {
             nativeContext.onCancel().then(() => {
               if (!completed) {
                 span.setAttribute("cancelled", true);
-                controller.abort("timer cancelled");
+                controller.abort(new Error("timer cancelled"));
               }
             });
 
@@ -365,6 +365,16 @@ class ProsodyClient {
   }
 }
 
+// napi-rs can only surface rejections whose value is an object, function, or
+// symbol — napi_create_reference fails on primitives and the rejection becomes
+// an opaque `InvalidArg: Create Error reference failed`. Coerce primitive
+// reasons into Error instances so the original reason is preserved across the
+// napi boundary.
+const toAbortError = (reason) =>
+  reason instanceof Error
+    ? reason
+    : new Error(reason === undefined ? "aborted" : String(reason));
+
 /**
  * Creates a promise that rejects when the abort signal is triggered.
  * @param {AbortSignal} signal - The abort signal to monitor.
@@ -373,11 +383,13 @@ class ProsodyClient {
  */
 const onAbort = (signal) =>
   new Promise((_, reject) => {
-    if (signal.aborted) reject(signal.reason);
+    if (signal.aborted) reject(toAbortError(signal.reason));
     else
-      signal.addEventListener("abort", () => reject(signal.reason), {
-        once: true,
-      });
+      signal.addEventListener(
+        "abort",
+        () => reject(toAbortError(signal.reason)),
+        { once: true },
+      );
   });
 
 /**
