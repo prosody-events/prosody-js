@@ -46,6 +46,7 @@ impl NativeClient {
                 &consumer_builders,
                 &cassandra_config,
             )
+            .map_err(Box::new)
         })
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
