@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.4...prosody-v0.1.5) (2026-04-23)
+
+
+### Bug Fixes
+
+* **abort:** preserve non-Error abort reasons across napi boundary ([#19](https://github.com/prosody-events/prosody-js/issues/19)) ([a8910e5](https://github.com/prosody-events/prosody-js/commit/a8910e5d8213ee02f4e5a07dce172924f277601f))
+
 ## [0.1.4](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.3...prosody-v0.1.4) (2026-04-21)
 
 
