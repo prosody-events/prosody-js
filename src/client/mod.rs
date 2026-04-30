@@ -6,6 +6,7 @@ use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
+use prosody::Codec;
 use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use serde_json::Value;
@@ -95,7 +96,7 @@ impl NativeClient {
 
         let send_future = async {
             self.client
-                .send(topic.as_str().into(), &key, &payload)
+                .send(topic.as_str().into(), &key, payload)
                 .instrument(span.clone())
                 .await
                 .map_err(|e| Error::from_reason(e.to_string()))
@@ -198,8 +199,8 @@ pub enum ConsumerState {
     ConfigurationFailed,
 }
 
-impl<T> From<&ProsodyConsumerState<T>> for ConsumerState {
-    fn from(value: &ProsodyConsumerState<T>) -> Self {
+impl<T, C: Codec> From<&ProsodyConsumerState<T, C>> for ConsumerState {
+    fn from(value: &ProsodyConsumerState<T, C>) -> Self {
         match value {
             ProsodyConsumerState::Unconfigured => Self::Unconfigured,
             ProsodyConsumerState::ConfigurationFailed(_) => Self::ConfigurationFailed,
