@@ -20,7 +20,7 @@ educe = "0.6"
 napi = { version = "3.8", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.5"
 opentelemetry = "0.31"
-prosody = { version = "0.1", features = ["libz-static"] }
+prosody = { version = "0.2", features = ["libz-static"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = "1.47"

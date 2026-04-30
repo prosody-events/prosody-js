@@ -258,6 +258,8 @@ impl FromNapiValue for JsHandler {
 
 impl FallibleHandler for JsHandler {
     type Error = JsHandlerError;
+    type Payload = serde_json::Value;
+    type Output = ();
 
     /// Processes a message by calling the JavaScript callback.
     ///
@@ -279,7 +281,7 @@ impl FallibleHandler for JsHandler {
     async fn on_message<C>(
         &self,
         context: C,
-        message: ConsumerMessage,
+        message: ConsumerMessage<Self::Payload>,
         _demand_type: DemandType,
     ) -> Result<(), Self::Error>
     where
