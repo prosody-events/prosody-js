@@ -17,6 +17,7 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.6"
+mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 napi = { version = "3.8", features = ["async", "chrono_date", "serde-json"] }
 napi-derive = "3.5"
 opentelemetry = "0.31"
@@ -81,6 +82,3 @@ verbose_file_reads = "warn"
 [profile.release]
 codegen-units = 1
 lto = "fat"
-
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls"] }

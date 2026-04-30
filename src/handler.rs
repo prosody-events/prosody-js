@@ -258,8 +258,8 @@ impl FromNapiValue for JsHandler {
 
 impl FallibleHandler for JsHandler {
     type Error = JsHandlerError;
-    type Payload = serde_json::Value;
     type Output = ();
+    type Payload = serde_json::Value;
 
     /// Processes a message by calling the JavaScript callback.
     ///
