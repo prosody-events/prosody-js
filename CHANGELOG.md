@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.5...prosody-v0.2.0) (2026-05-11)
+
+
+### Features
+
+* **deps:** upgrade prosody to 0.3.0 ([#26](https://github.com/prosody-events/prosody-js/issues/26)) ([d8ba0d8](https://github.com/prosody-events/prosody-js/commit/d8ba0d8e019b8be15b2d6d356784acb1b6d21020))
+
+
+### Bug Fixes
+
+* **deps:** upgrade prosody to 0.2.1 ([#22](https://github.com/prosody-events/prosody-js/issues/22)) ([655031b](https://github.com/prosody-events/prosody-js/commit/655031be1db1469cd481eedbfb160df2358c7838))
+
+
+### Performance Improvements
+
+* **deps:** migrate from jemalloc to mimalloc v3 ([#24](https://github.com/prosody-events/prosody-js/issues/24)) ([44dcd9b](https://github.com/prosody-events/prosody-js/commit/44dcd9be81634a0d50d9d34be8ad79d44ddc079d))
+
 ## [0.1.5](https://github.com/prosody-events/prosody-js/compare/prosody-v0.1.4...prosody-v0.1.5) (2026-04-23)
 
 
