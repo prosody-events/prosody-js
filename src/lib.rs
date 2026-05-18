@@ -1,4 +1,5 @@
 #![allow(clippy::multiple_crate_versions)]
+#![recursion_limit = "256"]
 
 //! This crate provides Node.js bindings for the Prosody library, offering a
 //! high-level client for interacting with Kafka-like message brokers. It
