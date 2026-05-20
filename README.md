@@ -945,7 +945,7 @@ Represents a Kafka message with the following properties:
 
 - `topic: string`: The name of the topic.
 - `partition: number`: The partition number.
-- `offset: number`: The message offset within the partition.
+- `offset: bigint`: The message offset within the partition.
 - `timestamp: Date`: The timestamp when the message was created or sent.
 - `key: string`: The message key.
 - `payload: any`: The message payload as a JSON-serializable value.

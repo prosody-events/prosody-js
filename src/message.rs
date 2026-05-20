@@ -5,6 +5,7 @@
 //! `ConsumerMessage` from the `prosody` crate into a `Message` struct.
 
 use chrono::{DateTime, Utc};
+use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
 use serde_json::Value;
 
@@ -21,7 +22,7 @@ pub struct Message {
     pub partition: i32,
 
     /// The message offset within the partition.
-    pub offset: i64,
+    pub offset: BigInt,
 
     /// The timestamp when the message was created or sent to Kafka.
     pub timestamp: DateTime<Utc>,
