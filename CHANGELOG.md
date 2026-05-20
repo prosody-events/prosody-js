@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/prosody-events/prosody-js/compare/prosody-v0.3.0...prosody-v0.3.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* use bigint for Message.offset to preserve precision ([#32](https://github.com/prosody-events/prosody-js/issues/32)) ([eddb929](https://github.com/prosody-events/prosody-js/commit/eddb929cd56a54920df0550455de1243377bf0d0))
+
 ## [0.3.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.2.0...prosody-v0.3.0) (2026-05-18)
 
 
