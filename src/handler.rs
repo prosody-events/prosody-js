@@ -299,7 +299,7 @@ impl FallibleHandler for JsHandler {
         let message = Message {
             topic: message.topic().to_string(),
             partition: message.partition(),
-            offset: message.offset(),
+            offset: message.offset().into(),
             timestamp: *message.timestamp(),
             key: message.key().to_string(),
             payload: message.payload().clone(),
