@@ -2106,6 +2106,9 @@ describe("keyed state (unit)", () => {
     await expect(d.get(-1)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.get(2)).resolves.toBe(99);
     await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(TransientStateError);
+    // A hostile non-number (Symbol) must REJECT, not throw synchronously while
+    // building the diagnostic — get() is declared to return a Promise.
+    await expect(d.get(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
   });
 
   // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:
@@ -2121,6 +2124,11 @@ describe("keyed state (unit)", () => {
     ).toThrow(TransientStateError);
     expect(() =>
       ctx.state({ name: "", kind: "value", payload: "json" }),
+    ).toThrow(TransientStateError);
+    // A non-string name that JSON.stringify cannot serialize (BigInt) must still
+    // yield TransientStateError, not a raw TypeError from building the message.
+    expect(() =>
+      ctx.state({ name: 1n, kind: "value", payload: "json" }),
     ).toThrow(TransientStateError);
   });
 });

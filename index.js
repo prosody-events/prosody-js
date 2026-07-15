@@ -630,6 +630,25 @@ function toStateError(error) {
  * @returns {Promise<*>} The operation's resolved value.
  * @private
  */
+/**
+ * Renders a value for a diagnostic message without ever throwing. `JSON.stringify`
+ * throws on a BigInt or a cyclic object and a template literal throws on a
+ * Symbol, so interpolating a hostile argument directly would raise a raw
+ * `TypeError` — bypassing the promise/state-error contract. Falls back to the
+ * value's `typeof` when it cannot be serialized.
+ * @param {*} value - The value to describe.
+ * @returns {string} A safe, human-readable rendering.
+ * @private
+ */
+function describeValue(value) {
+  try {
+    const rendered = JSON.stringify(value);
+    return rendered === undefined ? typeof value : rendered;
+  } catch {
+    return typeof value;
+  }
+}
+
 async function stateOp(operation) {
   try {
     return await operation(injectedCarrier());
@@ -1117,7 +1136,7 @@ class DequeState {
     if (!Number.isInteger(index) || index < 0 || index > 0xffffffff) {
       return Promise.reject(
         new TransientStateError(
-          `get: index must be an integer in [0, 4294967295], got ${index}`,
+          `get: index must be an integer in [0, 4294967295], got ${describeValue(index)}`,
         ),
       );
     }
@@ -1273,17 +1292,17 @@ class Context {
     const { name, kind, payload } = definition ?? {};
     if (typeof name !== "string" || name.length === 0) {
       throw new TransientStateError(
-        `state: definition.name must be a non-empty string, got ${JSON.stringify(name)}`,
+        `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
       );
     }
     if (kind !== "value" && kind !== "map" && kind !== "deque") {
       throw new TransientStateError(
-        `state: unknown collection kind ${JSON.stringify(kind)}`,
+        `state: unknown collection kind ${describeValue(kind)}`,
       );
     }
     if (payload !== "json" && payload !== "message") {
       throw new TransientStateError(
-        `state: unknown collection payload ${JSON.stringify(payload)}`,
+        `state: unknown collection payload ${describeValue(payload)}`,
       );
     }
     const cacheKey = `${kind}:${payload}:${name}`;
