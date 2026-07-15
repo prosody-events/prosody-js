@@ -394,12 +394,12 @@ export declare class MapState<V = any> {
 export declare class DequeState<T = any> {
   /**
    * Appends an element at the back. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError} naming `clear()`.
+   * {@link PermanentStateError}.
    */
   push(item: T): Promise<void>;
   /**
    * Prepends an element at the front. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError} naming `clear()`.
+   * {@link PermanentStateError}.
    */
   unshift(item: T): Promise<void>;
   /** Removes and returns the back element, or null when empty. */

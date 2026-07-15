@@ -50,12 +50,27 @@ type ItemIn = Either<Message, JsonItem>;
 /// `serde_json::Value` implements `FromNapiValue` but neither `TypeName` nor
 /// `ValidateNapiValue`, so it cannot occupy an `Either` input arm directly.
 /// This newtype supplies both. Its validation accepts any JS value (returning
-/// the null "valid" sentinel): the real filtering is `Value`'s own conversion,
-/// which rejects the unrepresentable kinds (functions, symbols, `undefined`,
-/// externals). So a value that is not a `Message` falls through to here and is
-/// decoded as JSON — a bare string, number, boolean, array, object, or the
-/// JSON `null` sentinel that core then rejects at write.
-pub struct JsonItem(Value);
+/// the null "valid" sentinel), so a value that is not a `Message` falls through
+/// to here and is decoded as JSON — a bare string, number, boolean, array,
+/// object, or the JSON `null` sentinel that core then rejects at write.
+///
+/// The conversion OUTCOME is captured as a `Result` rather than surfaced as a
+/// `from_napi_value` error: a JS value with no JSON representation (a function,
+/// symbol, `undefined`, or external — whether bare or nested inside a container)
+/// fails conversion, and an `Err` returned during argument conversion is thrown
+/// synchronously by napi with the `cause` category tag STRIPPED — the typed
+/// layer would then misclassify the write as transient and retry it forever.
+/// The captured `Err` is instead re-raised as a `permanent`-tagged error inside
+/// the async method body, on the promise-rejection path where `cause` survives.
+///
+/// One nested case does NOT reach here: an `undefined` OBJECT property is
+/// dropped by the serde bridge (as `JSON.stringify` does) rather than failing,
+/// so it is silently omitted. A nested function/symbol, and `undefined` as an
+/// array ELEMENT, do fail and are captured. A value whose getter or proxy trap
+/// THROWS is a separate, pre-existing case: napi leaves that JS exception
+/// pending and surfaces it untagged before this method body runs, so it is not
+/// re-tagged here.
+pub struct JsonItem(Result<Value, String>);
 
 impl TypeName for JsonItem {
     fn type_name() -> &'static str {
@@ -87,9 +102,21 @@ impl FromNapiValue for JsonItem {
     // when this is invoked through the framework, and the call is forwarded
     // unchanged to `Value::from_napi_value`, which performs its own validated
     // conversion via safe NAPI-RS accessors.
+    //
+    // This never returns `Err`: a failed conversion is captured in the newtype
+    // (see the type docs) so the method body can raise a `permanent`-tagged
+    // error where the `cause` tag survives, rather than losing it to napi's
+    // synchronous argument-conversion throw.
     #[allow(unsafe_code)]
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
-        Ok(Self(unsafe { Value::from_napi_value(env, napi_val)? }))
+        Ok(Self(
+            unsafe { Value::from_napi_value(env, napi_val) }.map_err(|error| {
+                format!(
+                    "value is not representable as JSON (functions, symbols, `undefined`, \
+                     and externals cannot be stored): {error}"
+                )
+            }),
+        ))
     }
 }
 
@@ -319,11 +346,14 @@ impl NativeValueState {
             info_span!("value.set", collection = %self.name),
         );
         match (&self.state, item) {
-            (ValueStateVariant::Json(handle), Either::B(JsonItem(value))) => handle
-                .set(value)
-                .instrument(span)
-                .await
-                .map_err(|e| state_error(&e)),
+            (ValueStateVariant::Json(handle), Either::B(JsonItem(value))) => {
+                let value = value.map_err(permanent_error)?;
+                handle
+                    .set(value)
+                    .instrument(span)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
             (ValueStateVariant::Message(handle), Either::A(message)) => {
                 let message = consumer_message(message)?;
                 handle
@@ -469,11 +499,14 @@ impl NativeMapState {
             info_span!("map.set", collection = %self.name),
         );
         match (&self.state, item) {
-            (MapStateVariant::Json(handle), Either::B(JsonItem(value))) => handle
-                .set(key, value)
-                .instrument(span)
-                .await
-                .map_err(|e| state_error(&e)),
+            (MapStateVariant::Json(handle), Either::B(JsonItem(value))) => {
+                let value = value.map_err(permanent_error)?;
+                handle
+                    .set(key, value)
+                    .instrument(span)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
             (MapStateVariant::Message(handle), Either::A(message)) => {
                 let message = consumer_message(message)?;
                 handle
@@ -705,11 +738,14 @@ impl NativeDequeState {
             info_span!("deque.push_back", collection = %self.name),
         );
         match (&self.state, item) {
-            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => handle
-                .push_back(value)
-                .instrument(span)
-                .await
-                .map_err(|e| state_error(&e)),
+            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
+                let value = value.map_err(permanent_error)?;
+                handle
+                    .push_back(value)
+                    .instrument(span)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
             (DequeStateVariant::Message(handle), Either::A(message)) => {
                 let message = consumer_message(message)?;
                 handle
@@ -722,8 +758,7 @@ impl NativeDequeState {
                 "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
             )),
             (DequeStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
-                "expected a Kafka message; use clear() to empty a message deque collection"
-                    .to_owned(),
+                "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
             )),
         }
     }
@@ -751,11 +786,14 @@ impl NativeDequeState {
             info_span!("deque.push_front", collection = %self.name),
         );
         match (&self.state, item) {
-            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => handle
-                .push_front(value)
-                .instrument(span)
-                .await
-                .map_err(|e| state_error(&e)),
+            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
+                let value = value.map_err(permanent_error)?;
+                handle
+                    .push_front(value)
+                    .instrument(span)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
             (DequeStateVariant::Message(handle), Either::A(message)) => {
                 let message = consumer_message(message)?;
                 handle
@@ -768,8 +806,7 @@ impl NativeDequeState {
                 "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
             )),
             (DequeStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
-                "expected a Kafka message; use clear() to empty a message deque collection"
-                    .to_owned(),
+                "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
             )),
         }
     }

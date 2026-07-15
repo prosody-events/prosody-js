@@ -845,7 +845,6 @@ class ValueState {
   /**
    * Discards buffered uncommitted operations back to the last committed floor.
    * @returns {Promise<void>} Resolves with no value.
-   * @throws {PermanentStateError|TransientStateError} On a categorized failure.
    */
   rollback() {
     return stateOp((carrier) => this.native.rollback(carrier));
@@ -974,7 +973,6 @@ class MapState {
   /**
    * Discards buffered uncommitted operations back to the last committed floor.
    * @returns {Promise<void>} Resolves with no value.
-   * @throws {PermanentStateError|TransientStateError} On a categorized failure.
    */
   rollback() {
     return stateOp((carrier) => this.native.rollback(carrier));
@@ -996,9 +994,8 @@ class DequeState {
   }
 
   /**
-   * Appends an element at the back. Writing JSON `null` is rejected core-side
-   * with a {@link PermanentStateError} naming `clear()` — use
-   * {@link DequeState#clear} to empty the deque instead.
+   * Appends an element at the back. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError}.
    * @param {*} item - The element to append.
    * @returns {Promise<void>}
    * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
@@ -1008,8 +1005,8 @@ class DequeState {
   }
 
   /**
-   * Prepends an element at the front. Writing JSON `null` is rejected core-side
-   * with a {@link PermanentStateError} naming `clear()`.
+   * Prepends an element at the front. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError}.
    * @param {*} item - The element to prepend.
    * @returns {Promise<void>}
    * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
@@ -1116,7 +1113,6 @@ class DequeState {
   /**
    * Discards buffered uncommitted operations back to the last committed floor.
    * @returns {Promise<void>} Resolves with no value.
-   * @throws {PermanentStateError|TransientStateError} On a categorized failure.
    */
   rollback() {
     return stateOp((carrier) => this.native.rollback(carrier));

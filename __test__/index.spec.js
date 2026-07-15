@@ -1833,6 +1833,66 @@ describe("ProsodyClient", () => {
       expect(count).toBe(1);
     });
 
+    // C10c — a value with no JSON representation is rejected PERMANENT at the
+    // FFI boundary. Core never receives the value, so the glue owns the
+    // classification: without the category tag the conversion failure is thrown
+    // by napi's argument conversion with `cause` stripped, defaults to
+    // transient, and poisons the key with infinite retries. The glue captures
+    // the failed conversion and re-raises it as a permanent-tagged error on the
+    // async promise-rejection path where `cause` survives. Covers both the
+    // top-level kinds (a bare `undefined`, a bare function) and the nested kinds
+    // that the serde bridge rejects rather than drops (a function nested in an
+    // object; `undefined` as an array element). (A nested `undefined` OBJECT
+    // property is the one exception — it is dropped, matching `JSON.stringify` —
+    // so it is not exercised here.)
+    const unrepresentable = [
+      ["a bare undefined", undefined],
+      ["a bare function", () => 1],
+      ["a function nested in an object", { v: () => 1, keep: 1 }],
+      ["undefined as an array element", [1, undefined, 2]],
+    ];
+    it.each(unrepresentable)(
+      "rejects an unrepresentable write (%s) permanent, not transient",
+      async (_label, bad) => {
+        const V = nonce();
+        client = makeStateClient();
+        await client.subscribe({
+          onMessage: async (ctx, msg) => {
+            const c = ctx.state(STATE_DEFS.cart);
+            try {
+              await c.set({ v: V });
+              await c.commit();
+
+              let outcome;
+              try {
+                await c.set(bad);
+                outcome = { threw: false };
+              } catch (e) {
+                outcome = {
+                  threw: true,
+                  permanent: e instanceof PermanentStateError,
+                  transient: e instanceof TransientStateError,
+                };
+              }
+
+              messageStream.push({ outcome, after: (await c.get()).v });
+            } catch (e) {
+              messageStream.push({ error: e.message });
+            }
+          },
+        });
+
+        await client.send(topic, nonce(), { go: true });
+        const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+        expect(obs.error).toBeUndefined();
+        expect(obs.outcome.threw).toBe(true);
+        expect(obs.outcome.permanent).toBe(true);
+        expect(obs.outcome.transient).toBe(false);
+        // The rejected write left the committed value untouched.
+        expect(obs.after).toBe(V);
+      },
+    );
+
     // C11 — Tracing (item 12), GREEN-IS-CORRECT. In-process JS cannot observe
     // the Rust collection span (separate OTLP pipeline), so this asserts only
     // that (a) a state op inside an active JS span resolves and (b) the JS event
