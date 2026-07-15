@@ -24,48 +24,48 @@ npm install @prosody-events/prosody
 ## Quick Start
 
 ```javascript
-const {ProsodyClient} = require('@prosody-events/prosody');
+const { ProsodyClient } = require("@prosody-events/prosody");
 
 // Initialize the client with Kafka bootstrap servers, consumer group, and topics
 const client = new ProsodyClient({
-    // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
-    bootstrapServers: "localhost:9092",
+  // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
+  bootstrapServers: "localhost:9092",
 
-    // To allow loopbacks, the source_system must be different from the group_id.
-    // Normally, the source_system would be left unspecified, which would default to the group_id.
-    sourceSystem: "my-application-source",
+  // To allow loopbacks, the source_system must be different from the group_id.
+  // Normally, the source_system would be left unspecified, which would default to the group_id.
+  sourceSystem: "my-application-source",
 
-    // The group_id should be set to the name of your application
-    groupId: "my-consumer-group",
+  // The group_id should be set to the name of your application
+  groupId: "my-consumer-group",
 
-    // Topics the client should subscribe to
-    subscribedTopics: "my-topic"
+  // Topics the client should subscribe to
+  subscribedTopics: "my-topic",
 });
 
 // Define a message handler
 const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Process the received message
-        console.log(`Received message: ${JSON.stringify(message)}`);
-        
-        // Schedule a timer for delayed processing
-        if (message.payload.scheduleFollowup) {
-            const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
-            await context.schedule(followupTime);
-        }
-    },
-    
-    onTimer: async (context, timer, signal) => {
-        // Handle timer firing
-        console.log(`Timer fired for key: ${timer.key} at ${timer.time}`);
+  onMessage: async (context, message, signal) => {
+    // Process the received message
+    console.log(`Received message: ${JSON.stringify(message)}`);
+
+    // Schedule a timer for delayed processing
+    if (message.payload.scheduleFollowup) {
+      const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
+      await context.schedule(followupTime);
     }
+  },
+
+  onTimer: async (context, timer, signal) => {
+    // Handle timer firing
+    console.log(`Timer fired for key: ${timer.key} at ${timer.time}`);
+  },
 };
 
 // Subscribe to messages using the message handler
 client.subscribe(messageHandler);
 
 // Send a message to a topic
-await client.send("my-topic", "message-key", {content: "Hello, Kafka!"});
+await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
 
 // Ensure proper shutdown when done
 await client.unsubscribe();
@@ -110,12 +110,12 @@ When the timer fires, reload the message from Kafka and retry.
 ```javascript
 // Configure defer behavior
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    deferEnabled: true,           // Enable deferral (default: true)
-    deferBaseMs: 1000,            // Wait 1s before first retry
-    deferMaxDelayMs: 86400000,    // Cap at 24 hours
-    deferFailureThreshold: 0.9    // Disable when >90% failing
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  deferEnabled: true, // Enable deferral (default: true)
+  deferBaseMs: 1000, // Wait 1s before first retry
+  deferMaxDelayMs: 86400000, // Cap at 24 hours
+  deferFailureThreshold: 0.9, // Disable when >90% failing
 });
 ```
 
@@ -132,11 +132,11 @@ with a transient error, routing them through defer.
 ```javascript
 // Configure monopolization detection
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    monopolizationEnabled: true,     // Enable detection (default: true)
-    monopolizationThreshold: 0.9,    // Reject keys using >90% of window
-    monopolizationWindowMs: 300000   // 5-minute window
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  monopolizationEnabled: true, // Enable detection (default: true)
+  monopolizationThreshold: 0.9, // Reject keys using >90% of window
+  monopolizationWindowMs: 300000, // 5-minute window
 });
 ```
 
@@ -146,10 +146,10 @@ Handlers are automatically cancelled if they exceed a deadline:
 
 ```javascript
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    timeoutMs: 30000,            // Cancel after 30 seconds
-    stallThresholdMs: 60000      // Report unhealthy after 60 seconds
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  timeoutMs: 30000, // Cancel after 30 seconds
+  stallThresholdMs: 60000, // Report unhealthy after 60 seconds
 });
 ```
 
@@ -162,105 +162,105 @@ Configure via constructor options or environment variables. Options fall back to
 
 ### Core
 
-| Option / Environment Variable           | Description                                       | Default      |
-|-----------------------------------------|---------------------------------------------------|--------------|
-| `bootstrapServers` / `PROSODY_BOOTSTRAP_SERVERS` | Kafka servers to connect to               | -            |
-| `groupId` / `PROSODY_GROUP_ID`          | Consumer group name                               | -            |
-| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from                      | -            |
-| `allowedEvents` / `PROSODY_ALLOWED_EVENTS` | Only process events matching these prefixes    | (all)        |
-| `sourceSystem` / `PROSODY_SOURCE_SYSTEM` | Tag for outgoing messages (prevents reprocessing)| `<groupId>`  |
-| `mock` / `PROSODY_MOCK`                 | Use in-memory Kafka for testing                   | false        |
+| Option / Environment Variable                    | Description                                       | Default     |
+| ------------------------------------------------ | ------------------------------------------------- | ----------- |
+| `bootstrapServers` / `PROSODY_BOOTSTRAP_SERVERS` | Kafka servers to connect to                       | -           |
+| `groupId` / `PROSODY_GROUP_ID`                   | Consumer group name                               | -           |
+| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from                               | -           |
+| `allowedEvents` / `PROSODY_ALLOWED_EVENTS`       | Only process events matching these prefixes       | (all)       |
+| `sourceSystem` / `PROSODY_SOURCE_SYSTEM`         | Tag for outgoing messages (prevents reprocessing) | `<groupId>` |
+| `mock` / `PROSODY_MOCK`                          | Use in-memory Kafka for testing                   | false       |
 
 ### Consumer
 
-| Option / Environment Variable           | Description                                          | Default                |
-|-----------------------------------------|------------------------------------------------------|------------------------|
-| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY` | Max messages being processed simultaneously     | 32                     |
-| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED` | Max queued messages before pausing consumption  | 64                     |
-| `timeoutMs` / `PROSODY_TIMEOUT`         | Cancel handler if it runs longer than this           | 80% of stall threshold |
-| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL` | How often to save progress to Kafka            | 1s                     |
-| `pollIntervalMs` / `PROSODY_POLL_INTERVAL` | How often to fetch new messages from Kafka        | 100ms                  |
-| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT` | Wait this long for in-flight work before force-quit | 30s              |
-| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD` | Report unhealthy if no progress for this long  | 5m                     |
-| `probePort` / `PROSODY_PROBE_PORT`      | HTTP port for health checks (null to disable)        | 8000                   |
-| `failureTopic` / `PROSODY_FAILURE_TOPIC` | Send unprocessable messages here (dead letter queue) | -                     |
-| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for deduplicating messages. Set to 0 to disable the entire deduplication middleware (both in-memory cache and Cassandra persistent store) | 8192 |
-| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION` | Version string for cache-busting dedup hashes | `"1"`          |
-| `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds | 604800  |
-| `slabSizeMs` / `PROSODY_SLAB_SIZE`      | Timer storage granularity (rarely needs changing)    | 1h                     |
-| `messageSpans` / `PROSODY_MESSAGE_SPANS` | Span linking for message execution: `child` (child-of) or `follows_from` | `child` |
-| `timerSpans` / `PROSODY_TIMER_SPANS`    | Span linking for timer execution: `child` (child-of) or `follows_from`   | `follows_from` |
+| Option / Environment Variable                             | Description                                                                                                                       | Default                |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                                                       | 32                     |
+| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                                                    | 64                     |
+| `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                                                        | 80% of stall threshold |
+| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                                                               | 1s                     |
+| `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                                                        | 100ms                  |
+| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Wait this long for in-flight work before force-quit                                                                               | 30s                    |
+| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                                                     | 5m                     |
+| `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks (null to disable)                                                                                     | 8000                   |
+| `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                                                              | -                      |
+| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for deduplicating messages. Must be greater than 0 (a value of 0 is rejected). | 8192                   |
+| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                                                     | `"1"`                  |
+| `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`             | TTL for dedup records in Cassandra in seconds                                                                                     | 604800                 |
+| `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                                                 | 1h                     |
+| `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                                                          | `child`                |
+| `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                                                            | `follows_from`         |
 
 ### Producer
 
-| Option / Environment Variable           | Description                     | Default |
-|-----------------------------------------|---------------------------------|---------|
+| Option / Environment Variable            | Description                     | Default |
+| ---------------------------------------- | ------------------------------- | ------- |
 | `sendTimeoutMs` / `PROSODY_SEND_TIMEOUT` | Give up sending after this long | 1s      |
 
 ### Retry
 
 When a handler fails, retry with exponential backoff:
 
-| Option / Environment Variable           | Description                       | Default |
-|-----------------------------------------|-----------------------------------|---------|
-| `maxRetries` / `PROSODY_MAX_RETRIES`    | Give up after this many attempts  | 3       |
-| `retryBaseMs` / `PROSODY_RETRY_BASE`    | Wait this long before first retry | 20ms    |
-| `maxRetryDelayMs` / `PROSODY_RETRY_MAX_DELAY` | Never wait longer than this  | 5m      |
+| Option / Environment Variable                 | Description                       | Default |
+| --------------------------------------------- | --------------------------------- | ------- |
+| `maxRetries` / `PROSODY_MAX_RETRIES`          | Give up after this many attempts  | 3       |
+| `retryBaseMs` / `PROSODY_RETRY_BASE`          | Wait this long before first retry | 20ms    |
+| `maxRetryDelayMs` / `PROSODY_RETRY_MAX_DELAY` | Never wait longer than this       | 5m      |
 
 ### Deferral (Pipeline Mode)
 
-| Option / Environment Variable           | Description                                       | Default |
-|-----------------------------------------|---------------------------------------------------|---------|
-| `deferEnabled` / `PROSODY_DEFER_ENABLED` | Enable deferral for new messages                 | true    |
-| `deferBaseMs` / `PROSODY_DEFER_BASE`    | Wait this long before first deferred retry        | 1s      |
-| `deferMaxDelayMs` / `PROSODY_DEFER_MAX_DELAY` | Never wait longer than this                  | 24h     |
-| `deferFailureThreshold` / `PROSODY_DEFER_FAILURE_THRESHOLD` | Disable deferral when failure rate exceeds this | 0.9 |
-| `deferFailureWindowMs` / `PROSODY_DEFER_FAILURE_WINDOW` | Measure failure rate over this time window | 5m      |
-| `deferCacheSize` / `PROSODY_DEFER_CACHE_SIZE` | Track this many deferred keys in memory      | 1024    |
-| `deferStoreCacheSize` / `PROSODY_DEFER_STORE_CACHE_SIZE` | Maximum deferred store cache entries per Cassandra defer store | 8192 |
-| `deferSeekTimeoutMs` / `PROSODY_DEFER_SEEK_TIMEOUT` | Timeout when loading deferred messages     | 30s     |
-| `deferDiscardThreshold` / `PROSODY_DEFER_DISCARD_THRESHOLD` | Read optimization (rarely needs changing) | 100   |
+| Option / Environment Variable                                | Description                                                    | Default |
+| ------------------------------------------------------------ | -------------------------------------------------------------- | ------- |
+| `deferEnabled` / `PROSODY_DEFER_ENABLED`                     | Enable deferral for new messages                               | true    |
+| `deferBaseMs` / `PROSODY_DEFER_BASE`                         | Wait this long before first deferred retry                     | 1s      |
+| `deferMaxDelayMs` / `PROSODY_DEFER_MAX_DELAY`                | Never wait longer than this                                    | 24h     |
+| `deferFailureThreshold` / `PROSODY_DEFER_FAILURE_THRESHOLD`  | Disable deferral when failure rate exceeds this                | 0.9     |
+| `deferFailureWindowMs` / `PROSODY_DEFER_FAILURE_WINDOW`      | Measure failure rate over this time window                     | 5m      |
+| `deferCacheSize` / `PROSODY_LOADER_CACHE_SIZE`               | Track this many deferred keys in memory                        | 1024    |
+| `deferStoreCacheSize` / `PROSODY_DEFER_STORE_CACHE_SIZE`     | Maximum deferred store cache entries per Cassandra defer store | 8192    |
+| `deferSeekTimeoutMs` / `PROSODY_LOADER_SEEK_TIMEOUT`         | Timeout when loading deferred messages                         | 30s     |
+| `deferDiscardThreshold` / `PROSODY_LOADER_DISCARD_THRESHOLD` | Read optimization (rarely needs changing)                      | 100     |
 
 ### Monopolization Detection (Pipeline Mode)
 
-| Option / Environment Variable           | Description                             | Default |
-|-----------------------------------------|-----------------------------------------|---------|
-| `monopolizationEnabled` / `PROSODY_MONOPOLIZATION_ENABLED` | Enable hot key protection    | true    |
-| `monopolizationThreshold` / `PROSODY_MONOPOLIZATION_THRESHOLD` | Max handler time as fraction of window | 0.9 |
-| `monopolizationWindowMs` / `PROSODY_MONOPOLIZATION_WINDOW` | Measurement window             | 5m      |
-| `monopolizationCacheSize` / `PROSODY_MONOPOLIZATION_CACHE_SIZE` | Max distinct keys to track   | 8192    |
+| Option / Environment Variable                                   | Description                            | Default |
+| --------------------------------------------------------------- | -------------------------------------- | ------- |
+| `monopolizationEnabled` / `PROSODY_MONOPOLIZATION_ENABLED`      | Enable hot key protection              | true    |
+| `monopolizationThreshold` / `PROSODY_MONOPOLIZATION_THRESHOLD`  | Max handler time as fraction of window | 0.9     |
+| `monopolizationWindowMs` / `PROSODY_MONOPOLIZATION_WINDOW`      | Measurement window                     | 5m      |
+| `monopolizationCacheSize` / `PROSODY_MONOPOLIZATION_CACHE_SIZE` | Max distinct keys to track             | 8192    |
 
 ### Fair Scheduling (All Modes)
 
-| Option / Environment Variable           | Description                                                      | Default |
-|-----------------------------------------|------------------------------------------------------------------|---------|
-| `schedulerFailureWeight` / `PROSODY_SCHEDULER_FAILURE_WEIGHT` | Fraction of processing time reserved for retries | 0.3     |
-| `schedulerMaxWaitMs` / `PROSODY_SCHEDULER_MAX_WAIT` | Messages waiting this long get maximum priority           | 2m      |
-| `schedulerWaitWeight` / `PROSODY_SCHEDULER_WAIT_WEIGHT` | Priority boost for waiting messages (higher = more aggressive) | 200.0 |
-| `schedulerCacheSize` / `PROSODY_SCHEDULER_CACHE_SIZE` | Max distinct keys to track                              | 8192    |
+| Option / Environment Variable                                 | Description                                                    | Default |
+| ------------------------------------------------------------- | -------------------------------------------------------------- | ------- |
+| `schedulerFailureWeight` / `PROSODY_SCHEDULER_FAILURE_WEIGHT` | Fraction of processing time reserved for retries               | 0.3     |
+| `schedulerMaxWaitMs` / `PROSODY_SCHEDULER_MAX_WAIT`           | Messages waiting this long get maximum priority                | 2m      |
+| `schedulerWaitWeight` / `PROSODY_SCHEDULER_WAIT_WEIGHT`       | Priority boost for waiting messages (higher = more aggressive) | 200.0   |
+| `schedulerCacheSize` / `PROSODY_SCHEDULER_CACHE_SIZE`         | Max distinct keys to track                                     | 8192    |
 
 ### Telemetry Emitter
 
 Produces message and timer lifecycle events to a Kafka topic for observability:
 
-| Option / Environment Variable           | Description                                       | Default                    |
-|-----------------------------------------|---------------------------------------------------|----------------------------|
-| `telemetryEnabled` / `PROSODY_TELEMETRY_ENABLED` | Produce lifecycle events to Kafka            | true                       |
-| `telemetryTopic` / `PROSODY_TELEMETRY_TOPIC` | Kafka topic for telemetry events             | prosody.telemetry-events   |
+| Option / Environment Variable                    | Description                       | Default                  |
+| ------------------------------------------------ | --------------------------------- | ------------------------ |
+| `telemetryEnabled` / `PROSODY_TELEMETRY_ENABLED` | Produce lifecycle events to Kafka | true                     |
+| `telemetryTopic` / `PROSODY_TELEMETRY_TOPIC`     | Kafka topic for telemetry events  | prosody.telemetry-events |
 
 ### Cassandra
 
 Persistent storage for timers and deferred retries (not needed if `mock: true`):
 
-| Option / Environment Variable           | Description                        | Default |
-|-----------------------------------------|------------------------------------|---------|
-| `cassandraNodes` / `PROSODY_CASSANDRA_NODES` | Servers to connect to (host:port) | -      |
-| `cassandraKeyspace` / `PROSODY_CASSANDRA_KEYSPACE` | Keyspace name                | prosody |
-| `cassandraUser` / `PROSODY_CASSANDRA_USER` | Username                          | -       |
-| `cassandraPassword` / `PROSODY_CASSANDRA_PASSWORD` | Password                    | -       |
-| `cassandraDatacenter` / `PROSODY_CASSANDRA_DATACENTER` | Prefer this datacenter for queries | -  |
-| `cassandraRack` / `PROSODY_CASSANDRA_RACK` | Prefer this rack for queries      | -       |
-| `cassandraRetentionSeconds` / `PROSODY_CASSANDRA_RETENTION` | Delete data older than this | 1y     |
+| Option / Environment Variable                               | Description                        | Default |
+| ----------------------------------------------------------- | ---------------------------------- | ------- |
+| `cassandraNodes` / `PROSODY_CASSANDRA_NODES`                | Servers to connect to (host:port)  | -       |
+| `cassandraKeyspace` / `PROSODY_CASSANDRA_KEYSPACE`          | Keyspace name                      | prosody |
+| `cassandraUser` / `PROSODY_CASSANDRA_USER`                  | Username                           | -       |
+| `cassandraPassword` / `PROSODY_CASSANDRA_PASSWORD`          | Password                           | -       |
+| `cassandraDatacenter` / `PROSODY_CASSANDRA_DATACENTER`      | Prefer this datacenter for queries | -       |
+| `cassandraRack` / `PROSODY_CASSANDRA_RACK`                  | Prefer this rack for queries       | -       |
+| `cassandraRetentionSeconds` / `PROSODY_CASSANDRA_RETENTION` | Delete data older than this        | 1y      |
 
 ## Liveness and Readiness Probes
 
@@ -277,10 +277,10 @@ Configure the probe server using either the client constructor:
 
 ```javascript
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    probePort: 8000,  // Set to null to disable
-    stallThresholdMs: 15000  // 15 seconds before considering a partition stalled
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  probePort: 8000, // Set to null to disable
+  stallThresholdMs: 15000, // 15 seconds before considering a partition stalled
 });
 ```
 
@@ -309,7 +309,7 @@ const partitionCount = client.assignedPartitionCount;
 
 // You can use these in your own health checks or monitoring
 if (client.isStalled) {
-    console.warn('Consumer has stalled partitions');
+  console.warn("Consumer has stalled partitions");
 }
 ```
 
@@ -320,26 +320,27 @@ if (client.isStalled) {
 All messages must be processed. Retries indefinitely. Uses defer and monopolization detection.
 
 **Middleware stack:**
+
 ```
 Kafka → Deduplication → Retry → Defer → Monopolization → Shutdown → Scheduler → Timeout → Telemetry → Handler
 ```
 
-| Layer          | Purpose                                                  |
-|----------------|----------------------------------------------------------|
-| Deduplication  | Skips messages whose ID was already processed            |
-| Retry          | Retries transient errors indefinitely                    |
-| Defer          | Stores failing messages for timer-based retry            |
-| Monopolization | Rejects keys exceeding execution time threshold          |
-| Shutdown       | Drains in-flight work on partition revocation            |
-| Scheduler      | Enforces concurrency limits and VT-based priority        |
-| Timeout        | Cancels handlers exceeding deadline                      |
-| Telemetry      | Emits handler lifecycle events                           |
+| Layer          | Purpose                                           |
+| -------------- | ------------------------------------------------- |
+| Deduplication  | Skips messages whose ID was already processed     |
+| Retry          | Retries transient errors indefinitely             |
+| Defer          | Stores failing messages for timer-based retry     |
+| Monopolization | Rejects keys exceeding execution time threshold   |
+| Shutdown       | Drains in-flight work on partition revocation     |
+| Scheduler      | Enforces concurrency limits and VT-based priority |
+| Timeout        | Cancels handlers exceeding deadline               |
+| Telemetry      | Emits handler lifecycle events                    |
 
 ```javascript
 const client = new ProsodyClient({
-    mode: Mode.Pipeline,  // Default mode
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic"
+  mode: Mode.Pipeline, // Default mode
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
 });
 ```
 
@@ -353,11 +354,11 @@ Tries a few times, then routes failures to a dead letter topic.
 
 ```javascript
 const client = new ProsodyClient({
-    mode: Mode.LowLatency,
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    failureTopic: "failed-messages",  // Required for low-latency mode
-    maxRetries: 3                     // Give up after 3 attempts
+  mode: Mode.LowLatency,
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  failureTopic: "failed-messages", // Required for low-latency mode
+  maxRetries: 3, // Give up after 3 attempts
 });
 ```
 
@@ -371,9 +372,9 @@ Logs failures and moves on.
 
 ```javascript
 const client = new ProsodyClient({
-    mode: Mode.BestEffort,
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic"
+  mode: Mode.BestEffort,
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
 });
 ```
 
@@ -385,9 +386,9 @@ of events:
 ```javascript
 // Process only events with types starting with "user." or "account."
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    allowedEvents: ["user.", "account."]
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  allowedEvents: ["user.", "account."],
 });
 ```
 
@@ -421,9 +422,9 @@ Prosody prevents processing loops in distributed systems by tracking the source 
 ```javascript
 // Consumer and producer in one application
 const client = new ProsodyClient({
-    groupId: "my-service",
-    sourceSystem: "my-service-producer",  // Must differ from groupId to allow loopbacks; defaults to groupId
-    subscribedTopics: "my-topic"
+  groupId: "my-service",
+  sourceSystem: "my-service-producer", // Must differ from groupId to allow loopbacks; defaults to groupId
+  subscribedTopics: "my-topic",
 });
 ```
 
@@ -453,50 +454,34 @@ Deduplication uses a two-tier approach:
 - **Cassandra-backed persistent store**: Survives restarts and rebalances across instances. TTL controlled by
   `idempotenceTtlS` (default 7 days, i.e. 604800s).
 
-Setting `idempotenceCacheSize` to `0` disables the **entire** deduplication middleware, including both the in-memory
-cache and the Cassandra persistent store. No dedup lookups or writes will occur.
+Deduplication is always active. `idempotenceCacheSize` must be greater than `0`; a value of `0` (via either the option
+or `PROSODY_IDEMPOTENCE_CACHE_SIZE=0`) is rejected when the client is constructed.
 
 ```javascript
 // Messages with IDs are deduplicated per key
 await client.send("my-topic", "key1", {
-    id: "msg-123",      // Message will be processed
-    content: "Hello!"
+  id: "msg-123", // Message will be processed
+  content: "Hello!",
 });
 
 await client.send("my-topic", "key1", {
-    id: "msg-123",      // Message will be skipped (duplicate)
-    content: "Hello again!"
+  id: "msg-123", // Message will be skipped (duplicate)
+  content: "Hello again!",
 });
 
 await client.send("my-topic", "key2", {
-    id: "msg-123",      // Message will be processed (different key)
-    content: "Hello!"
+  id: "msg-123", // Message will be processed (different key)
+  content: "Hello!",
 });
-```
-
-The entire deduplication middleware (both in-memory cache and Cassandra persistent store) can be disabled by setting `idempotenceCacheSize: 0`:
-
-```javascript
-const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    idempotenceCacheSize: 0  // Disable deduplication entirely
-});
-```
-
-Or via environment variable:
-
-```bash
-PROSODY_IDEMPOTENCE_CACHE_SIZE=0
 ```
 
 To invalidate all previously recorded dedup entries (forcing reprocessing of messages), change the version:
 
 ```javascript
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic",
-    idempotenceVersion: "2"  // Changing this invalidates all previously recorded entries
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
+  idempotenceVersion: "2", // Changing this invalidates all previously recorded entries
 });
 ```
 
@@ -512,27 +497,27 @@ Prosody supports timer-based delayed execution within message handlers. When a t
 
 ```javascript
 const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Schedule a timer to fire in 30 seconds
-        const futureTime = new Date(Date.now() + 30000);
-        await context.schedule(futureTime);
-        
-        // Schedule multiple timers
-        const oneMinute = new Date(Date.now() + 60000);
-        const twoMinutes = new Date(Date.now() + 120000);
-        await context.schedule(oneMinute);
-        await context.schedule(twoMinutes);
-        
-        // Check what's scheduled
-        const scheduled = await context.scheduled();
-        console.log(`Scheduled timers: ${scheduled.length}`);
-    },
-    
-    onTimer: async (context, timer, signal) => {
-        console.log('Timer fired!');
-        console.log(`Key: ${timer.key}`);
-        console.log(`Scheduled time: ${timer.time}`);
-    }
+  onMessage: async (context, message, signal) => {
+    // Schedule a timer to fire in 30 seconds
+    const futureTime = new Date(Date.now() + 30000);
+    await context.schedule(futureTime);
+
+    // Schedule multiple timers
+    const oneMinute = new Date(Date.now() + 60000);
+    const twoMinutes = new Date(Date.now() + 120000);
+    await context.schedule(oneMinute);
+    await context.schedule(twoMinutes);
+
+    // Check what's scheduled
+    const scheduled = await context.scheduled();
+    console.log(`Scheduled timers: ${scheduled.length}`);
+  },
+
+  onTimer: async (context, timer, signal) => {
+    console.log("Timer fired!");
+    console.log(`Key: ${timer.key}`);
+    console.log(`Scheduled time: ${timer.time}`);
+  },
 };
 ```
 
@@ -567,10 +552,10 @@ Or programmatically when creating the client:
 
 ```javascript
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
-    groupId: "my-application",
-    subscribedTopics: "my-topic",
-    cassandraNodes: "localhost:9042"  // Required unless mock: true
+  bootstrapServers: "localhost:9092",
+  groupId: "my-application",
+  subscribedTopics: "my-topic",
+  cassandraNodes: "localhost:9042", // Required unless mock: true
 });
 ```
 
@@ -579,10 +564,10 @@ For testing, you can use mock mode to avoid Cassandra dependency:
 ```javascript
 // Mock mode for testing (timers work but aren't persisted)
 const client = new ProsodyClient({
-    bootstrapServers: "localhost:9092",
-    groupId: "my-application",
-    subscribedTopics: "my-topic",
-    mock: true  // No Cassandra required in mock mode
+  bootstrapServers: "localhost:9092",
+  groupId: "my-application",
+  subscribedTopics: "my-topic",
+  mock: true, // No Cassandra required in mock mode
 });
 ```
 
@@ -597,15 +582,15 @@ If you're using TypeScript or a JavaScript environment that supports decorators,
 to classify exceptions that should not be retried:
 
 ```javascript
-import {permanent, ProsodyClient} from '@prosody-events/prosody';
+import { permanent, ProsodyClient } from "@prosody-events/prosody";
 
 class MyHandler {
-    @permanent(TypeError, AttributeError)
-    async onMessage(context, message, signal) {
-        // Your message handling logic here
-        // TypeError and AttributeError will be treated as permanent
-        // All other exceptions will be treated as transient (default behavior)
-    }
+  @permanent(TypeError, AttributeError)
+  async onMessage(context, message, signal) {
+    // Your message handling logic here
+    // TypeError and AttributeError will be treated as permanent
+    // All other exceptions will be treated as transient (default behavior)
+  }
 }
 
 const client = new ProsodyClient(config);
@@ -617,20 +602,20 @@ client.subscribe(new MyHandler());
 If you're not using decorators, you can still classify errors as permanent by throwing a `PermanentError`:
 
 ```javascript
-import {PermanentError, ProsodyClient} from '@prosody-events/prosody';
+import { PermanentError, ProsodyClient } from "@prosody-events/prosody";
 
 const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        try {
-            // Your message handling logic here
-        } catch (error) {
-            if (error instanceof TypeError || error instanceof AttributeError) {
-                throw new PermanentError(error.message);
-            }
-            // All other exceptions will be treated as transient (default behavior)
-            throw error;
-        }
+  onMessage: async (context, message, signal) => {
+    try {
+      // Your message handling logic here
+    } catch (error) {
+      if (error instanceof TypeError || error instanceof AttributeError) {
+        throw new PermanentError(error.message);
+      }
+      // All other exceptions will be treated as transient (default behavior)
+      throw error;
     }
+  },
 };
 
 const client = new ProsodyClient(config);
@@ -666,19 +651,21 @@ npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-t
 To initialize tracing in your application:
 
 ```javascript
-const opentelemetry = require('@opentelemetry/api');
-const {NodeSDK} = require('@opentelemetry/sdk-node');
-const {OTLPTraceExporter} = require('@opentelemetry/exporter-trace-otlp-http');
+const opentelemetry = require("@opentelemetry/api");
+const { NodeSDK } = require("@opentelemetry/sdk-node");
+const {
+  OTLPTraceExporter,
+} = require("@opentelemetry/exporter-trace-otlp-http");
 
 const sdk = new NodeSDK({
-    traceExporter: new OTLPTraceExporter(),
-    serviceName: 'my-service-name',
+  traceExporter: new OTLPTraceExporter(),
+  serviceName: "my-service-name",
 });
 
 sdk.start();
 
 // Creates a tracer from the global tracer provider
-const tracer = opentelemetry.trace.getTracer('my-service-name');
+const tracer = opentelemetry.trace.getTracer("my-service-name");
 ```
 
 ### Setting OpenTelemetry Environment Variables
@@ -700,28 +687,28 @@ After initializing tracing, you can define spans in your application, and they w
 Kafka:
 
 ```javascript
-const {ProsodyClient} = require('@prosody-events/prosody');
-const opentelemetry = require('@opentelemetry/api');
+const { ProsodyClient } = require("@prosody-events/prosody");
+const opentelemetry = require("@opentelemetry/api");
 
-const tracer = opentelemetry.trace.getTracer('my-service-name');
+const tracer = opentelemetry.trace.getTracer("my-service-name");
 
 const client = new ProsodyClient({
-    groupId: "my-consumer-group",
-    subscribedTopics: "my-topic"
+  groupId: "my-consumer-group",
+  subscribedTopics: "my-topic",
 });
 
 const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        const span = tracer.startSpan('process-message');
-        try {
-            // Process the received message
-            span.addEvent('message.received', {
-                'message.payload': JSON.stringify(message)
-            });
-        } finally {
-            span.end();
-        }
+  onMessage: async (context, message, signal) => {
+    const span = tracer.startSpan("process-message");
+    try {
+      // Process the received message
+      span.addEvent("message.received", {
+        "message.payload": JSON.stringify(message),
+      });
+    } finally {
+      span.end();
     }
+  },
 };
 
 client.subscribe(messageHandler);
@@ -794,37 +781,37 @@ This ensures:
 Implement shutdown handling in your application:
 
 ```javascript
-const {ProsodyClient} = require('@prosody-events/prosody');
+const { ProsodyClient } = require("@prosody-events/prosody");
 
 async function main() {
-    const client = new ProsodyClient({
-        groupId: "my-consumer-group",
-        subscribedTopics: "my-topic"
-    });
+  const client = new ProsodyClient({
+    groupId: "my-consumer-group",
+    subscribedTopics: "my-topic",
+  });
 
-    const messageHandler = {
-        onMessage: async (context, message, signal) => {
-            // Process the message
-        }
+  const messageHandler = {
+    onMessage: async (context, message, signal) => {
+      // Process the message
+    },
+  };
+
+  client.subscribe(messageHandler);
+
+  // Create a promise that resolves when shutdown is signaled
+  const shutdownPromise = new Promise((resolve) => {
+    const shutdown = async (signal) => {
+      console.log(`Received ${signal}. Initiating shutdown...`);
+      await client.unsubscribe();
+      resolve();
     };
 
-    client.subscribe(messageHandler);
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGHUP", () => shutdown("SIGHUP"));
+  });
 
-    // Create a promise that resolves when shutdown is signaled
-    const shutdownPromise = new Promise((resolve) => {
-        const shutdown = async (signal) => {
-            console.log(`Received ${signal}. Initiating shutdown...`);
-            await client.unsubscribe();
-            resolve();
-        };
-
-        process.on('SIGTERM', () => shutdown('SIGTERM'));
-        process.on('SIGINT', () => shutdown('SIGINT'));
-        process.on('SIGHUP', () => shutdown('SIGHUP'));
-    });
-
-    // Wait for shutdown to be signaled
-    await shutdownPromise;
+  // Wait for shutdown to be signaled
+  await shutdownPromise;
 }
 
 main().catch(console.error);
@@ -852,19 +839,23 @@ Example of using AbortSignal in message processing:
 
 ```javascript
 const messageHandler = {
-    onMessage: async (context, message, signal) => {
-        // Pass the signal to fetch calls
-        const response = await fetch('https://api.example.com', {signal});
-        const data = await response.json();
+  onMessage: async (context, message, signal) => {
+    // Pass the signal to fetch calls
+    const response = await fetch("https://api.example.com", { signal });
+    const data = await response.json();
 
-        // Pass the signal to database operations
-        await db.query('INSERT INTO messages (payload) VALUES ($1)', [message.payload], {signal});
+    // Pass the signal to database operations
+    await db.query(
+      "INSERT INTO messages (payload) VALUES ($1)",
+      [message.payload],
+      { signal },
+    );
 
-        // Process the data...
+    // Process the data...
 
-        // Send a message, passing the abort signal
-        await client.send('topic', 'key', {data: 'value'}, signal);
-    }
+    // Send a message, passing the abort signal
+    await client.send("topic", "key", { data: "value" }, signal);
+  },
 };
 ```
 
@@ -885,14 +876,14 @@ Prosody uses an automated release process managed by GitHub Actions. Here's an o
 1. **Trigger**: The release process is triggered automatically on pushes to the `main` branch.
 
 2. **Release Please**: The process starts with the "Release Please" action, which:
-    - Analyzes commit messages since the last release.
-    - Creates or updates a release pull request with changelog updates and version bumps.
-    - When the PR is merged, it creates a GitHub release and a git tag.
+   - Analyzes commit messages since the last release.
+   - Creates or updates a release pull request with changelog updates and version bumps.
+   - When the PR is merged, it creates a GitHub release and a git tag.
 
 3. **Build Process**: If a new release is created, the following build jobs are triggered:
-    - Linux builds for x86_64 and aarch64 (glibc).
-    - Windows build for x64.
-    - macOS build for aarch64 (Apple Silicon).
+   - Linux builds for x86_64 and aarch64 (glibc).
+   - Windows build for x64.
+   - macOS build for aarch64 (Apple Silicon).
 
 4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 20 and 22.
 
