@@ -2019,13 +2019,63 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/ttlSeconds/);
   });
 
-  it("rejects sub-second ttlSeconds (truncates to zero)", () => {
+  // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
+  // whole-number guard instead of being truncated toward zero by a u32
+  // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
+  it.each([0.5, 2.5, 3.9])("rejects fractional ttlSeconds %p", (ttlSeconds) => {
     expect(
       () =>
         new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { ttlSeconds: 0.5 })] }),
+          makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
         ),
-    ).toThrow(/ttlSeconds/);
+    ).toThrow(/ttlSeconds: must be a whole number/);
+  });
+
+  // Regression: a negative ttlSeconds used to ToUint32-wrap to ~4.29e9 and
+  // evade the `== 0` guard, silently registering a ~136-year TTL. It must now
+  // throw a field-named error rather than being accepted.
+  it.each([-1, -5])("rejects negative ttlSeconds %p", (ttlSeconds) => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
+        ),
+    ).toThrow(/ttlSeconds: must be a whole number/);
+  });
+
+  it.each([NaN, Infinity, -Infinity])(
+    "rejects non-finite ttlSeconds %p",
+    (ttlSeconds) => {
+      expect(
+        () =>
+          new ProsodyClient(
+            makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
+          ),
+      ).toThrow(/ttlSeconds: must be a whole number/);
+    },
+  );
+
+  // The u32::MAX boundary is a valid whole second and must be accepted.
+  it("accepts ttlSeconds at the u32 ceiling", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({
+            stateCollections: [value("v", { ttlSeconds: 4294967295 })],
+          }),
+        ),
+    ).not.toThrow();
+  });
+
+  it("rejects ttlSeconds above the u32 ceiling", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({
+            stateCollections: [value("v", { ttlSeconds: 4294967296 })],
+          }),
+        ),
+    ).toThrow(/ttlSeconds: must be a whole number/);
   });
 
   it("rejects keysetLimit above the ceiling", () => {
@@ -2034,7 +2084,31 @@ describe("keyed state configuration validation", () => {
         new ProsodyClient(
           makeConfig({ stateCollections: [map("m", { keysetLimit: 5000 })] }),
         ),
-    ).toThrow(/keysetLimit: must be within 0..=4096/);
+    ).toThrow(/keysetLimit: must be a whole number in 0..=4096/);
+  });
+
+  // Regression: a fractional keysetLimit used to truncate (2.5 -> 2) and be
+  // silently accepted; it must now throw.
+  it.each([2.5, -1, NaN, Infinity])(
+    "rejects non-whole keysetLimit %p",
+    (keysetLimit) => {
+      expect(
+        () =>
+          new ProsodyClient(
+            makeConfig({ stateCollections: [map("m", { keysetLimit })] }),
+          ),
+      ).toThrow(/keysetLimit: must be a whole number/);
+    },
+  );
+
+  // keysetLimit 0 disables ordered-scan tracking and is a valid whole number.
+  it("accepts keysetLimit of zero", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
+        ),
+    ).not.toThrow();
   });
 
   it("rejects keysetLimit on a non-map collection", () => {
@@ -2074,11 +2148,33 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/stateDefaultTtlSeconds/);
   });
 
+  // Regression: stateDefaultTtlSeconds arrives as f64, so negative and
+  // fractional values reach the whole-number guard instead of wrapping or
+  // truncating through a u32 coercion.
+  it.each([-1, 2.5, NaN, Infinity])(
+    "rejects non-whole stateDefaultTtlSeconds %p",
+    (stateDefaultTtlSeconds) => {
+      expect(
+        () => new ProsodyClient(makeConfig({ stateDefaultTtlSeconds })),
+      ).toThrow(/stateDefaultTtlSeconds: must be a whole number/);
+    },
+  );
+
   it("rejects stateRecoveryDelaySeconds of zero", () => {
     expect(
       () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds: 0 })),
     ).toThrow(/stateRecoveryDelaySeconds/);
   });
+
+  // Regression: same f64 boundary hazard as stateDefaultTtlSeconds.
+  it.each([-1, 2.5, NaN, Infinity])(
+    "rejects non-whole stateRecoveryDelaySeconds %p",
+    (stateRecoveryDelaySeconds) => {
+      expect(
+        () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds })),
+      ).toThrow(/stateRecoveryDelaySeconds: must be a whole number/);
+    },
+  );
 
   it("accepts the full canonical collection set", () => {
     expect(

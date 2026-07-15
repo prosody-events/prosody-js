@@ -252,13 +252,15 @@ pub struct Configuration {
 
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
-    /// this. Defaults to 30 seconds. Must be at least 1 second when set.
-    pub state_recovery_delay_seconds: Option<u32>,
+    /// this. Defaults to 30 seconds. Must be a whole number of seconds >= 1
+    /// when set (fractional, negative, and non-finite values are rejected).
+    pub state_recovery_delay_seconds: Option<f64>,
 
     /// Fallback TTL in whole seconds for state rows whose collection is no
-    /// longer registered. Registered collections never inherit this. Must be at
-    /// least 1 second when set.
-    pub state_default_ttl_seconds: Option<u32>,
+    /// longer registered. Registered collections never inherit this. Must be a
+    /// whole number of seconds >= 1 when set (fractional, negative, and
+    /// non-finite values are rejected).
+    pub state_default_ttl_seconds: Option<f64>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -275,17 +277,20 @@ pub struct StateCollectionConfig {
     /// message the handler received).
     pub payload: String,
 
-    /// Optional per-write TTL in whole seconds. Must be at least 1 and must
+    /// Optional per-write TTL in whole seconds. Must be a whole number >= 1
+    /// (fractional, negative, and non-finite values are rejected) and must
     /// exceed the recovery delay (the latter checked at consumer build).
-    pub ttl_seconds: Option<u32>,
+    pub ttl_seconds: Option<f64>,
 
     /// Optional opt-out of transactional staging (read-uncommitted, at-least
     /// once). Defaults to transactional.
     pub read_uncommitted: Option<bool>,
 
     /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
-    /// disables ordered-scan tracking). Invalid on value or deque collections.
-    pub keyset_limit: Option<u32>,
+    /// disables ordered-scan tracking). Must be a whole number in that range
+    /// (fractional, negative, and non-finite values are rejected). Invalid on
+    /// value or deque collections.
+    pub keyset_limit: Option<f64>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -677,17 +682,50 @@ fn parse_payload(index: usize, payload: &str) -> Result<CollectionPayload> {
     }
 }
 
+/// Validates a JS number field as a whole number within `min..=max`.
+///
+/// The field arrives as an `f64` (the raw JS Number, un-coerced) so that
+/// fractional, negative, and non-finite values reach this guard instead of
+/// being silently truncated or wrapped by an earlier `u32` conversion. A
+/// value that is not finite, not integral, or outside the inclusive range is
+/// rejected with a permanent error naming the field.
+///
+/// @param value The raw JS number.
+/// @param field The dotted field label named in the error message.
+/// @param min The inclusive lower bound.
+/// @param max The inclusive upper bound.
+/// @returns The validated value as a `u32`.
+/// @throws Error (permanent) if the value is not a whole number in range.
+fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32> {
+    if value.is_finite()
+        && value.fract() == 0.0
+        && value >= f64::from(min)
+        && value <= f64::from(max)
+    {
+        Ok(value as u32)
+    } else {
+        Err(Error::from_reason(format!(
+            "{field}: must be a whole number in {min}..={max}"
+        )))
+    }
+}
+
 /// Applies the shared descriptor options (TTL, commit mode) fluently.
 ///
 /// @param descriptor The descriptor to configure.
-/// @param collection The collection configuration.
+/// @param `ttl_seconds` The validated per-write TTL in whole seconds, if any.
+/// @param `read_uncommitted` Whether the collection opts out of staging.
 /// @returns The configured descriptor.
-fn with_def<D: StateDescriptor>(descriptor: D, collection: &StateCollectionConfig) -> D {
+fn with_def<D: StateDescriptor>(
+    descriptor: D,
+    ttl_seconds: Option<u32>,
+    read_uncommitted: Option<bool>,
+) -> D {
     let mut descriptor = descriptor;
-    if let Some(ttl) = collection.ttl_seconds {
+    if let Some(ttl) = ttl_seconds {
         descriptor = descriptor.ttl(CompactDuration::new(ttl));
     }
-    if collection.read_uncommitted == Some(true) {
+    if read_uncommitted == Some(true) {
         descriptor = descriptor.read_uncommitted();
     }
     descriptor
@@ -696,13 +734,13 @@ fn with_def<D: StateDescriptor>(descriptor: D, collection: &StateCollectionConfi
 /// Applies the map-only keyset bound when configured.
 ///
 /// @param descriptor The map descriptor to configure.
-/// @param collection The collection configuration.
+/// @param `keyset_limit` The validated keyset bound, if any.
 /// @returns The configured map descriptor.
 fn with_keyset<KC, V>(
     descriptor: MapDescriptor<KC, V>,
-    collection: &StateCollectionConfig,
+    keyset_limit: Option<u32>,
 ) -> MapDescriptor<KC, V> {
-    match collection.keyset_limit {
+    match keyset_limit {
         Some(limit) => descriptor.keyset_limit(limit as usize),
         None => descriptor,
     }
@@ -734,54 +772,78 @@ fn register_state_collection(
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, &collection.payload)?;
 
-    if collection.ttl_seconds == Some(0) {
-        return Err(Error::from_reason(format!(
-            "stateCollections[{index}].ttlSeconds: must be a whole number of seconds >= 1"
-        )));
-    }
+    let ttl_seconds = match collection.ttl_seconds {
+        Some(value) => Some(whole_number_field(
+            value,
+            &format!("stateCollections[{index}].ttlSeconds"),
+            1,
+            u32::MAX,
+        )?),
+        None => None,
+    };
 
-    if let Some(limit) = collection.keyset_limit {
-        if !matches!(kind, CollectionKind::Map) {
-            return Err(Error::from_reason(format!(
-                "stateCollections[{index}].keysetLimit: only valid for map collections"
-            )));
+    let keyset_limit = match collection.keyset_limit {
+        Some(value) => {
+            if !matches!(kind, CollectionKind::Map) {
+                return Err(Error::from_reason(format!(
+                    "stateCollections[{index}].keysetLimit: only valid for map collections"
+                )));
+            }
+            Some(whole_number_field(
+                value,
+                &format!("stateCollections[{index}].keysetLimit"),
+                0,
+                4096,
+            )?)
         }
-        if limit > 4096 {
-            return Err(Error::from_reason(format!(
-                "stateCollections[{index}].keysetLimit: must be within 0..=4096"
-            )));
-        }
-    }
+        None => None,
+    };
 
+    let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
     match (kind, payload) {
         (CollectionKind::Value, CollectionPayload::Json) => {
-            let _ = keyed.register(with_def(value_state::<JsonCodec>(name), collection));
+            let _ = keyed.register(with_def(
+                value_state::<JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            ));
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
-            let descriptor = with_def(map_state::<Utf8KeyCodec, JsonCodec>(name), collection);
-            let _ = keyed.register(with_keyset(descriptor, collection));
+            let descriptor = with_def(
+                map_state::<Utf8KeyCodec, JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            );
+            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
-            let _ = keyed.register(with_def(deque_state::<JsonCodec>(name), collection));
+            let _ = keyed.register(with_def(
+                deque_state::<JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            ));
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
                 message_state::<KafkaLoader<JsonCodec>>(name),
-                collection,
+                ttl_seconds,
+                read_uncommitted,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
-                collection,
+                ttl_seconds,
+                read_uncommitted,
             );
-            let _ = keyed.register(with_keyset(descriptor, collection));
+            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
                 message_deque_state::<KafkaLoader<JsonCodec>>(name),
-                collection,
+                ttl_seconds,
+                read_uncommitted,
             ));
         }
     }
@@ -812,20 +874,12 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
     }
 
     if let Some(seconds) = config.state_default_ttl_seconds {
-        if seconds == 0 {
-            return Err(Error::from_reason(
-                "stateDefaultTtlSeconds: must be a whole number of seconds >= 1",
-            ));
-        }
+        let seconds = whole_number_field(seconds, "stateDefaultTtlSeconds", 1, u32::MAX)?;
         keyed.default_ttl = Some(CompactDuration::new(seconds));
     }
 
     if let Some(seconds) = config.state_recovery_delay_seconds {
-        if seconds == 0 {
-            return Err(Error::from_reason(
-                "stateRecoveryDelaySeconds: must be a whole number of seconds >= 1",
-            ));
-        }
+        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 1, u32::MAX)?;
         keyed.recovery_delay = CompactDuration::new(seconds);
     }
 
