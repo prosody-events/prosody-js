@@ -1345,6 +1345,83 @@ describe("ProsodyClient", () => {
       expect(obs.scannedFirstPayload).toEqual({ marker: MD });
     });
 
+    // C4c — Message collection (messageMap): record the handled message under
+    // string keys in event1; a later event with the same key gets/scans it back
+    // with topic/partition/offset/key/payload intact. Covers the map x message
+    // combination (the one canonical kind x payload pairing C4/C4b leave
+    // unexercised) and the distinct messageMapState vend + conversion branch.
+    it("messageMap round-trips the full message under string keys across events", async () => {
+      const MM = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const mi = ctx.state(STATE_DEFS.msgIndex);
+          try {
+            if (msg.payload.step === 1) {
+              await mi.set("primary", msg);
+              await mi.set("café", msg);
+              messageStream.push({
+                tag: "orig",
+                topic: msg.topic,
+                partition: msg.partition,
+                offset: msg.offset.toString(),
+                key: msg.key,
+                payload: msg.payload,
+              });
+            } else if (msg.payload.step === 2) {
+              const got = await mi.get("primary");
+              const cafe = await mi.get("café");
+              const missing = await mi.get("absent");
+              const scannedKeys = [];
+              for await (const [k] of mi.entries("forward"))
+                scannedKeys.push(k);
+              messageStream.push({
+                tag: "got",
+                topic: got.topic,
+                partition: got.partition,
+                offset: got.offset.toString(),
+                key: got.key,
+                payload: got.payload,
+                cafePayload: cafe.payload,
+                missing,
+                scannedKeys,
+              });
+            }
+          } catch (e) {
+            messageStream.push({ tag: "error", error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, MM, { step: 1 });
+      await client.send(topic, MM, { step: 2 });
+      const obs = await waitForMessages(messageStream, 2, MESSAGE_TIMEOUT);
+      const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
+      expect(byTag.error).toBeUndefined();
+
+      const orig = { ...byTag.orig };
+      delete orig.tag;
+      const got = {
+        topic: byTag.got.topic,
+        partition: byTag.got.partition,
+        offset: byTag.got.offset,
+        key: byTag.got.key,
+        payload: byTag.got.payload,
+      };
+      // event2's message carries a distinct offset, so equality proves the map
+      // returned event1's RECORDED message rather than the live one.
+      expect(got).toEqual(orig);
+      expect(orig.payload).toEqual({ step: 1 });
+      // the unicode key round-trips and maps to the same stored message.
+      expect(byTag.got.cafePayload).toEqual({ step: 1 });
+      // an absent key reads as null.
+      expect(byTag.got.missing).toBeNull();
+      // forward scan yields both string keys in ascending key order.
+      expect(byTag.got.scannedKeys).toEqual([...byTag.got.scannedKeys].sort());
+      expect(byTag.got.scannedKeys).toContain("primary");
+      expect(byTag.got.scannedKeys).toContain("café");
+    });
+
     // C5a — commit(): the committed floor survives an attempt that subsequently
     // fails; a fresh handle on redelivery observes it.
     it("commit floor survives a failed attempt and is visible on retry", async () => {
@@ -1397,6 +1474,44 @@ describe("ProsodyClient", () => {
       expect(obs.error).toBeUndefined();
       expect(obs.before).toBe(B);
       expect(obs.after).toBe(A);
+    });
+
+    // C5c — commit()/rollback() on a MAP handle exercise the distinct native
+    // BoxMapState commit/rollback branch (C5a/C5b only reach ValueState). A
+    // committed entry survives a rollback that discards a later uncommitted one.
+    it("map commit floor survives a rollback of later uncommitted writes", async () => {
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          try {
+            await m.set("kept", 1);
+            await m.commit();
+            await m.set("kept", 2);
+            await m.set("dropped", 9);
+            const before = {
+              kept: await m.get("kept"),
+              dropped: await m.get("dropped"),
+            };
+            await m.rollback();
+            const after = {
+              kept: await m.get("kept"),
+              dropped: await m.get("dropped"),
+            };
+            messageStream.push({ before, after });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      // before rollback: the uncommitted overwrite and insert are both visible.
+      expect(obs.before).toEqual({ kept: 2, dropped: 9 });
+      // after rollback: reverts to the committed floor — kept=1, dropped gone.
+      expect(obs.after).toEqual({ kept: 1, dropped: null });
     });
 
     // C6a — a state op from a handle LEAKED past a failed attempt fails with the
