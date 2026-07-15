@@ -27,10 +27,8 @@ pub struct NativeContext {
 impl NativeContext {
     /// Creates a new `NativeContext` instance.
     ///
-    /// # Arguments
-    ///
-    /// * `context` - The `BoxEventContext` to wrap.
-    /// * `propagator` - The OpenTelemetry propagator to use for context
+    /// @param context The `BoxEventContext` to wrap.
+    /// @param propagator The OpenTelemetry propagator to use for context
     ///   extraction.
     pub fn new(
         context: BoxEventContext<serde_json::Value>,

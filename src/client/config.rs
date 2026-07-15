@@ -252,13 +252,9 @@ impl From<Mode> for ProsodyMode {
 
 /// Builds a `ProducerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `ProducerConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `ProducerConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBuilder {
     let mut builder = ProducerConfigurationBuilder::default();
 
@@ -283,14 +279,10 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
 
 /// Builds a `ConsumerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `Result` containing the `ConsumerConfigurationBuilder` with the specified
-/// configuration options, or an error if a configuration value is invalid.
+/// @param config The Configuration to build from.
+/// @returns A `Result` containing the `ConsumerConfigurationBuilder` with the
+/// specified configuration options, or an error if a configuration value is
+/// invalid.
 pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigurationBuilder> {
     let mut builder = ConsumerConfigurationBuilder::default();
 
@@ -382,13 +374,9 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
 
 /// Builds a `RetryConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `RetryConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `RetryConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_retry_config(config: &Configuration) -> RetryConfigurationBuilder {
     let mut builder = RetryConfigurationBuilder::default();
 
@@ -409,14 +397,9 @@ pub fn build_retry_config(config: &Configuration) -> RetryConfigurationBuilder {
 
 /// Builds a `FailureTopicConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `FailureTopicConfigurationBuilder` with the specified configuration
-/// options.
+/// @param config The Configuration to build from.
+/// @returns A `FailureTopicConfigurationBuilder` with the specified
+/// configuration options.
 pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigurationBuilder {
     let mut builder = FailureTopicConfigurationBuilder::default();
 
@@ -429,13 +412,9 @@ pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigu
 
 /// Builds a `SchedulerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `SchedulerConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `SchedulerConfigurationBuilder` with the specified configuration
+/// options.
 fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuilder {
     let mut builder = SchedulerConfigurationBuilder::default();
 
@@ -464,14 +443,9 @@ fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuild
 
 /// Builds a `MonopolizationConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `MonopolizationConfigurationBuilder` with the specified configuration
-/// options.
+/// @param config The Configuration to build from.
+/// @returns A `MonopolizationConfigurationBuilder` with the specified
+/// configuration options.
 fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigurationBuilder {
     let mut builder = MonopolizationConfigurationBuilder::default();
 
@@ -496,13 +470,9 @@ fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigur
 
 /// Builds a `DeferConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `DeferConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `DeferConfigurationBuilder` with the specified configuration
+/// options.
 fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
     let mut builder = DeferConfigurationBuilder::default();
 
@@ -535,13 +505,9 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
 
 /// Builds a `TimeoutConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `TimeoutConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `TimeoutConfigurationBuilder` with the specified configuration
+/// options.
 fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
     let mut builder = TimeoutConfigurationBuilder::default();
 
@@ -554,13 +520,9 @@ fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
 
 /// Builds a `TelemetryEmitterConfiguration` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `TelemetryEmitterConfiguration` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `TelemetryEmitterConfiguration` with the specified configuration
+/// options.
 fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfiguration> {
     let mut builder = TelemetryEmitterConfiguration::builder();
 
@@ -579,14 +541,9 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 
 /// Builds a `DeduplicationConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `DeduplicationConfigurationBuilder` with the specified configuration
-/// options.
+/// @param config The Configuration to build from.
+/// @returns A `DeduplicationConfigurationBuilder` with the specified
+/// configuration options.
 fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurationBuilder> {
     let mut builder = DeduplicationConfigurationBuilder::default();
 
@@ -609,13 +566,9 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
 
 /// Builds `ConsumerBuilders` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `ConsumerBuilders` containing all consumer-related configuration builders.
+/// @param config The Configuration to build from.
+/// @returns A `ConsumerBuilders` containing all consumer-related configuration
+/// builders.
 pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
     Ok(ConsumerBuilders {
         consumer: build_consumer_config(config)?,
@@ -633,13 +586,9 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `CassandraConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `CassandraConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationBuilder {
     let mut builder = CassandraConfigurationBuilder::default();
 
@@ -676,13 +625,8 @@ pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationB
 
 /// Parses a string or vector of strings into a vector of strings.
 ///
-/// # Arguments
-///
-/// * `value` - The Either<String, Vec<String>> to parse.
-///
-/// # Returns
-///
-/// A Vec<String> containing the parsed values.
+/// @param value The Either<String, Vec<String>> to parse.
+/// @returns A Vec<String> containing the parsed values.
 fn parse_string_or_vec(value: &Either<String, Vec<String>>) -> Vec<String> {
     match value {
         Either::A(s) => vec![s.clone()],
