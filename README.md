@@ -262,6 +262,28 @@ Persistent storage for timers and deferred retries (not needed if `mock: true`):
 | `cassandraRack` / `PROSODY_CASSANDRA_RACK`                  | Prefer this rack for queries       | -       |
 | `cassandraRetentionSeconds` / `PROSODY_CASSANDRA_RETENTION` | Delete data older than this        | 1y      |
 
+### Keyed State
+
+Register keyed-state collections before you subscribe. Persistence is backed by Cassandra and is not needed when `mock: true`. See the [Keyed State](#keyed-state-1) feature section for handler usage; the client-level knobs and per-collection fields are below.
+
+| Option / Environment Variable               | Description                                                                                                             | Default             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `stateCollections` / -                      | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)        | (none)              |
+| `stateCacheDir` / `PROSODY_FJALL_CACHE_DIR` | Root directory for the local committed-value cache; each live client needs its own directory (it is locked exclusively) | per-client temp dir |
+| `stateRecoveryDelaySeconds` / -             | Whole seconds between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this | 30                  |
+| `stateDefaultTtlSeconds` / -                | Fallback TTL (whole seconds) for rows whose collection is no longer registered; registered collections never inherit it | (none)              |
+
+Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Prefer the definition constructors (`value` / `map` / `deque` and their `message*` variants, documented below): they serialize into `stateCollections` so you declare each collection once and reuse the same object with `context.state()`.
+
+| Field             | Description                                                                         | Default    |
+| ----------------- | ----------------------------------------------------------------------------------- | ---------- |
+| `name`            | Collection name; non-empty and unique within the client                             | (required) |
+| `kind`            | `"value"`, `"map"`, or `"deque"`                                                    | (required) |
+| `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received) | (required) |
+| `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)         | (none)     |
+| `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                 | false      |
+| `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)     | 128        |
+
 ## Liveness and Readiness Probes
 
 Prosody includes a built-in probe server for consumer-based applications that provides health check endpoints. The probe
@@ -629,6 +651,143 @@ client.subscribe(messageHandler);
 - Be cautious with permanent errors as they prevent retries and can result in data loss.
 - Consider system reliability and data consistency when classifying errors.
 
+## Keyed State
+
+Prosody supports keyed state: per-key data that a handler reads and writes and that survives across events. State is partitioned by the message key, so each key has a single writer at a time, and by default writes settle atomically with the event — a handler that throws leaves no partial state. Values are either JSON payloads or the full Kafka `Message` the handler received. Register collections on the client before subscribing, then bind them inside the handler with `context.state(definition)`:
+
+```typescript
+import {
+  ProsodyClient,
+  value,
+  map,
+  messageDeque,
+  Message,
+} from "@prosody-events/prosody";
+
+interface Cart {
+  items: string[];
+}
+interface OrderEvent {
+  orderId: string;
+  total: number;
+}
+
+const cart = value<Cart>("cart", { ttlSeconds: 30 * 86400 });
+const totals = map<number>("totals"); // keys are always string
+const backlog = messageDeque<OrderEvent>("backlog");
+
+const client = new ProsodyClient({
+  ...config,
+  stateCollections: [cart, totals, backlog],
+});
+
+client.subscribe({
+  async onMessage(context, message: Message<OrderEvent>, signal) {
+    const c = context.state(cart); // ValueState<Cart>
+    const current = (await c.get()) ?? { items: [] }; // Cart | null
+    await c.set({ items: [...current.items, message.payload.orderId] });
+
+    await context.state(totals).set(message.key, message.payload.total);
+    for await (const [key, total] of context.state(totals).entries()) {
+      // key: string, total: number
+      void key;
+      void total;
+    }
+
+    const b = context.state(backlog); // DequeState<Message<OrderEvent>>
+    await b.push(message);
+    const oldest = await b.get(0); // Message<OrderEvent> | null
+    void oldest;
+  },
+});
+```
+
+### Definitions
+
+A definition constructor declares one collection and returns a frozen definition object. The same object is used both in `Configuration.stateCollections` (registration) and with `context.state()` (binding) — declare each collection once. Three kinds, each with a JSON variant (values are your JSON payload) and a message variant (values are the full Kafka `Message<P>`):
+
+- `value<T>(name, options?)`: single value. Vends `ValueState<T>`.
+- `map<V>(name, options?)`: ordered map with **string** keys. Vends `MapState<V>`.
+- `deque<T>(name, options?)`: double-ended queue. Vends `DequeState<T>`.
+- `messageValue<P>(name, options?)`: single value holding a `Message<P>`. Vends `ValueState<Message<P>>`.
+- `messageMap<P>(name, options?)`: ordered map of `Message<P>` (string keys). Vends `MapState<Message<P>>`.
+- `messageDeque<P>(name, options?)`: deque of `Message<P>`. Vends `DequeState<Message<P>>`.
+
+`options` accepts `ttlSeconds` and `readUncommitted` on every kind, plus `keysetLimit` on maps only. The type parameter is annotation-level only: payloads cross the boundary as plain JSON with no runtime validation, so the parameter guides your TypeScript but does not enforce a shape at runtime.
+
+### Registration
+
+Put the definitions in `Configuration.stateCollections` when constructing the client, before calling `subscribe`. Each definition serializes into a collection config entry, so passing the definition object is all that is required. Collection names must be unique within a client — duplicate names are rejected. Keyed state needs Cassandra unless the client runs with `mock: true`. See the [Keyed State configuration](#keyed-state) subsection above for the client-level knobs and per-collection fields.
+
+### State Handles
+
+`context.state(definition)` vends a typed handle bound to the collection for the current event attempt. The handle — and any iterator it opens — is valid only within the handler invocation that created it; there is no post-handler read window. Binding an unregistered name, or a definition whose identity does not match the registered one, throws a `PermanentStateError`.
+
+`ValueState<T>`:
+
+- `get(): Promise<T | null>`: reads the current value, or `null` when absent.
+- `set(value: T): Promise<void>`: buffers a write. Writing JSON `null` is rejected — call `clear()`.
+- `clear(): Promise<void>`: deletes the stored value.
+- `commit(): Promise<void>` / `rollback(): Promise<void>`: see [Commit and Rollback](#commit-and-rollback).
+
+`MapState<V>` (keys are always `string`):
+
+- `get(key: string): Promise<V | null>`: reads the value for `key`, or `null` when absent.
+- `set(key: string, value: V): Promise<void>`: inserts or overwrites. Writing JSON `null` is rejected — call `delete(key)`.
+- `delete(key: string): Promise<void>`: removes `key`. Deliberately returns `void`, not a boolean "was present" flag (surfacing that would force a hidden read on every delete).
+- `clear(): Promise<void>`: removes every entry.
+- `entries(direction?)` / `keys()` / `values()` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
+- `commit(): Promise<void>` / `rollback(): Promise<void>`.
+
+`DequeState<T>`:
+
+- `push(item: T): Promise<void>`: appends at the back. Writing JSON `null` is rejected.
+- `unshift(item: T): Promise<void>`: prepends at the front. Writing JSON `null` is rejected.
+- `pop(): Promise<T | null>`: removes and returns the back element, or `null` when empty.
+- `shift(): Promise<T | null>`: removes and returns the front element, or `null` when empty.
+- `length(): Promise<number>`: number of live elements.
+- `isEmpty(): Promise<boolean>`: whether the deque holds no live elements.
+- `get(index: number): Promise<T | null>`: reads the element at front-relative `index`, or `null` past the end. `index` must be a non-negative integer; a fractional or negative value is rejected with a `PermanentStateError`.
+- `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
+- `commit(): Promise<void>` / `rollback(): Promise<void>`.
+
+### Scan Iteration
+
+Maps expose `entries(direction?)`, `keys()`, and `values()`; deques expose `values(direction?)`. Each returns an `AsyncIterableIterator`, so you can drive it with `for await`. `direction` is `"forward"` (default) or `"backward"`. On a map, `keys()` and `values()` are always forward-only; only `entries()` accepts a direction. Both classes also implement `[Symbol.asyncIterator]` as forward iteration (map: `[key, value]` entries; deque: elements), so the handle itself is iterable.
+
+Iterators are valid only within the attempt that opened them. Exiting a `for await` loop early closes the underlying cursor (the iterator's `return()` calls the native `close()`), so an early `break` releases the scan promptly:
+
+```typescript
+for await (const [key, total] of context.state(totals).entries("backward")) {
+  if (total > 1000) break; // early exit closes the cursor
+}
+```
+
+### Commit and Rollback
+
+Every handle exposes `commit(): Promise<void>` and `rollback(): Promise<void>`. By default a handler's writes are buffered and settle atomically when the event completes; commit and rollback are the explicit mid-handler escape hatch.
+
+- `commit()` durably flushes this collection's buffered operations mid-handler. It is at-least-once: the flush becomes visible even if the event later fails and is redelivered, and it establishes a floor that a later `rollback()` cannot cross.
+- `rollback()` discards this collection's buffered uncommitted operations back to the last commit floor. It is infallible.
+
+Both resolve with no value. The erased core seam deliberately drops the store outcome, so there is **no** `"applied"` / `"noop"` return — do not expect one.
+
+### Semantics
+
+- **Per-key single writer.** State is keyed by the message key; only one handler invocation writes a given key at a time.
+- **Transactional by default.** A handler's writes settle atomically with the event. A handler that throws leaves no partial state (unless you opted a collection into `readUncommitted`, or flushed explicitly with `commit()`).
+- **At-least-once.** Redelivery re-runs the handler; reads reflect committed prior attempts. Keep handlers idempotent.
+- **Attempt-scoped.** The context, the handles it vends, and any iterators those handles open are valid only within the handler invocation that created them. Do not retain them past the handler.
+
+### Error Handling
+
+Keyed-state failures surface as structured errors that flow through the same handler-error bridge as everything else (the transient/permanent category is carried as data, never parsed from the message):
+
+- `PermanentStateError` (subclasses `PermanentError`): a mistake that retrying will not fix — an unregistered or identity-mismatched collection, a duplicate registration, a rejected `null` write (use `clear()` / `delete()` instead), or an item-shape mistake.
+- `TransientStateError` (subclasses `TransientError`): a temporary store read/write failure (for example a timeout) that may succeed on retry.
+
+Because they subclass the existing error hierarchy, rethrowing them from a handler classifies the event exactly like a plain `PermanentError` / `TransientError`. Use `isStateError(error)` to narrow an error to either state error class.
+
 ## OpenTelemetry Tracing
 
 Prosody supports OpenTelemetry tracing, allowing you to monitor and analyze the performance of your Kafka-based
@@ -941,6 +1100,8 @@ Represents a Kafka message with the following properties:
 - `key: string`: The message key.
 - `payload: any`: The message payload as a JSON-serializable value.
 
+`Message` takes an optional payload type parameter, `Message<P>`, used by message-backed state collections to type `payload`. Unparameterized `Message` is `Message<any>`.
+
 ### Context
 
 Represents the context of message processing:
@@ -956,12 +1117,74 @@ Timer scheduling methods:
 - `clearScheduled(): Promise<void>`: Removes all scheduled timers
 - `scheduled(): Promise<Date[]>`: Returns an array of all scheduled timer times
 
+Keyed-state binding:
+
+- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Binds a registered collection for the current event attempt, returning a typed handle (message definitions vend `*State<Message<P>>`). Throws `PermanentStateError` on an unregistered or identity-mismatched definition. See the [Keyed State](#keyed-state-2) API reference below.
+
 ### Timer
 
 Represents a timer that has fired, provided to the `onTimer` method:
 
 - `key: string`: The entity key identifying what this timer belongs to
 - `time: Date`: The time when this timer was scheduled to fire
+
+### Keyed State
+
+Definition constructors (each returns a frozen definition object used both in `Configuration.stateCollections` and with `context.state()`):
+
+- `value<T = any>(name: string, options?: StateDefinitionOptions): ValueDefinition<T>`
+- `map<V = any>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
+- `deque<T = any>(name: string, options?: StateDefinitionOptions): DequeDefinition<T>`
+- `messageValue<P = any>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
+- `messageMap<P = any>(name: string, options?: MapDefinitionOptions): MessageMapDefinition<P>`
+- `messageDeque<P = any>(name: string, options?: StateDefinitionOptions): MessageDequeDefinition<P>`
+
+`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `MapDefinitionOptions` extends it with `keysetLimit?: number`.
+
+`ValueState<T>`:
+
+- `get(): Promise<T | null>`
+- `set(value: T): Promise<void>`
+- `clear(): Promise<void>`
+- `commit(): Promise<void>`
+- `rollback(): Promise<void>`
+
+`MapState<V>` (keys are `string`):
+
+- `get(key: string): Promise<V | null>`
+- `set(key: string, value: V): Promise<void>`
+- `delete(key: string): Promise<void>`
+- `clear(): Promise<void>`
+- `entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>`
+- `keys(): AsyncIterableIterator<string>`
+- `values(): AsyncIterableIterator<V>`
+- `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
+- `commit(): Promise<void>`
+- `rollback(): Promise<void>`
+
+`DequeState<T>`:
+
+- `push(item: T): Promise<void>`
+- `unshift(item: T): Promise<void>`
+- `pop(): Promise<T | null>`
+- `shift(): Promise<T | null>`
+- `length(): Promise<number>`
+- `isEmpty(): Promise<boolean>`
+- `get(index: number): Promise<T | null>`
+- `values(direction?: ScanDirection): AsyncIterableIterator<T>`
+- `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
+- `commit(): Promise<void>`
+- `rollback(): Promise<void>`
+
+`ScanDirection`: `"forward" | "backward"`.
+
+`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; keysetLimit?: number }`. The definition constructors produce objects assignable to this shape, so prefer them.
+
+Errors:
+
+- `PermanentStateError extends PermanentError`: a permanent keyed-state failure (unregistered/identity-mismatched collection, duplicate registration, rejected `null` write, or item-shape mistake).
+- `TransientStateError extends TransientError`: a temporary store read/write failure.
+- `isStateError(error: unknown): error is PermanentStateError | TransientStateError`: type-guard narrowing an error to either state error class.
 
 ## License
 
