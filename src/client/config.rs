@@ -252,14 +252,18 @@ pub struct Configuration {
 
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
-    /// this. Defaults to 30 seconds. Must be a whole number of seconds >= 1
-    /// when set (fractional, negative, and non-finite values are rejected).
+    /// this. Falls back to the `PROSODY_KEYED_STATE_RECOVERY_DELAY` environment
+    /// variable (a duration string such as `30s`), then to 30 seconds. Must be
+    /// a whole number of seconds >= 1 when set (fractional, negative, and
+    /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
 
     /// Fallback TTL in whole seconds for state rows whose collection is no
-    /// longer registered. Registered collections never inherit this. Must be a
-    /// whole number of seconds >= 1 when set (fractional, negative, and
-    /// non-finite values are rejected).
+    /// longer registered. Registered collections never inherit this. Falls back
+    /// to the `PROSODY_KEYED_STATE_DEFAULT_TTL` environment variable (a
+    /// duration string such as `7d`, or `none` for indefinite retention),
+    /// then to indefinite retention. Must be a whole number of seconds >= 1
+    /// when set (fractional, negative, and non-finite values are rejected).
     pub state_default_ttl_seconds: Option<f64>,
 }
 
