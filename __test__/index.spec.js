@@ -2108,7 +2108,9 @@ describe("keyed state (unit)", () => {
     await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(TransientStateError);
     // A hostile non-number (Symbol) must REJECT, not throw synchronously while
     // building the diagnostic — get() is declared to return a Promise.
-    await expect(d.get(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
+    await expect(d.get(Symbol("x"))).rejects.toBeInstanceOf(
+      TransientStateError,
+    );
   });
 
   // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:
