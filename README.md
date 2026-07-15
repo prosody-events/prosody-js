@@ -704,7 +704,7 @@ client.subscribe({
 
 ### Definitions
 
-A definition constructor declares one collection and returns a frozen definition object. The same object is used both in `Configuration.stateCollections` (registration) and with `context.state()` (binding) — declare each collection once. Three kinds, each with a JSON variant (values are your JSON payload) and a message variant (values are the full Kafka `Message<P>`):
+A definition constructor declares one collection and returns a frozen definition object carrying its `name`, `kind`, and `payload`. Reference that definition both in `Configuration.stateCollections` (registration) and in `context.state()` (binding) — declare each collection once and reuse it. (Reuse is a convenience, not a requirement: binding matches a definition to a registered collection by its `name`/`kind`/`payload` fields, not by object identity, so a structurally-equal definition also works.) Three kinds, each with a JSON variant (values are your JSON payload) and a message variant (values are the full Kafka `Message<P>`):
 
 - `value<T>(name, options?)`: single value. Vends `ValueState<T>`.
 - `map<V>(name, options?)`: ordered map with **string** keys. Vends `MapState<V>`.
@@ -721,7 +721,7 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 
 ### State Handles
 
-`context.state(definition)` vends a typed handle bound to the collection for the current event attempt. The handle — and any iterator it opens — is valid only within the handler invocation that created it; there is no post-handler read window. Binding an unregistered name, or a definition whose identity does not match the registered one, throws a `PermanentStateError`.
+`context.state(definition)` vends a typed handle bound to the collection for the current event attempt. The handle — and any iterator it opens — is valid only within the handler invocation that created it; there is no post-handler read window. Binding an unregistered name throws a `PermanentStateError`; so does a definition whose `kind` or `payload` disagrees with what was durably registered under that name in the consumer group (the collection's stored schema identity, which core validates at first use — this is a schema conflict across deploys, not a JavaScript object-identity check).
 
 `ValueState<T>`:
 
@@ -1119,7 +1119,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Binds a registered collection for the current event attempt, returning a typed handle (message definitions vend `*State<Message<P>>`). Throws `PermanentStateError` on an unregistered or identity-mismatched definition. See the [Keyed State](#keyed-state-2) API reference below.
+- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Binds a registered collection for the current event attempt, returning a typed handle (message definitions vend `*State<Message<P>>`). Throws `PermanentStateError` when the name was never registered, or when the definition's `kind`/`payload` disagrees with the collection's durably-registered schema. See the [Keyed State](#keyed-state-2) API reference below.
 
 ### Timer
 

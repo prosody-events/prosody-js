@@ -754,8 +754,10 @@ function messageDeque(name, options) {
  * (exhausted) to `{ done: true }`. Early exit from a `for await` loop
  * (`break`/`return`/`throw`) invokes `return()`, which awaits the native
  * `close()`; exhaustion and a pull error also close the cursor. Once finished,
- * the cursor is never touched again, and a pull error is never masked by the
- * cleanup close.
+ * the cursor is never touched again. A pull error is never masked by the
+ * cleanup close (that close is best-effort). A close failure on the exhaustion
+ * or early-exit path is normalized through `toStateError`, so every keyed-state
+ * failure a caller can observe is a `PermanentStateError`/`TransientStateError`.
  *
  * The iterator is valid only within the handler invocation (attempt) that
  * opened it; a cursor leaked past the attempt errors on its next pull.
@@ -779,7 +781,9 @@ function stateIterator(cursor, transform) {
       }
       if (item === null) {
         finished = true;
-        await cursor.close();
+        await cursor.close().catch((error) => {
+          throw toStateError(error);
+        });
         return { value: undefined, done: true };
       }
       return { value: transform(item), done: false };
@@ -787,7 +791,9 @@ function stateIterator(cursor, transform) {
     async return(value) {
       if (!finished) {
         finished = true;
-        await cursor.close();
+        await cursor.close().catch((error) => {
+          throw toStateError(error);
+        });
       }
       return { value, done: true };
     },

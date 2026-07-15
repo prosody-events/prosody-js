@@ -148,4 +148,26 @@ export async function checks(): Promise<void> {
   t.keys("backward");
   // @ts-expect-error map values() is forward-only — no direction argument
   t.values("backward");
+
+  // ---- handles are vended by context.state(), never constructed directly ----
+  // @ts-expect-error ValueState has a private constructor
+  new ValueState();
+  // @ts-expect-error MapState has a private constructor
+  new MapState();
+  // @ts-expect-error DequeState has a private constructor
+  new DequeState();
+
+  // ---- a top-level null write is a compile error (null is not storable) ----
+  const nv = value<string | null>("nv");
+  // @ts-expect-error top-level null is not a storable value
+  await context.state(nv).set(null);
+  const nm = map<number | null>("nm");
+  // @ts-expect-error top-level null is not a storable map value
+  await context.state(nm).set("k", null);
+  const nd = deque<string | null>("nd");
+  // @ts-expect-error top-level null is not a storable deque element
+  await context.state(nd).push(null);
+  // nested null IS permitted — only the top-level value is banned.
+  const nested = value<{ x: string | null }>("nested");
+  await context.state(nested).set({ x: null });
 }

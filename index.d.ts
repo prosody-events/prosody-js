@@ -314,15 +314,20 @@ export function messageDeque<P = any>(
  * vended it. Every method opens its own per-operation trace span.
  */
 export declare class ValueState<T = any> {
+  /** Vended only by {@link Context#state}; not constructible directly. */
+  private constructor(native: unknown);
   /** Reads the current value, or null when absent/cleared. */
   get(): Promise<T | null>;
   /**
-   * Buffers a write of the value. Writing JSON `null` (or an unrepresentable
-   * value) is a caller mistake, rejected with a {@link TransientStateError}
-   * naming `clear()` — use {@link ValueState#clear}. Transient so it retries
-   * and stays visible rather than discarding the message.
+   * Buffers a write of the value. The parameter type excludes `null`/`undefined`
+   * (via {@link !NonNullable}) because a top-level `null` is not a storable
+   * value — writing one (or an unrepresentable value) is a caller mistake,
+   * rejected at runtime with a {@link TransientStateError} naming `clear()` —
+   * use {@link ValueState#clear}. Transient so it retries and stays visible
+   * rather than discarding the message. (Nested `null`, e.g. inside an object or
+   * array, is permitted and round-trips.)
    */
-  set(value: T): Promise<void>;
+  set(value: NonNullable<T>): Promise<void>;
   /** Deletes the stored value. */
   clear(): Promise<void>;
   /**
@@ -341,15 +346,19 @@ export declare class ValueState<T = any> {
  * per-operation trace span.
  */
 export declare class MapState<V = any> {
+  /** Vended only by {@link Context#state}; not constructible directly. */
+  private constructor(native: unknown);
   /** Reads the value for `key`, or null when the key is absent. */
   get(key: string): Promise<V | null>;
   /**
-   * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
-   * value) is a caller mistake, rejected with a {@link TransientStateError} —
-   * use {@link MapState#delete} to remove. Transient so it retries and stays
-   * visible rather than discarding the message.
+   * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
+   * (via {@link !NonNullable}) because a top-level `null` is not a storable
+   * value — writing one (or an unrepresentable value) is a caller mistake,
+   * rejected at runtime with a {@link TransientStateError} — use
+   * {@link MapState#delete} to remove. Transient so it retries and stays visible
+   * rather than discarding the message. (Nested `null` is permitted.)
    */
-  set(key: string, value: V): Promise<void>;
+  set(key: string, value: NonNullable<V>): Promise<void>;
   /**
    * Removes `key`.
    *
@@ -396,18 +405,22 @@ export declare class MapState<V = any> {
  * vended it. Every method opens its own per-operation trace span.
  */
 export declare class DequeState<T = any> {
+  /** Vended only by {@link Context#state}; not constructible directly. */
+  private constructor(native: unknown);
   /**
-   * Appends an element at the back. Writing JSON `null` (or an unrepresentable
-   * value) is a caller mistake, rejected with a {@link TransientStateError} so
-   * it retries and stays visible rather than discarding the message.
+   * Appends an element at the back. The item type excludes `null`/`undefined`
+   * (via {@link !NonNullable}) because a top-level `null` is not a storable
+   * element — writing one (or an unrepresentable value) is a caller mistake,
+   * rejected at runtime with a {@link TransientStateError} so it retries and
+   * stays visible rather than discarding the message. (Nested `null` is
+   * permitted.)
    */
-  push(item: T): Promise<void>;
+  push(item: NonNullable<T>): Promise<void>;
   /**
-   * Prepends an element at the front. Writing JSON `null` (or an unrepresentable
-   * value) is a caller mistake, rejected with a {@link TransientStateError} so
-   * it retries and stays visible rather than discarding the message.
+   * Prepends an element at the front. The item type excludes `null`/`undefined`
+   * (via {@link !NonNullable}); see {@link DequeState#push}.
    */
-  unshift(item: T): Promise<void>;
+  unshift(item: NonNullable<T>): Promise<void>;
   /** Removes and returns the back element, or null when empty. */
   pop(): Promise<T | null>;
   /** Removes and returns the front element, or null when empty. */
@@ -418,8 +431,9 @@ export declare class DequeState<T = any> {
   isEmpty(): Promise<boolean>;
   /**
    * Reads the element at front-relative position `index`, or null past the end.
-   * `index` must be a non-negative integer; a fractional or negative value
-   * rejects with a `PermanentStateError`.
+   * `index` must be a non-negative integer in `[0, 4294967295]`; a fractional,
+   * negative, or out-of-range value is a caller mistake, rejected with a
+   * {@link TransientStateError} (it retries and stays visible).
    */
   get(index: number): Promise<T | null>;
   /**
