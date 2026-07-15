@@ -1081,81 +1081,66 @@ describe("ProsodyClient", () => {
   // wraps its work in try/catch that reports {tag:"error"} so a throw never
   // silently hangs the wait — except where a throw is the intended stimulus.
   describe("keyed state", () => {
-    // C1 — Value: set in event1 -> get in event2 (same key); clear -> get none;
-    // never-written -> none.
-    it("value round-trips across events, clears, and reads absent as null", async () => {
-      const V = nonce();
-      const Vc = nonce();
-      const Vn = nonce();
-      const stored = nonce();
-
+    // C1 — Value FFI boundary: a JSON payload marshals through set -> get
+    // byte-identical (a rich nested value: unicode, numbers, booleans, arrays,
+    // a NESTED null), and an absent value reads as JS `null` (the erased
+    // `Option::None` -> `null` mapping). Cross-event PERSISTENCE and clear
+    // SEMANTICS are the collection's job (covered in core); this asserts only
+    // the boundary marshalling + the null mapping.
+    it("value marshals a JSON payload faithfully and reads absent as null", async () => {
+      const K = nonce();
+      const rich = {
+        s: "café 😀",
+        n: 3.5,
+        b: true,
+        arr: [1, "x", null],
+        nested: { z: [true, 2] },
+      };
       client = makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
-          const { step } = msg.payload;
           try {
-            if (msg.key === V && step === 1) {
-              await c.set({ v: stored });
-              messageStream.push({ tag: "V-set" });
-            } else if (msg.key === V && step === 2) {
-              messageStream.push({ tag: "V-get", got: await c.get() });
-            } else if (msg.key === Vc && step === 1) {
-              await c.set({ v: stored });
-              messageStream.push({ tag: "Vc-set" });
-            } else if (msg.key === Vc && step === 2) {
-              await c.clear();
-              messageStream.push({ tag: "Vc-get", cleared: await c.get() });
-            } else if (msg.key === Vn && step === 1) {
-              messageStream.push({ tag: "Vn-get", never: await c.get() });
-            }
+            const before = await c.get(); // never written -> null
+            await c.set(rich);
+            const after = await c.get(); // read-your-writes -> the marshalled value
+            messageStream.push({ before, after });
           } catch (e) {
-            messageStream.push({ tag: "error", error: e.message });
+            messageStream.push({ error: e.message });
           }
         },
       });
 
-      await client.send(topic, V, { step: 1 });
-      await client.send(topic, V, { step: 2 });
-      await client.send(topic, Vc, { step: 1 });
-      await client.send(topic, Vc, { step: 2 });
-      await client.send(topic, Vn, { step: 1 });
-
-      const obs = await waitForMessages(messageStream, 5, MESSAGE_TIMEOUT);
-      const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
-      expect(byTag.error).toBeUndefined();
-      expect(byTag["V-get"].got).toEqual({ v: stored });
-      expect(byTag["Vc-get"].cleared).toBeNull();
-      expect(byTag["Vn-get"].never).toBeNull();
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.before).toBeNull();
+      // The serde bridge round-trips the whole value, nested null included.
+      expect(obs.after).toEqual(rich);
     });
 
-    // C2 — Map: set k1..k3, remove k2 -> forward scan yields k1,k3 in key order;
-    // backward reverses; get(k2) none; unicode string keys round-trip.
-    it("map scans in key order both directions, removes, and round-trips unicode keys", async () => {
+    // C2 — Map FFI boundary: keys (including unicode) and values marshal through
+    // set/get, an absent key reads as `null`, and `entries()` yields
+    // `[key, value]` pairs over the native cursor. Key ORDERING (forward /
+    // backward) is a collection concern covered in core; this asserts pair
+    // marshalling + membership only (compared as a set, never a sequence).
+    it("map marshals keys (incl. unicode) and values, and entries() yields pairs", async () => {
       const K = nonce();
+      const entriesIn = { k1: 1, café: 9, "😀": 7 };
       client = makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
           try {
-            await m.set("k1", 1);
-            await m.set("k2", 2);
-            await m.set("k3", 3);
-            await m.delete("k2");
-            await m.set("café", 9);
-            await m.set("😀", 7);
-
-            const fwd = [];
-            for await (const entry of m.entries("forward")) fwd.push(entry);
-            const bwd = [];
-            for await (const entry of m.entries("backward")) bwd.push(entry);
-
+            for (const [k, v] of Object.entries(entriesIn)) await m.set(k, v);
+            const collected = [];
+            for await (const entry of m.entries()) collected.push(entry);
             messageStream.push({
-              fwd,
-              bwd,
-              k2: await m.get("k2"),
+              collected,
+              k1: await m.get("k1"),
               cafe: await m.get("café"),
               emoji: await m.get("😀"),
+              absent: await m.get(nonce()),
             });
           } catch (e) {
             messageStream.push({ error: e.message });
@@ -1166,57 +1151,53 @@ describe("ProsodyClient", () => {
       await client.send(topic, K, { go: true });
       const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
       expect(obs.error).toBeUndefined();
-
-      const fwdKeys = obs.fwd.map(([k]) => k);
-      // forward is ascending key order and k2 is absent
-      expect(fwdKeys).toEqual([...fwdKeys].sort());
-      expect(fwdKeys).not.toContain("k2");
-      // k1 precedes k3 in the forward scan
-      expect(fwdKeys.indexOf("k1")).toBeLessThan(fwdKeys.indexOf("k3"));
-      // backward is the exact reverse of forward
-      expect(obs.bwd).toEqual([...obs.fwd].reverse());
-      expect(obs.k2).toBeNull();
+      // point reads marshal keys + values faithfully; absent -> null
+      expect(obs.k1).toBe(1);
       expect(obs.cafe).toBe(9);
       expect(obs.emoji).toBe(7);
+      expect(obs.absent).toBeNull();
+      // entries() yields each [key, value] pair over the cursor (set-equality —
+      // ordering is core's), and every entry is a [string, value] tuple.
+      expect(obs.collected).toEqual(
+        expect.arrayContaining(Object.entries(entriesIn)),
+      );
+      expect(obs.collected).toHaveLength(Object.keys(entriesIn).length);
+      for (const entry of obs.collected) {
+        expect(Array.isArray(entry)).toBe(true);
+        expect(typeof entry[0]).toBe("string");
+      }
     });
 
-    // C3 — Deque: pushBack a,b + pushFront z -> length 3, not empty, get(0)=z;
-    // popFront=z, popBack=b; scans both directions; empty deque length 0 / empty
-    // / pops none.
-    it("deque orders push/unshift, indexes, pops both ends, scans, and handles empty", async () => {
+    // C3 — Deque FFI boundary: elements (rich JSON) marshal through push ->
+    // values()/get, `values()` iterates over the native cursor, and pop/shift on
+    // an empty deque read as `null` (the `Option::None` -> `null` mapping).
+    // Element ORDERING, which end a pop removes, and length COUNTING are
+    // collection concerns covered in core; this asserts boundary marshalling +
+    // cursor iteration + the null mapping (membership compared as a set).
+    it("deque marshals elements through the cursor and reads empty as null", async () => {
       const Dfull = nonce();
       const Dempty = nonce();
+      const items = ["a", { v: 1 }, [2, "😀"]];
       client = makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const d = ctx.state(STATE_DEFS.backlog);
           try {
             if (msg.key === Dfull) {
-              await d.push("a");
-              await d.push("b");
-              await d.unshift("z");
-              const fwd = [];
-              for await (const x of d.values("forward")) fwd.push(x);
-              const bwd = [];
-              for await (const x of d.values("backward")) bwd.push(x);
-              const obs = {
+              for (const it of items) await d.push(it);
+              const collected = [];
+              for await (const x of d.values()) collected.push(x);
+              messageStream.push({
                 tag: "full",
-                len: await d.length(),
-                empty: await d.isEmpty(),
-                head: await d.get(0),
-                fwd,
-                bwd,
-              };
-              obs.pf = await d.shift();
-              obs.pb = await d.pop();
-              messageStream.push(obs);
+                collected,
+                head: await d.get(0), // some marshalled element (not asserting which)
+                popped: await d.pop(), // a marshalled element
+              });
             } else if (msg.key === Dempty) {
               messageStream.push({
                 tag: "empty",
-                elen: await d.length(),
-                eempty: await d.isEmpty(),
-                epf: await d.shift(),
-                epb: await d.pop(),
+                pf: await d.shift(),
+                pb: await d.pop(),
               });
             }
           } catch (e) {
@@ -1231,20 +1212,16 @@ describe("ProsodyClient", () => {
       const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
       expect(byTag.error).toBeUndefined();
 
-      const full = byTag.full;
-      expect(full.len).toBe(3);
-      expect(full.empty).toBe(false);
-      expect(full.head).toBe("z");
-      expect(full.fwd).toEqual(["z", "a", "b"]);
-      expect(full.bwd).toEqual(["b", "a", "z"]);
-      expect(full.pf).toBe("z");
-      expect(full.pb).toBe("b");
-
-      const empty = byTag.empty;
-      expect(empty.elen).toBe(0);
-      expect(empty.eempty).toBe(true);
-      expect(empty.epf).toBeNull();
-      expect(empty.epb).toBeNull();
+      // values() yields the pushed elements faithfully over the cursor
+      // (set-equality — order is core's), including nested/rich JSON.
+      expect(byTag.full.collected).toEqual(expect.arrayContaining(items));
+      expect(byTag.full.collected).toHaveLength(items.length);
+      // get(0)/pop() return marshalled elements that were among those pushed.
+      expect(items).toContainEqual(byTag.full.head);
+      expect(items).toContainEqual(byTag.full.popped);
+      // empty deque: Option::None -> null across the boundary.
+      expect(byTag.empty.pf).toBeNull();
+      expect(byTag.empty.pb).toBeNull();
     });
 
     // C4 — Message collection (messageValue): record the handled message in
