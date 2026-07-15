@@ -4,8 +4,20 @@ const {
   ConsumerState,
   ProsodyClient,
   PermanentError,
+  TransientError,
   permanent,
   transient,
+  value,
+  map,
+  deque,
+  messageValue,
+  messageMap,
+  messageDeque,
+  MapState,
+  DequeState,
+  PermanentStateError,
+  TransientStateError,
+  isStateError,
 } = require("../index.js");
 const { AdminClient } = require("../bindings.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
@@ -86,6 +98,46 @@ const waitForMessages = (stream, count, timeout) =>
     stream.on("data", dataHandler);
   });
 
+// Waits for the first observation pushed into an object-mode sink that matches
+// `predicate`. Used by the live keyed-state tests that need to key off a
+// specific observation rather than a fixed count.
+const waitForObservation = (stream, predicate, timeout) =>
+  new Promise((resolve, reject) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        stream.removeListener("data", dataHandler);
+        reject(new Error("Timeout waiting for matching observation"));
+      }
+    }, timeout);
+    const dataHandler = (message) => {
+      if (!resolved && predicate(message)) {
+        resolved = true;
+        clearTimeout(timer);
+        stream.removeListener("data", dataHandler);
+        resolve(message);
+      }
+    };
+    stream.on("data", dataHandler);
+  });
+
+// Canonical registered collection set reused by the live keyed-state tests, one
+// of every kind × payload. `state()` binds these same frozen definitions.
+const STATE_DEFS = {
+  cart: value("cart"),
+  totals: map("totals", { keysetLimit: 256 }),
+  backlog: deque("backlog"),
+  lastMsg: messageValue("last-msg"),
+  msgIndex: messageMap("msg-index"),
+  msgLog: messageDeque("msg-log"),
+};
+const STATE_COLLECTIONS = Object.values(STATE_DEFS);
+
+// Fresh random token per call — defeats pre-existing Cassandra state so an
+// assertion can only pass on a value this test wrote.
+const nonce = () => Math.random().toString(36).slice(2);
+
 describe("ProsodyClient", () => {
   let admin;
   let tracer;
@@ -138,6 +190,23 @@ describe("ProsodyClient", () => {
       }
     };
   };
+
+  // Builds a client with the canonical state collections registered against the
+  // per-test topic, and reassigns the outer `client` so afterEach unsubscribes
+  // it. maxConcurrency >= 2 so the async-bridging test can observe interleaving.
+  const makeStateClient = () =>
+    new ProsodyClient({
+      bootstrapServers: BOOTSTRAP_SERVERS,
+      groupId: GROUP_NAME,
+      sourceSystem: SOURCE_NAME,
+      subscribedTopics: topic,
+      probePort: null,
+      mode: Mode.Pipeline,
+      cassandraNodes: CASSANDRA_NODES,
+      cassandraKeyspace: CASSANDRA_KEYSPACE,
+      stateCollections: STATE_COLLECTIONS,
+      maxConcurrency: 4,
+    });
 
   const sendTestMessage = async (key = "timer-test-key") => {
     const testMessage = {
@@ -1004,6 +1073,756 @@ describe("ProsodyClient", () => {
       ).toThrow(/timer_spans/);
     });
   });
+
+  // Live keyed-state FFI scenarios (Appendix 1). Each test registers the
+  // canonical collections via makeStateClient(), drives real Kafka + Cassandra,
+  // and pushes observation objects into messageStream. State is per message key,
+  // so multi-event scenarios drive two sends with the SAME key. Every handler
+  // wraps its work in try/catch that reports {tag:"error"} so a throw never
+  // silently hangs the wait — except where a throw is the intended stimulus.
+  describe("keyed state", () => {
+    // C1 — Value: set in event1 -> get in event2 (same key); clear -> get none;
+    // never-written -> none.
+    it("value round-trips across events, clears, and reads absent as null", async () => {
+      const V = nonce();
+      const Vc = nonce();
+      const Vn = nonce();
+      const stored = nonce();
+
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const c = ctx.state(STATE_DEFS.cart);
+          const { step } = msg.payload;
+          try {
+            if (msg.key === V && step === 1) {
+              await c.set({ v: stored });
+              messageStream.push({ tag: "V-set" });
+            } else if (msg.key === V && step === 2) {
+              messageStream.push({ tag: "V-get", got: await c.get() });
+            } else if (msg.key === Vc && step === 1) {
+              await c.set({ v: stored });
+              messageStream.push({ tag: "Vc-set" });
+            } else if (msg.key === Vc && step === 2) {
+              await c.clear();
+              messageStream.push({ tag: "Vc-get", cleared: await c.get() });
+            } else if (msg.key === Vn && step === 1) {
+              messageStream.push({ tag: "Vn-get", never: await c.get() });
+            }
+          } catch (e) {
+            messageStream.push({ tag: "error", error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, V, { step: 1 });
+      await client.send(topic, V, { step: 2 });
+      await client.send(topic, Vc, { step: 1 });
+      await client.send(topic, Vc, { step: 2 });
+      await client.send(topic, Vn, { step: 1 });
+
+      const obs = await waitForMessages(messageStream, 5, MESSAGE_TIMEOUT);
+      const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
+      expect(byTag.error).toBeUndefined();
+      expect(byTag["V-get"].got).toEqual({ v: stored });
+      expect(byTag["Vc-get"].cleared).toBeNull();
+      expect(byTag["Vn-get"].never).toBeNull();
+    });
+
+    // C2 — Map: set k1..k3, remove k2 -> forward scan yields k1,k3 in key order;
+    // backward reverses; get(k2) none; unicode string keys round-trip.
+    it("map scans in key order both directions, removes, and round-trips unicode keys", async () => {
+      const K = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          try {
+            await m.set("k1", 1);
+            await m.set("k2", 2);
+            await m.set("k3", 3);
+            await m.delete("k2");
+            await m.set("café", 9);
+            await m.set("😀", 7);
+
+            const fwd = [];
+            for await (const entry of m.entries("forward")) fwd.push(entry);
+            const bwd = [];
+            for await (const entry of m.entries("backward")) bwd.push(entry);
+
+            messageStream.push({
+              fwd,
+              bwd,
+              k2: await m.get("k2"),
+              cafe: await m.get("café"),
+              emoji: await m.get("😀"),
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+
+      const fwdKeys = obs.fwd.map(([k]) => k);
+      // forward is ascending key order and k2 is absent
+      expect(fwdKeys).toEqual([...fwdKeys].sort());
+      expect(fwdKeys).not.toContain("k2");
+      // k1 precedes k3 in the forward scan
+      expect(fwdKeys.indexOf("k1")).toBeLessThan(fwdKeys.indexOf("k3"));
+      // backward is the exact reverse of forward
+      expect(obs.bwd).toEqual([...obs.fwd].reverse());
+      expect(obs.k2).toBeNull();
+      expect(obs.cafe).toBe(9);
+      expect(obs.emoji).toBe(7);
+    });
+
+    // C3 — Deque: pushBack a,b + pushFront z -> length 3, not empty, get(0)=z;
+    // popFront=z, popBack=b; scans both directions; empty deque length 0 / empty
+    // / pops none.
+    it("deque orders push/unshift, indexes, pops both ends, scans, and handles empty", async () => {
+      const Dfull = nonce();
+      const Dempty = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const d = ctx.state(STATE_DEFS.backlog);
+          try {
+            if (msg.key === Dfull) {
+              await d.push("a");
+              await d.push("b");
+              await d.unshift("z");
+              const fwd = [];
+              for await (const x of d.values("forward")) fwd.push(x);
+              const bwd = [];
+              for await (const x of d.values("backward")) bwd.push(x);
+              const obs = {
+                tag: "full",
+                len: await d.length(),
+                empty: await d.isEmpty(),
+                head: await d.get(0),
+                fwd,
+                bwd,
+              };
+              obs.pf = await d.shift();
+              obs.pb = await d.pop();
+              messageStream.push(obs);
+            } else if (msg.key === Dempty) {
+              messageStream.push({
+                tag: "empty",
+                elen: await d.length(),
+                eempty: await d.isEmpty(),
+                epf: await d.shift(),
+                epb: await d.pop(),
+              });
+            }
+          } catch (e) {
+            messageStream.push({ tag: "error", error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, Dfull, { go: true });
+      await client.send(topic, Dempty, { go: true });
+      const obs = await waitForMessages(messageStream, 2, MESSAGE_TIMEOUT);
+      const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
+      expect(byTag.error).toBeUndefined();
+
+      const full = byTag.full;
+      expect(full.len).toBe(3);
+      expect(full.empty).toBe(false);
+      expect(full.head).toBe("z");
+      expect(full.fwd).toEqual(["z", "a", "b"]);
+      expect(full.bwd).toEqual(["b", "a", "z"]);
+      expect(full.pf).toBe("z");
+      expect(full.pb).toBe("b");
+
+      const empty = byTag.empty;
+      expect(empty.elen).toBe(0);
+      expect(empty.eempty).toBe(true);
+      expect(empty.epf).toBeNull();
+      expect(empty.epb).toBeNull();
+    });
+
+    // C4 — Message collection (messageValue): record the handled message in
+    // event1, read it back in event2, observing topic/partition/offset/key/
+    // payload equal to the original.
+    it("messageValue stores the handled message and reads it back intact", async () => {
+      const MK = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const lm = ctx.state(STATE_DEFS.lastMsg);
+          try {
+            if (msg.payload.step === 1) {
+              await lm.set(msg);
+              messageStream.push({
+                tag: "orig",
+                topic: msg.topic,
+                partition: msg.partition,
+                offset: msg.offset.toString(),
+                key: msg.key,
+                payload: msg.payload,
+              });
+            } else if (msg.payload.step === 2) {
+              const got = await lm.get();
+              messageStream.push({
+                tag: "got",
+                topic: got.topic,
+                partition: got.partition,
+                offset: got.offset.toString(),
+                key: got.key,
+                payload: got.payload,
+              });
+            }
+          } catch (e) {
+            messageStream.push({ tag: "error", error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, MK, { step: 1 });
+      await client.send(topic, MK, { step: 2 });
+      const obs = await waitForMessages(messageStream, 2, MESSAGE_TIMEOUT);
+      const byTag = Object.fromEntries(obs.map((o) => [o.tag, o]));
+      expect(byTag.error).toBeUndefined();
+
+      const orig = { ...byTag.orig };
+      const got = { ...byTag.got };
+      delete orig.tag;
+      delete got.tag;
+      // the stored item is event1's ORIGINAL message; its offset differs from
+      // event2's, so equality proves the store returned the recorded message.
+      expect(got).toEqual(orig);
+      expect(orig.payload).toEqual({ step: 1 });
+    });
+
+    // C4b — Message collection (messageDeque): same-event push -> get(0) -> scan
+    // round-trips the full Message.
+    it("messageDeque round-trips the full message through push/get/scan", async () => {
+      const MD = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const dl = ctx.state(STATE_DEFS.msgLog);
+          try {
+            await dl.push(msg);
+            const head = await dl.get(0);
+            const scanned = [];
+            for await (const m of dl.values("forward")) scanned.push(m);
+            messageStream.push({
+              orig: {
+                topic: msg.topic,
+                partition: msg.partition,
+                offset: msg.offset.toString(),
+                key: msg.key,
+                payload: msg.payload,
+              },
+              head: {
+                topic: head.topic,
+                partition: head.partition,
+                offset: head.offset.toString(),
+                key: head.key,
+                payload: head.payload,
+              },
+              scannedLen: scanned.length,
+              scannedFirstPayload: scanned[0].payload,
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, MD, { marker: MD });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.head).toEqual(obs.orig);
+      expect(obs.scannedLen).toBe(1);
+      expect(obs.scannedFirstPayload).toEqual({ marker: MD });
+    });
+
+    // C5a — commit(): the committed floor survives an attempt that subsequently
+    // fails; a fresh handle on redelivery observes it.
+    it("commit floor survives a failed attempt and is visible on retry", async () => {
+      const V = nonce();
+      let attempt = 0;
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          attempt += 1;
+          const c = ctx.state(STATE_DEFS.cart);
+          if (attempt === 1) {
+            await c.set({ v: V });
+            await c.commit();
+            throw new TransientStateError("fail after commit");
+          }
+          messageStream.push({ attempt, got: await c.get() });
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.attempt).toBe(2);
+      expect(obs.got).toEqual({ v: V });
+    });
+
+    // C5b — rollback(): discards uncommitted ops back to the committed floor.
+    it("rollback discards uncommitted writes back to the committed floor", async () => {
+      const A = nonce();
+      const B = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const c = ctx.state(STATE_DEFS.cart);
+          try {
+            await c.set({ v: A });
+            await c.commit();
+            await c.set({ v: B });
+            const before = await c.get();
+            await c.rollback();
+            const after = await c.get();
+            messageStream.push({ before: before.v, after: after.v });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.before).toBe(B);
+      expect(obs.after).toBe(A);
+    });
+
+    // C6a — a state op from a handle LEAKED past a failed attempt fails with the
+    // terminated (transient) error, and the failed attempt's uncommitted write
+    // is not visible on retry.
+    it("a handle leaked across a failed attempt rejects transient and leaves no state", async () => {
+      const bad = nonce();
+      let attempt = 0;
+      let leaked = null;
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          attempt += 1;
+          const c = ctx.state(STATE_DEFS.cart);
+          if (attempt === 1) {
+            leaked = c;
+            await c.set({ v: bad });
+            throw new TransientStateError("fail attempt 1");
+          }
+          // attempt 2: catch-and-report so the expected leaked rejection never
+          // escapes the handler and re-triggers retry.
+          let leakedOutcome;
+          try {
+            leakedOutcome = { status: "resolved", value: await leaked.get() };
+          } catch (e) {
+            leakedOutcome = {
+              status: "rejected",
+              transient: e instanceof TransientStateError,
+            };
+          }
+          messageStream.push({ leakedOutcome, fresh: await c.get() });
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.leakedOutcome.status).toBe("rejected");
+      expect(obs.leakedOutcome.transient).toBe(true);
+      expect(obs.fresh).toBeNull();
+    });
+
+    // C6b — a leaked CONTEXT binding a fresh collection after the attempt fails
+    // also fails (a leaked context cannot mint a working handle).
+    it("a context leaked across a failed attempt cannot bind a working handle", async () => {
+      let attempt = 0;
+      let leakedCtx = null;
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          attempt += 1;
+          if (attempt === 1) {
+            leakedCtx = ctx;
+            throw new TransientStateError("fail attempt 1");
+          }
+          let result;
+          try {
+            const m = leakedCtx.state(STATE_DEFS.totals);
+            result = { status: "resolved", value: await m.get("x") };
+          } catch (e) {
+            result = {
+              status: "rejected",
+              transient: e instanceof TransientStateError,
+              stateError: isStateError(e),
+            };
+          }
+          messageStream.push(result);
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.status).toBe("rejected");
+      expect(obs.stateError).toBe(true);
+      expect(obs.transient).toBe(true);
+    });
+
+    // C6c — a leaked read after a SUCCESSFUL handler also fails (no post-handler
+    // read window). A second SAME-KEY sentinel message guarantees, via per-key
+    // serialization, that the first event fully tore down before we call the
+    // leaked handle from the test body.
+    it("a handle leaked past a successful handler rejects transient", async () => {
+      const K = nonce();
+      let leaked = null;
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          try {
+            if (msg.payload.step === 1) {
+              leaked = ctx.state(STATE_DEFS.cart);
+              await leaked.set({ v: nonce() });
+              messageStream.push({ ev: "captured" });
+              return;
+            }
+            if (msg.payload.step === 2) {
+              messageStream.push({ ev: "sentinel-started" });
+              return;
+            }
+          } catch (e) {
+            messageStream.push({ ev: "error", error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { step: 1 });
+      await waitForObservation(
+        messageStream,
+        (o) => o.ev === "captured",
+        MESSAGE_TIMEOUT,
+      );
+      await client.send(topic, K, { step: 2 });
+      await waitForObservation(
+        messageStream,
+        (o) => o.ev === "sentinel-started",
+        MESSAGE_TIMEOUT,
+      );
+
+      await expect(leaked.get()).rejects.toBeInstanceOf(TransientStateError);
+    });
+
+    // C7a — early break from an iterator does not wedge later access on the same
+    // collection (integration-level; GREEN-IS-CORRECT — the strong close
+    // assertion is the fake-cursor unit test). A follow-up op succeeds.
+    it("breaking out of a scan leaves the collection usable", async () => {
+      const K = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          try {
+            await m.set("a", 1);
+            await m.set("b", 2);
+            await m.set("c", 3);
+            // eslint-disable-next-line no-unused-vars
+            for await (const _entry of m.entries()) break;
+            await m.set("after", 99);
+            messageStream.push({ ok: (await m.get("after")) === 99 });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.ok).toBe(true);
+    });
+
+    // C8a — binding an unregistered name rejects PermanentStateError at vend.
+    it("binding an unregistered collection name throws PermanentStateError", async () => {
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          let result;
+          try {
+            ctx.state(value("never-registered-" + nonce()));
+            result = { permanent: false, threw: false };
+          } catch (e) {
+            result = {
+              threw: true,
+              permanent: e instanceof PermanentStateError,
+            };
+          }
+          messageStream.push(result);
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.threw).toBe(true);
+      expect(obs.permanent).toBe(true);
+    });
+
+    // C8b — an invalid scan-direction token throws PermanentStateError (the
+    // surviving, testable direction half of the Appendix-2 row; the token-set
+    // return half is obsolete under the owner override).
+    it("an invalid scan direction throws PermanentStateError", async () => {
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          let result;
+          try {
+            m.entries("sideways");
+            result = { threw: false };
+          } catch (e) {
+            result = {
+              threw: true,
+              permanent: e instanceof PermanentStateError,
+              msg: e.message,
+            };
+          }
+          messageStream.push(result);
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.threw).toBe(true);
+      expect(obs.permanent).toBe(true);
+      expect(obs.msg).toMatch(/forward.*backward/);
+    });
+
+    // C8c-permanent — a rethrown PermanentStateError classifies permanent
+    // through the EXISTING bridge (no retry).
+    it("rethrowing a PermanentStateError classifies permanent (no retry)", async () => {
+      let count = 0;
+      const errorEvent = new EventEmitter();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          count += 1;
+          errorEvent.emit("handled");
+          throw new PermanentStateError("permanent state boom");
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      await waitForEvent(errorEvent, "handled", MESSAGE_TIMEOUT);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      expect(count).toBe(1);
+    });
+
+    // C8c-transient — a rethrown TransientStateError classifies transient
+    // through the EXISTING bridge (retries, never surfaces terminal).
+    it("rethrowing a TransientStateError classifies transient (retries)", async () => {
+      let count = 0;
+      const retryEvent = new EventEmitter();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          count += 1;
+          if (count === 1) {
+            throw new TransientStateError("transient state later");
+          }
+          retryEvent.emit("retry");
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
+      expect(count).toBe(2);
+    });
+
+    // C10a — set(null)/push(null) reject PermanentStateError naming clear/remove;
+    // the store is untouched.
+    it("null-item writes reject permanent and leave the store untouched", async () => {
+      const V = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const c = ctx.state(STATE_DEFS.cart);
+          const d = ctx.state(STATE_DEFS.backlog);
+          try {
+            await c.set({ v: V });
+            await c.commit();
+
+            let valueOutcome;
+            try {
+              await c.set(null);
+              valueOutcome = { permanent: false, threw: false };
+            } catch (e) {
+              valueOutcome = {
+                threw: true,
+                permanent: e instanceof PermanentStateError,
+                msg: e.message,
+              };
+            }
+
+            let dequeOutcome;
+            try {
+              await d.push(null);
+              dequeOutcome = { permanent: false, threw: false };
+            } catch (e) {
+              dequeOutcome = {
+                threw: true,
+                permanent: e instanceof PermanentStateError,
+              };
+            }
+
+            messageStream.push({
+              valueOutcome,
+              dequeOutcome,
+              after: (await c.get()).v,
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.valueOutcome.threw).toBe(true);
+      expect(obs.valueOutcome.permanent).toBe(true);
+      expect(obs.valueOutcome.msg).toMatch(/clear/);
+      expect(obs.dequeOutcome.threw).toBe(true);
+      expect(obs.dequeOutcome.permanent).toBe(true);
+      expect(obs.after).toBe(V);
+    });
+
+    // C10b — an uncaught null write classifies permanent (no retry).
+    it("an uncaught null-item write classifies permanent (no retry)", async () => {
+      let count = 0;
+      const handledEvent = new EventEmitter();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          count += 1;
+          handledEvent.emit("handled");
+          await ctx.state(STATE_DEFS.cart).set(null);
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      await waitForEvent(handledEvent, "handled", MESSAGE_TIMEOUT);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      expect(count).toBe(1);
+    });
+
+    // C11 — Tracing (item 12), GREEN-IS-CORRECT. In-process JS cannot observe
+    // the Rust collection span (separate OTLP pipeline), so this asserts only
+    // that (a) a state op inside an active JS span resolves and (b) the JS event
+    // context is active during the op. End-to-end span parentage
+    // (core collection span -> per-op span -> event span) is verified at the
+    // collector, not here.
+    it("a state op runs under the active JS trace context (smoke)", async () => {
+      const V = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          await tracer.startActiveSpan("test.state_op", async (span) => {
+            try {
+              const c = ctx.state(STATE_DEFS.cart);
+              await c.set({ v: V });
+              const got = await c.get();
+              messageStream.push({
+                got,
+                activeSpan: opentelemetry.trace.getActiveSpan() !== undefined,
+              });
+            } finally {
+              span.end();
+            }
+          });
+        },
+      });
+
+      await client.send(topic, nonce(), { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.got).toEqual({ v: V });
+      expect(obs.activeSpan).toBe(true);
+    });
+
+    // C12 — Async bridging (item 13): while one handler is blocked awaiting a
+    // barrier, a handler for a DIFFERENT key on the SAME partition makes
+    // progress (the event loop / native bridge is not serialized). Two keys are
+    // forced onto one partition by probing.
+    it("a blocked handler does not block a different key on the same partition", async () => {
+      // Probe: send 5 keys through the beforeEach client, collect partitions,
+      // pick two distinct keys on the SAME partition (guaranteed with 5 keys /
+      // 4 partitions).
+      const probeStream = createMessageStream();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          probeStream.push({ key: msg.key, partition: msg.partition });
+        },
+      });
+      const probeKeys = [0, 1, 2, 3, 4].map((i) => `probe-${nonce()}-${i}`);
+      for (const k of probeKeys) await client.send(topic, k, { probe: true });
+      const probes = await waitForMessages(probeStream, 5, MESSAGE_TIMEOUT);
+      await client.unsubscribe();
+
+      const seen = {};
+      let keyA = null;
+      let keyB = null;
+      for (const p of probes) {
+        if (seen[p.partition] !== undefined) {
+          keyA = seen[p.partition];
+          keyB = p.key;
+          break;
+        }
+        seen[p.partition] = p.key;
+      }
+      expect(keyA).not.toBeNull();
+      expect(keyB).not.toBeNull();
+
+      let release;
+      const gate = new Promise((r) => (release = r));
+      let aStarted = false;
+      let aFinished = false;
+      const events = new EventEmitter();
+
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          if (msg.key === keyA) {
+            aStarted = true;
+            events.emit("A-blocked");
+            try {
+              await gate;
+            } finally {
+              aFinished = true;
+            }
+            events.emit("A-done");
+            return;
+          }
+          if (msg.key === keyB) {
+            events.emit("B-done", { aStarted, aFinished });
+          }
+        },
+      });
+
+      try {
+        await client.send(topic, keyA, { n: 1 });
+        await waitForEvent(events, "A-blocked", MESSAGE_TIMEOUT);
+        await client.send(topic, keyB, { n: 2 });
+        const [bInfo] = await waitForEvent(events, "B-done", MESSAGE_TIMEOUT);
+        expect(bInfo.aStarted).toBe(true);
+        expect(bInfo.aFinished).toBe(false);
+      } finally {
+        release();
+      }
+      await waitForEvent(events, "A-done", MESSAGE_TIMEOUT);
+    });
+  });
 });
 
 const waitForEvent = (emitter, eventName, timeout) => {
@@ -1029,3 +1848,241 @@ const waitForEvent = (emitter, eventName, timeout) => {
     emitter.once(eventName, eventHandler);
   });
 };
+
+// Infra-free unit tests over the real state classes driven by FAKE native
+// handles. These are the STRONG home for cursor-lifecycle and argument-typing
+// targets that are only green-is-correct at the integration level (a released
+// permit masks a missing close between pulls).
+describe("keyed state (unit)", () => {
+  // A gated cursor whose close() blocks until releaseClose() — lets a test prove
+  // that return() AWAITS the native close().
+  const makeGatedCursor = () => {
+    let releaseClose;
+    const closeGate = new Promise((r) => (releaseClose = r));
+    const counts = { closed: 0, nextCalls: 0 };
+    return {
+      cursor: {
+        async next() {
+          counts.nextCalls += 1;
+          return ["k" + counts.nextCalls, counts.nextCalls];
+        },
+        async close() {
+          counts.closed += 1;
+          await closeGate;
+        },
+      },
+      releaseClose: () => releaseClose(),
+      closedCount: () => counts.closed,
+    };
+  };
+
+  // A finite cursor that yields `items` then null (exhausted), closing on
+  // exhaustion.
+  const makeFiniteCursor = (items) => {
+    let i = 0;
+    const counts = { closed: 0 };
+    return {
+      cursor: {
+        async next() {
+          return i < items.length ? items[i++] : null;
+        },
+        async close() {
+          counts.closed += 1;
+        },
+      },
+      closedCount: () => counts.closed,
+    };
+  };
+
+  // A1 — return() (early break) awaits the native close() exactly once.
+  it("iterator return() awaits the native cursor close exactly once", async () => {
+    const fake = makeGatedCursor();
+    const m = new MapState({ scan: () => fake.cursor });
+    const it = m.entries();
+    await it.next();
+
+    const ret = it.return();
+    let settled = false;
+    ret.then(() => {
+      settled = true;
+    });
+    // Yield the microtask queue: return() must still be pending on close().
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(fake.closedCount()).toBe(1);
+
+    fake.releaseClose();
+    await ret;
+    expect(fake.closedCount()).toBe(1);
+  });
+
+  // A2 — exhaustion maps native null -> done and closes the cursor once.
+  it("iterator exhaustion ends the loop and closes the cursor", async () => {
+    const fake = makeFiniteCursor([
+      ["a", "v1"],
+      ["b", "v2"],
+    ]);
+    const m = new MapState({ scan: () => fake.cursor });
+    const collected = [];
+    for await (const v of m.values()) collected.push(v);
+    expect(collected).toEqual(["v1", "v2"]);
+    expect(fake.closedCount()).toBe(1);
+  });
+
+  // A3 — a pull error closes the cursor, wraps to the typed state error, and
+  // finishes the iterator (no further pulls).
+  it("iterator pull error closes, wraps to a state error, and finishes", async () => {
+    const counts = { closed: 0 };
+    const cursor = {
+      async next() {
+        const e = new Error("scan boom");
+        e.cause = new Error("transient");
+        throw e;
+      },
+      async close() {
+        counts.closed += 1;
+      },
+    };
+    const m = new MapState({ scan: () => cursor });
+    const it = m.entries();
+    await expect(it.next()).rejects.toBeInstanceOf(TransientStateError);
+    expect(counts.closed).toBe(1);
+    await expect(it.next()).resolves.toEqual({ value: undefined, done: true });
+  });
+
+  // A4 — error classes carry category as data and subclass the existing bridge
+  // hierarchy so a rethrow classifies with no state-specific bridge path.
+  it("state error classes carry category and subclass the bridge hierarchy", () => {
+    expect(new PermanentStateError("x").isPermanent).toBe(true);
+    expect(new TransientStateError("x").isPermanent).toBe(false);
+    expect(new PermanentStateError("x")).toBeInstanceOf(PermanentError);
+    expect(new TransientStateError("x")).toBeInstanceOf(TransientError);
+    expect(isStateError(new PermanentStateError("x"))).toBe(true);
+    expect(isStateError(new TransientStateError("x"))).toBe(true);
+    expect(isStateError(new Error("x"))).toBe(false);
+  });
+
+  // A5 — DequeState.get rejects a fractional or negative index (Appendix-2
+  // deque-index row; the native u32 conversion would otherwise truncate/wrap).
+  it("deque get rejects a fractional or negative index but allows valid ones", async () => {
+    const d = new DequeState({ get: async () => 99 });
+    await expect(d.get(1.5)).rejects.toBeInstanceOf(PermanentStateError);
+    await expect(d.get(1.5)).rejects.toThrow(/index/);
+    await expect(d.get(-1)).rejects.toBeInstanceOf(PermanentStateError);
+    await expect(d.get(2)).resolves.toBe(99);
+  });
+});
+
+// Infra-free config-validation tests: state-collection rules run synchronously
+// at client construction (mock:true), so an invalid definition THROWS from the
+// constructor with the offending field named in the message.
+describe("keyed state configuration validation", () => {
+  const makeConfig = (overrides) => ({
+    bootstrapServers: BOOTSTRAP_SERVERS,
+    groupId: GROUP_NAME,
+    sourceSystem: SOURCE_NAME,
+    subscribedTopics: "t",
+    mock: true,
+    ...overrides,
+  });
+
+  // A valid mock:true client spins up a mock cluster that logs its startup
+  // asynchronously; drain it before teardown so the log does not fire after the
+  // test module is torn down (mirrors the ProsodyClient afterAll drain).
+  afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  });
+
+  it("rejects an empty collection name", () => {
+    expect(
+      () => new ProsodyClient(makeConfig({ stateCollections: [value("")] })),
+    ).toThrow(/name: must not be empty/);
+  });
+
+  it("rejects a duplicate collection name", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("dup"), map("dup")] }),
+        ),
+    ).toThrow(/duplicate collection name/);
+  });
+
+  it("rejects ttlSeconds of zero", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("v", { ttlSeconds: 0 })] }),
+        ),
+    ).toThrow(/ttlSeconds/);
+  });
+
+  it("rejects sub-second ttlSeconds (truncates to zero)", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("v", { ttlSeconds: 0.5 })] }),
+        ),
+    ).toThrow(/ttlSeconds/);
+  });
+
+  it("rejects keysetLimit above the ceiling", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [map("m", { keysetLimit: 5000 })] }),
+        ),
+    ).toThrow(/keysetLimit: must be within 0..=4096/);
+  });
+
+  it("rejects keysetLimit on a non-map collection", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
+        ),
+    ).toThrow(/keysetLimit: only valid for map/);
+  });
+
+  it("rejects an unknown kind token", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({
+            stateCollections: [{ name: "x", kind: "bogus", payload: "json" }],
+          }),
+        ),
+    ).toThrow(/kind: expected/);
+  });
+
+  it("rejects an unknown payload token", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({
+            stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
+          }),
+        ),
+    ).toThrow(/payload: expected/);
+  });
+
+  it("rejects stateDefaultTtlSeconds of zero", () => {
+    expect(
+      () => new ProsodyClient(makeConfig({ stateDefaultTtlSeconds: 0 })),
+    ).toThrow(/stateDefaultTtlSeconds/);
+  });
+
+  it("rejects stateRecoveryDelaySeconds of zero", () => {
+    expect(
+      () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds: 0 })),
+    ).toThrow(/stateRecoveryDelaySeconds/);
+  });
+
+  it("accepts the full canonical collection set", () => {
+    expect(
+      () =>
+        new ProsodyClient(makeConfig({ stateCollections: STATE_COLLECTIONS })),
+    ).not.toThrow();
+  });
+});

@@ -410,7 +410,11 @@ export declare class DequeState<T = any> {
   length(): Promise<number>;
   /** Reports whether the deque holds no live elements. */
   isEmpty(): Promise<boolean>;
-  /** Reads the element at front-relative position `index`, or null past the end. */
+  /**
+   * Reads the element at front-relative position `index`, or null past the end.
+   * `index` must be a non-negative integer; a fractional or negative value
+   * rejects with a `PermanentStateError`.
+   */
   get(index: number): Promise<T | null>;
   /**
    * Async iterator over the live elements in index order. Valid only within

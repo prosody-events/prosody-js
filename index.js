@@ -28,6 +28,8 @@
  * @typedef {import('./bindings').Mode} Mode
  */
 
+const { types } = require("node:util");
+
 const {
   context: otelContext,
   propagation,
@@ -496,13 +498,16 @@ const STATE_ERROR_NAMES = new Set([
  *
  * Name-branded: it matches on the error's `name`, so it recognizes state errors
  * across both category classes (and across realms/duplicate module copies)
- * without caring which category the error carries.
+ * without caring which category the error carries. It uses a realm-neutral
+ * native-error check so an error minted in another realm (a Node vm context,
+ * worker thread, or duplicate module copy) is still recognized — a bare
+ * `instanceof Error` would reject those.
  *
  * @param {unknown} error - The value to test.
  * @returns {boolean} True when the value is a keyed-state error.
  */
 function isStateError(error) {
-  return error instanceof Error && STATE_ERROR_NAMES.has(error.name);
+  return types.isNativeError(error) && STATE_ERROR_NAMES.has(error.name);
 }
 
 /**
@@ -586,15 +591,21 @@ function injectedCarrier() {
  * or `"transient"` — a data channel distinct from the human-readable message,
  * which is never parsed. Untagged errors (e.g. an argument-conversion
  * TypeError) pass through unchanged.
+ *
+ * The native-error checks are realm-neutral (`util.types.isNativeError`) rather
+ * than `instanceof Error`: a napi error is minted in the addon's realm, so under
+ * a Node vm context, worker thread, or duplicate module copy a plain
+ * `instanceof Error` would be false and the category tag would be missed. The
+ * category is still matched exactly against the closed `"permanent"`/
+ * `"transient"` token set on the cause.
  * @param {unknown} error - The error thrown by the native layer.
  * @returns {unknown} The typed state error, or the original error if untagged.
  * @private
  */
 function toStateError(error) {
-  const category =
-    error instanceof Error && error.cause instanceof Error
-      ? error.cause.message
-      : undefined;
+  if (!types.isNativeError(error)) return error;
+  const cause = error.cause;
+  const category = types.isNativeError(cause) ? cause.message : undefined;
   if (category !== "permanent" && category !== "transient") return error;
   const wrapped =
     category === "permanent"
@@ -1045,11 +1056,24 @@ class DequeState {
 
   /**
    * Reads the element at front-relative position `index`.
+   *
+   * `index` must be a non-negative integer. A fractional or negative number is
+   * rejected with a {@link PermanentStateError}: the native `u32` argument
+   * conversion would otherwise silently truncate `1.5` to `1` and wrap `-1` to a
+   * huge index, so this guard types the argument at the boundary rather than
+   * letting a mistaken index read the wrong element.
    * @param {number} index - The zero-based position from the front.
    * @returns {Promise<*|null>} The element, or null past the end.
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   get(index) {
+    if (!Number.isInteger(index) || index < 0) {
+      return Promise.reject(
+        new PermanentStateError(
+          `get: index must be a non-negative integer, got ${index}`,
+        ),
+      );
+    }
     return stateOp((carrier) => this.native.get(index, carrier));
   }
 
