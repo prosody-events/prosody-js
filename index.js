@@ -468,8 +468,12 @@ class PermanentError extends EventHandlerError {
 }
 
 /**
- * Represents a transient keyed-state failure (e.g. a store read/write timeout)
- * that may succeed on a later attempt. Thrown by state handles and scan
+ * Represents a transient keyed-state failure that may succeed on a later
+ * attempt — a store read/write timeout, AND every caller mistake (a
+ * null/unrepresentable write, an item-shape mismatch, an out-of-range index, an
+ * invalid scan direction). Caller mistakes are transient on purpose: retrying
+ * keeps the failure visible and never discards the message (see the
+ * error-classification rule in CLAUDE.md). Thrown by state handles and scan
  * iterators. Because it subclasses {@link TransientError}, rethrowing it from a
  * handler classifies the event transient through the existing error bridge with
  * no bridge change.
@@ -478,12 +482,16 @@ class PermanentError extends EventHandlerError {
 class TransientStateError extends TransientError {}
 
 /**
- * Represents a permanent keyed-state failure — an unregistered collection name,
- * a registered-identity mismatch, a duplicate registration, a null write (use
- * clear() on value/deque or delete() on map instead), or an item-shape mistake.
- * Because it subclasses {@link PermanentError}, rethrowing it from a handler
- * classifies the event permanent through the existing error bridge with no
- * bridge change.
+ * Represents a permanent keyed-state failure — one a retry cannot resolve in
+ * the running process: an unregistered collection name, a registered-identity
+ * mismatch, or a duplicate registration. Caller mistakes (a null/unrepresentable
+ * write, an item-shape mismatch, a bad index, an invalid direction) are NOT
+ * permanent — they are {@link TransientStateError} so they retry and stay
+ * visible rather than discarding the message (see the error-classification rule
+ * in CLAUDE.md). A handler may also throw this to declare its own failure
+ * permanent. Because it subclasses {@link PermanentError}, rethrowing it from a
+ * handler classifies the event permanent through the existing error bridge with
+ * no bridge change.
  * @extends PermanentError
  */
 class PermanentStateError extends PermanentError {}
@@ -812,12 +820,16 @@ class ValueState {
   }
 
   /**
-   * Buffers a write of the value. Writing JSON `null` is rejected core-side with
-   * a {@link PermanentStateError} naming `clear()` — use {@link ValueState#clear}
-   * to delete instead.
+   * Buffers a write of the value. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError}
+   * naming `clear()` — use {@link ValueState#clear} to delete instead. The
+   * error is transient so it retries and stays visible rather than discarding
+   * the message and losing data.
    * @param {*} value - The value to store.
    * @returns {Promise<void>}
-   * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
+   * @throws {TransientStateError} On a null/unrepresentable/shape mistake or a
+   *   transient store failure; {@link PermanentStateError} only if the store
+   *   reports one.
    */
   set(value) {
     return stateOp((carrier) => this.native.set(value, carrier));
@@ -876,13 +888,17 @@ class MapState {
   }
 
   /**
-   * Inserts or overwrites `key`. Writing JSON `null` is rejected core-side with
-   * a {@link PermanentStateError} — use {@link MapState#delete} to remove an
-   * entry instead.
+   * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError} —
+   * use {@link MapState#delete} to remove an entry instead. The error is
+   * transient so it retries and stays visible rather than discarding the
+   * message and losing data.
    * @param {string} key - The map key.
    * @param {*} value - The value to store.
    * @returns {Promise<void>}
-   * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
+   * @throws {TransientStateError} On a null/unrepresentable/shape mistake or a
+   *   transient store failure; {@link PermanentStateError} only if the store
+   *   reports one.
    */
   set(key, value) {
     return stateOp((carrier) => this.native.set(key, value, carrier));
@@ -918,7 +934,8 @@ class MapState {
    * (attempt) that opened it; early exit closes the underlying cursor.
    * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
-   * @throws {PermanentStateError} If the direction token is invalid.
+   * @throws {TransientStateError} If the direction token is invalid (a caller
+   *   mistake — retries, not discarded).
    */
   entries(direction = "forward") {
     return stateIterator(
@@ -1055,20 +1072,22 @@ class DequeState {
    * Reads the element at front-relative position `index`.
    *
    * `index` must be a non-negative integer. A fractional or negative number is
-   * rejected with a {@link PermanentStateError}: the native `u32` argument
+   * rejected with a {@link TransientStateError}: the native `u32` argument
    * conversion would otherwise silently truncate `1.5` to `1` and wrap `-1` to a
    * huge index, so this guard types the argument at the boundary rather than
    * letting a mistaken index read the wrong element. A value above
    * `4294967295` (`u32::MAX`) is rejected for the same reason — it would wrap
-   * modulo 2^32 and read the wrong element.
+   * modulo 2^32 and read the wrong element. The error is transient (a caller
+   * mistake retries and stays visible, never discards the message).
    * @param {number} index - The zero-based position from the front.
    * @returns {Promise<*|null>} The element, or null past the end.
-   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   * @throws {TransientStateError} On an index mistake or a transient store
+   *   failure; {@link PermanentStateError} only if the store reports one.
    */
   get(index) {
     if (!Number.isInteger(index) || index < 0 || index > 0xffffffff) {
       return Promise.reject(
-        new PermanentStateError(
+        new TransientStateError(
           `get: index must be an integer in [0, 4294967295], got ${index}`,
         ),
       );
@@ -1082,7 +1101,8 @@ class DequeState {
    * the underlying cursor.
    * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
    * @returns {AsyncIterableIterator<*>} The values iterator.
-   * @throws {PermanentStateError} If the direction token is invalid.
+   * @throws {TransientStateError} If the direction token is invalid (a caller
+   *   mistake — retries, not discarded).
    */
   values(direction = "forward") {
     return stateIterator(

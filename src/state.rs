@@ -13,9 +13,12 @@
 //!
 //! Errors carry their category (`"permanent"` / `"transient"`) as the message
 //! of the JavaScript error's `cause`, a machine-readable data channel the
-//! typed layer branches on without parsing the human message. No fencing,
-//! cursor safety, or null-write rejection lives here: those are core-owned and
-//! this layer only transports and types.
+//! typed layer branches on without parsing the human message. No fencing or
+//! cursor safety lives here: those are core-owned and this layer only
+//! transports and types. Caller-mistake conditions the glue detects (an
+//! unrepresentable value, a `null` write, a wrong item shape, an invalid enum
+//! token) reject TRANSIENT — a caller code error retries and stays visible
+//! rather than discarding the message (see CLAUDE.md error-classification).
 
 use crate::message::Message;
 use napi::bindgen_prelude::{
@@ -57,12 +60,14 @@ type ItemIn = Either<Message, JsonItem>;
 /// The conversion OUTCOME is captured as a `Result` rather than surfaced as a
 /// `from_napi_value` error: a JS value with no JSON representation (a function,
 /// symbol, `undefined`, or external — whether bare or nested inside a
-/// container) fails conversion, and an `Err` returned during argument
+/// container) is a CALLER MISTAKE, so it must reject TRANSIENT — it retries and
+/// stays visible rather than discarding the message and losing data (see
+/// CLAUDE.md error-classification). An `Err` returned during argument
 /// conversion is thrown synchronously by napi with the `cause` category tag
-/// STRIPPED — the typed layer would then misclassify the write as transient and
-/// retry it forever. The captured `Err` is instead re-raised as a
-/// `permanent`-tagged error inside the async method body, on the
-/// promise-rejection path where `cause` survives.
+/// STRIPPED, so the category would be implicit; capturing the `Err` and
+/// re-raising a `transient`-tagged error inside the async method body — on the
+/// promise-rejection path where `cause` survives — makes the category explicit
+/// and carries a clean message.
 ///
 /// One nested case does NOT reach here: an `undefined` OBJECT property is
 /// dropped by the serde bridge (as `JSON.stringify` does) rather than failing,
@@ -105,7 +110,7 @@ impl FromNapiValue for JsonItem {
     // conversion via safe NAPI-RS accessors.
     //
     // This never returns `Err`: a failed conversion is captured in the newtype
-    // (see the type docs) so the method body can raise a `permanent`-tagged
+    // (see the type docs) so the method body can raise a `transient`-tagged
     // error where the `cause` tag survives, rather than losing it to napi's
     // synchronous argument-conversion throw.
     #[allow(unsafe_code)]
@@ -160,26 +165,52 @@ pub(crate) fn state_error(error: &ErasedStateError) -> Error {
     tagged_error(category_token(error.category()), error.message().to_owned())
 }
 
-/// Builds a permanent-category napi error for a glue-detected condition
-/// (argument-shape mistake or value unrepresentable across the boundary).
+/// Builds a transient-category napi error for a caller-caused condition the
+/// glue detects (an unrepresentable value, a `null` write, a wrong argument
+/// shape, an out-of-range index, an invalid enum token).
+///
+/// Caller mistakes are TRANSIENT, never permanent: a permanent error discards
+/// the in-flight message and can silently lose data or corrupt downstream
+/// state, so a code error retries and stays visible (logs/metrics/lag) instead
+/// — the developer sees it and fixes their code. Only an explicit caller
+/// `PermanentError` throw is permanent (see CLAUDE.md error-classification).
 ///
 /// @param message The human-readable error message.
-/// @returns The structured napi error tagged permanent.
-fn permanent_error(message: String) -> Error {
-    tagged_error("permanent", message)
+/// @returns The structured napi error tagged transient.
+fn transient_error(message: String) -> Error {
+    tagged_error("transient", message)
+}
+
+/// Rejects a JSON `null` write as a transient caller error.
+///
+/// `null` is not a storable value (it is indistinguishable from absence). Like
+/// every caller mistake it is TRANSIENT, not permanent — it retries and stays
+/// visible rather than discarding the message. `advice` names the deletion verb
+/// for the collection kind (a deque has none).
+///
+/// @param value The converted JSON value to check.
+/// @param advice A trailing clause naming how to delete instead.
+/// @returns `Ok` unless `value` is JSON `null`.
+fn reject_null(value: &Value, advice: &str) -> napi::Result<()> {
+    if value.is_null() {
+        return Err(transient_error(format!(
+            "JSON null is not a storable value{advice}"
+        )));
+    }
+    Ok(())
 }
 
 /// Parses a scan-direction token into the core `Direction`.
 ///
 /// @param direction The `"forward"` or `"backward"` token.
 /// @returns The matching `Direction`.
-/// @throws Error (permanent) if the token is neither `"forward"` nor
-/// `"backward"`.
+/// @throws Error (transient) if the token is neither `"forward"` nor
+/// `"backward"` (a caller mistake — retries, not discarded).
 fn parse_direction(direction: &str) -> napi::Result<Direction> {
     match direction {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
-        other => Err(permanent_error(format!(
+        other => Err(transient_error(format!(
             "direction: expected \"forward\" or \"backward\", got {other:?}"
         ))),
     }
@@ -214,18 +245,18 @@ fn op_span(
 ///
 /// @param message The JavaScript message to rebuild.
 /// @returns The reconstructed `ConsumerMessage`.
-/// @throws Error (permanent) if the offset exceeds the lossless `i64` range,
+/// @throws Error (transient) if the offset exceeds the lossless `i64` range,
 ///   or if the processing permit cannot be acquired.
 fn consumer_message(message: Message) -> napi::Result<ConsumerMessage<Value>> {
     let (offset, lossless) = message.offset.get_i64();
     if !lossless {
-        return Err(permanent_error(
+        return Err(transient_error(
             "message.offset: exceeds the i64 range Kafka offsets occupy".to_owned(),
         ));
     }
     let permit = Arc::new(Semaphore::new(1))
         .try_acquire_owned()
-        .map_err(|e| permanent_error(format!("failed to acquire message permit: {e}")))?;
+        .map_err(|e| transient_error(format!("failed to acquire message permit: {e}")))?;
     let value = ConsumerMessageValue {
         source_system: None,
         topic: message.topic.as_str().into(),
@@ -325,10 +356,10 @@ impl NativeValueState {
 
     /// Buffers a write of the value.
     ///
-    /// JSON null is rejected by core with a permanent error naming `clear` as
-    /// the way to delete. A message-shaped payload cannot be stored in a JSON
-    /// collection (and vice versa); such a mismatch is a permanent argument
-    /// error.
+    /// JSON null is rejected with a transient error naming `clear` as the way
+    /// to delete. A message-shaped payload cannot be stored in a JSON
+    /// collection (and vice versa); such a mismatch is a caller mistake and is
+    /// likewise transient (it retries and stays visible, never discarded).
     ///
     /// @param item The value (JSON) or message to write.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -349,7 +380,8 @@ impl NativeValueState {
         );
         match (&self.state, item) {
             (ValueStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(permanent_error)?;
+                let value = value.map_err(transient_error)?;
+                reject_null(&value, "; use clear() to remove the value")?;
                 handle
                     .set(value)
                     .instrument(span)
@@ -364,10 +396,10 @@ impl NativeValueState {
                     .await
                     .map_err(|e| state_error(&e))
             }
-            (ValueStateVariant::Json(_), Either::A(_)) => Err(permanent_error(
+            (ValueStateVariant::Json(_), Either::A(_)) => Err(transient_error(
                 "a Kafka-message payload cannot be stored in a JSON value collection".to_owned(),
             )),
-            (ValueStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
+            (ValueStateVariant::Message(_), Either::B(_)) => Err(transient_error(
                 "expected a Kafka message; use clear() to delete a message value collection"
                     .to_owned(),
             )),
@@ -477,9 +509,9 @@ impl NativeMapState {
 
     /// Inserts or overwrites `key`.
     ///
-    /// JSON null is rejected by core with a permanent error naming `remove` as
-    /// the way to delete an entry. An item-shape mismatch is a permanent
-    /// argument error.
+    /// JSON null is rejected with a transient error naming `delete` as the way
+    /// to remove an entry. An item-shape mismatch is a caller mistake and is
+    /// likewise transient (it retries and stays visible, never discarded).
     ///
     /// @param key The map key.
     /// @param item The value (JSON) or message to store.
@@ -502,7 +534,8 @@ impl NativeMapState {
         );
         match (&self.state, item) {
             (MapStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(permanent_error)?;
+                let value = value.map_err(transient_error)?;
+                reject_null(&value, "; use delete(key) to remove the entry")?;
                 handle
                     .set(key, value)
                     .instrument(span)
@@ -517,10 +550,10 @@ impl NativeMapState {
                     .await
                     .map_err(|e| state_error(&e))
             }
-            (MapStateVariant::Json(_), Either::A(_)) => Err(permanent_error(
+            (MapStateVariant::Json(_), Either::A(_)) => Err(transient_error(
                 "a Kafka-message payload cannot be stored in a JSON map collection".to_owned(),
             )),
-            (MapStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
+            (MapStateVariant::Message(_), Either::B(_)) => Err(transient_error(
                 "expected a Kafka message; use remove(key) to delete a message map entry"
                     .to_owned(),
             )),
@@ -658,7 +691,7 @@ impl NativeDequeState {
         }
         .map_err(|e| state_error(&e))?;
         u32::try_from(len).map_err(|_| {
-            permanent_error(format!(
+            transient_error(format!(
                 "deque length {len} exceeds the u32 range representable to JavaScript"
             ))
         })
@@ -719,8 +752,9 @@ impl NativeDequeState {
 
     /// Appends an element at the back.
     ///
-    /// JSON null is rejected by core with a permanent error naming `clear`. An
-    /// item-shape mismatch is a permanent argument error.
+    /// JSON null is not a storable element and is rejected with a transient
+    /// error. An item-shape mismatch is a caller mistake and is likewise
+    /// transient (it retries and stays visible, never discarded).
     ///
     /// @param item The value (JSON) or message to append.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -741,7 +775,8 @@ impl NativeDequeState {
         );
         match (&self.state, item) {
             (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(permanent_error)?;
+                let value = value.map_err(transient_error)?;
+                reject_null(&value, " in a deque")?;
                 handle
                     .push_back(value)
                     .instrument(span)
@@ -756,10 +791,10 @@ impl NativeDequeState {
                     .await
                     .map_err(|e| state_error(&e))
             }
-            (DequeStateVariant::Json(_), Either::A(_)) => Err(permanent_error(
+            (DequeStateVariant::Json(_), Either::A(_)) => Err(transient_error(
                 "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
             )),
-            (DequeStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
+            (DequeStateVariant::Message(_), Either::B(_)) => Err(transient_error(
                 "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
             )),
         }
@@ -767,8 +802,9 @@ impl NativeDequeState {
 
     /// Prepends an element at the front.
     ///
-    /// JSON null is rejected by core with a permanent error naming `clear`. An
-    /// item-shape mismatch is a permanent argument error.
+    /// JSON null is not a storable element and is rejected with a transient
+    /// error. An item-shape mismatch is a caller mistake and is likewise
+    /// transient (it retries and stays visible, never discarded).
     ///
     /// @param item The value (JSON) or message to prepend.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -789,7 +825,8 @@ impl NativeDequeState {
         );
         match (&self.state, item) {
             (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(permanent_error)?;
+                let value = value.map_err(transient_error)?;
+                reject_null(&value, " in a deque")?;
                 handle
                     .push_front(value)
                     .instrument(span)
@@ -804,10 +841,10 @@ impl NativeDequeState {
                     .await
                     .map_err(|e| state_error(&e))
             }
-            (DequeStateVariant::Json(_), Either::A(_)) => Err(permanent_error(
+            (DequeStateVariant::Json(_), Either::A(_)) => Err(transient_error(
                 "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
             )),
-            (DequeStateVariant::Message(_), Either::B(_)) => Err(permanent_error(
+            (DequeStateVariant::Message(_), Either::B(_)) => Err(transient_error(
                 "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
             )),
         }

@@ -1685,10 +1685,9 @@ describe("ProsodyClient", () => {
       expect(obs.permanent).toBe(true);
     });
 
-    // C8b — an invalid scan-direction token throws PermanentStateError (the
-    // surviving, testable direction half of the Appendix-2 row; the token-set
-    // return half is obsolete under the owner override).
-    it("an invalid scan direction throws PermanentStateError", async () => {
+    // C8b — an invalid scan-direction token is a caller mistake, rejected
+    // TransientStateError (retry, stay visible, never discard the message).
+    it("an invalid scan direction throws TransientStateError", async () => {
       client = makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
@@ -1700,7 +1699,7 @@ describe("ProsodyClient", () => {
           } catch (e) {
             result = {
               threw: true,
-              permanent: e instanceof PermanentStateError,
+              transient: e instanceof TransientStateError,
               msg: e.message,
             };
           }
@@ -1711,7 +1710,7 @@ describe("ProsodyClient", () => {
       await client.send(topic, nonce(), { go: true });
       const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
       expect(obs.threw).toBe(true);
-      expect(obs.permanent).toBe(true);
+      expect(obs.transient).toBe(true);
       expect(obs.msg).toMatch(/forward.*backward/);
     });
 
@@ -1756,9 +1755,10 @@ describe("ProsodyClient", () => {
       expect(count).toBe(2);
     });
 
-    // C10a — set(null)/push(null) reject PermanentStateError naming clear/remove;
-    // the store is untouched.
-    it("null-item writes reject permanent and leave the store untouched", async () => {
+    // C10a — set(null)/push(null) are caller mistakes: they reject
+    // TransientStateError (retry, stay visible, never discard) and leave the
+    // store untouched. The value message names clear() as the way to delete.
+    it("null-item writes reject transient and leave the store untouched", async () => {
       const V = nonce();
       client = makeStateClient();
       await client.subscribe({
@@ -1772,11 +1772,11 @@ describe("ProsodyClient", () => {
             let valueOutcome;
             try {
               await c.set(null);
-              valueOutcome = { permanent: false, threw: false };
+              valueOutcome = { transient: false, threw: false };
             } catch (e) {
               valueOutcome = {
                 threw: true,
-                permanent: e instanceof PermanentStateError,
+                transient: e instanceof TransientStateError,
                 msg: e.message,
               };
             }
@@ -1784,11 +1784,11 @@ describe("ProsodyClient", () => {
             let dequeOutcome;
             try {
               await d.push(null);
-              dequeOutcome = { permanent: false, threw: false };
+              dequeOutcome = { transient: false, threw: false };
             } catch (e) {
               dequeOutcome = {
                 threw: true,
-                permanent: e instanceof PermanentStateError,
+                transient: e instanceof TransientStateError,
               };
             }
 
@@ -1807,41 +1807,21 @@ describe("ProsodyClient", () => {
       const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
       expect(obs.error).toBeUndefined();
       expect(obs.valueOutcome.threw).toBe(true);
-      expect(obs.valueOutcome.permanent).toBe(true);
+      expect(obs.valueOutcome.transient).toBe(true);
       expect(obs.valueOutcome.msg).toMatch(/clear/);
       expect(obs.dequeOutcome.threw).toBe(true);
-      expect(obs.dequeOutcome.permanent).toBe(true);
+      expect(obs.dequeOutcome.transient).toBe(true);
       expect(obs.after).toBe(V);
     });
 
-    // C10b — an uncaught null write classifies permanent (no retry).
-    it("an uncaught null-item write classifies permanent (no retry)", async () => {
-      let count = 0;
-      const handledEvent = new EventEmitter();
-      client = makeStateClient();
-      await client.subscribe({
-        onMessage: async (ctx, msg) => {
-          count += 1;
-          handledEvent.emit("handled");
-          await ctx.state(STATE_DEFS.cart).set(null);
-        },
-      });
-
-      await client.send(topic, nonce(), { go: true });
-      await waitForEvent(handledEvent, "handled", MESSAGE_TIMEOUT);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      expect(count).toBe(1);
-    });
-
-    // C10c — a value with no JSON representation is rejected PERMANENT at the
-    // FFI boundary. Core never receives the value, so the glue owns the
-    // classification: without the category tag the conversion failure is thrown
-    // by napi's argument conversion with `cause` stripped, defaults to
-    // transient, and poisons the key with infinite retries. The glue captures
-    // the failed conversion and re-raises it as a permanent-tagged error on the
-    // async promise-rejection path where `cause` survives. Covers both the
+    // C10c — a value with no JSON representation is a CALLER MISTAKE, rejected
+    // TRANSIENT at the FFI boundary (retry, stay visible, never discard the
+    // message — discarding it would lose data; see CLAUDE.md). Core never
+    // receives the value, so the glue owns the classification: it captures the
+    // failed conversion and re-raises a transient-tagged error on the async
+    // promise-rejection path where the category `cause` survives. Covers the
     // top-level kinds (a bare `undefined`, a bare function) and the nested kinds
-    // that the serde bridge rejects rather than drops (a function nested in an
+    // the serde bridge rejects rather than drops (a function nested in an
     // object; `undefined` as an array element). (A nested `undefined` OBJECT
     // property is the one exception — it is dropped, matching `JSON.stringify` —
     // so it is not exercised here.)
@@ -1852,7 +1832,7 @@ describe("ProsodyClient", () => {
       ["undefined as an array element", [1, undefined, 2]],
     ];
     it.each(unrepresentable)(
-      "rejects an unrepresentable write (%s) permanent, not transient",
+      "rejects an unrepresentable write (%s) transient, not permanent",
       async (_label, bad) => {
         const V = nonce();
         client = makeStateClient();
@@ -1886,8 +1866,8 @@ describe("ProsodyClient", () => {
         const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
         expect(obs.error).toBeUndefined();
         expect(obs.outcome.threw).toBe(true);
-        expect(obs.outcome.permanent).toBe(true);
-        expect(obs.outcome.transient).toBe(false);
+        expect(obs.outcome.transient).toBe(true);
+        expect(obs.outcome.permanent).toBe(false);
         // The rejected write left the committed value untouched.
         expect(obs.after).toBe(V);
       },
@@ -2138,15 +2118,16 @@ describe("keyed state (unit)", () => {
     expect(isStateError(new Error("x"))).toBe(false);
   });
 
-  // A5 — DequeState.get rejects a fractional or negative index (Appendix-2
-  // deque-index row; the native u32 conversion would otherwise truncate/wrap).
+  // A5 — DequeState.get rejects a fractional or negative index as a caller
+  // mistake (TransientStateError — retry, never discard; Appendix-2 deque-index
+  // row; the native u32 conversion would otherwise truncate/wrap).
   it("deque get rejects a fractional or negative index but allows valid ones", async () => {
     const d = new DequeState({ get: async () => 99 });
-    await expect(d.get(1.5)).rejects.toBeInstanceOf(PermanentStateError);
+    await expect(d.get(1.5)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.get(1.5)).rejects.toThrow(/index/);
-    await expect(d.get(-1)).rejects.toBeInstanceOf(PermanentStateError);
+    await expect(d.get(-1)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.get(2)).resolves.toBe(99);
-    await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(PermanentStateError);
+    await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(TransientStateError);
   });
 });
 

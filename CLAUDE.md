@@ -1,5 +1,23 @@
 # Development Guidelines for Claude
 
+## Error Classification (data-loss safety)
+
+**If the user (a handler / caller) causes an error, classify it as TRANSIENT,
+not permanent — unless they explicitly tell us it is permanent.** A permanent
+error discards the in-flight message, so misclassifying a *code mistake* as
+permanent silently drops data and can corrupt downstream state. A transient
+error retries: the failure stays visible (logs/metrics/lag) so the developer
+sees it and fixes their code, and no message is lost.
+
+- Bad input to an API (an unrepresentable value, a `null`/`undefined` write, a
+  wrong argument shape, an out-of-range index, an invalid enum token) is a
+  **caller code error → transient**. Do NOT mint a permanent error for it.
+- Permanent is reserved for cases the caller **explicitly declares** permanent
+  (e.g. the handler itself throws a `PermanentError`/`PermanentStateError`).
+- Startup/registration/config validation is separate: fail fast at build or
+  subscribe (a thrown error that prevents the client from starting) — there is
+  no in-flight message to lose, so failing loudly is correct.
+
 ## Documentation Standards
 
 ### Rust Code with NAPI-RS v3

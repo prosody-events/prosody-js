@@ -317,8 +317,10 @@ export declare class ValueState<T = any> {
   /** Reads the current value, or null when absent/cleared. */
   get(): Promise<T | null>;
   /**
-   * Buffers a write of the value. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError} naming `clear()` — use {@link ValueState#clear}.
+   * Buffers a write of the value. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError}
+   * naming `clear()` — use {@link ValueState#clear}. Transient so it retries
+   * and stays visible rather than discarding the message.
    */
   set(value: T): Promise<void>;
   /** Deletes the stored value. */
@@ -342,8 +344,10 @@ export declare class MapState<V = any> {
   /** Reads the value for `key`, or null when the key is absent. */
   get(key: string): Promise<V | null>;
   /**
-   * Inserts or overwrites `key`. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError} — use {@link MapState#delete} to remove.
+   * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError} —
+   * use {@link MapState#delete} to remove. Transient so it retries and stays
+   * visible rather than discarding the message.
    */
   set(key: string, value: V): Promise<void>;
   /**
@@ -393,13 +397,15 @@ export declare class MapState<V = any> {
  */
 export declare class DequeState<T = any> {
   /**
-   * Appends an element at the back. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError}.
+   * Appends an element at the back. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError} so
+   * it retries and stays visible rather than discarding the message.
    */
   push(item: T): Promise<void>;
   /**
-   * Prepends an element at the front. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError}.
+   * Prepends an element at the front. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError} so
+   * it retries and stays visible rather than discarding the message.
    */
   unshift(item: T): Promise<void>;
   /** Removes and returns the back element, or null when empty. */
@@ -638,17 +644,21 @@ export class PermanentError extends EventHandlerError {
 }
 
 /**
- * Represents a transient keyed-state failure (e.g. a store read/write timeout)
- * that may succeed on a later attempt. Subclasses {@link TransientError}, so
- * rethrowing it from a handler classifies the event transient through the
- * existing error bridge unchanged.
+ * Represents a transient keyed-state failure that may succeed on a later
+ * attempt — a store read/write timeout, AND every caller mistake (a
+ * null/unrepresentable write, an item-shape mismatch, an out-of-range index, an
+ * invalid scan direction). Caller mistakes are transient on purpose so they
+ * retry and stay visible rather than discarding the message. Subclasses
+ * {@link TransientError}, so rethrowing it from a handler classifies the event
+ * transient through the existing error bridge unchanged.
  */
 export class TransientStateError extends TransientError {}
 
 /**
- * Represents a permanent keyed-state failure — an unregistered collection name,
- * a registered-identity mismatch, a duplicate registration, a null write (use
- * clear()/delete() instead), or an item-shape mistake. Subclasses
+ * Represents a permanent keyed-state failure a retry cannot resolve in-process
+ * — an unregistered collection name, a registered-identity mismatch, or a
+ * duplicate registration (or one a handler throws explicitly). Caller mistakes
+ * are NOT permanent; they are {@link TransientStateError}. Subclasses
  * {@link PermanentError}, so rethrowing it from a handler classifies the event
  * permanent through the existing error bridge unchanged.
  */

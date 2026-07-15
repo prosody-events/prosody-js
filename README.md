@@ -747,7 +747,7 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 - `shift(): Promise<T | null>`: removes and returns the front element, or `null` when empty.
 - `length(): Promise<number>`: number of live elements.
 - `isEmpty(): Promise<boolean>`: whether the deque holds no live elements.
-- `get(index: number): Promise<T | null>`: reads the element at front-relative `index`, or `null` past the end. `index` must be a non-negative integer; a fractional or negative value is rejected with a `PermanentStateError`.
+- `get(index: number): Promise<T | null>`: reads the element at front-relative `index`, or `null` past the end. `index` must be a non-negative integer; a fractional, negative, or out-of-range value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message).
 - `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
 - `commit(): Promise<void>` / `rollback(): Promise<void>`.
 
@@ -783,8 +783,8 @@ Both resolve with no value. The erased core seam deliberately drops the store ou
 
 Keyed-state failures surface as structured errors that flow through the same handler-error bridge as everything else (the transient/permanent category is carried as data, never parsed from the message):
 
-- `PermanentStateError` (subclasses `PermanentError`): a mistake that retrying will not fix — an unregistered or identity-mismatched collection, a duplicate registration, a rejected `null` write (use `clear()` / `delete()` instead), or an item-shape mistake.
-- `TransientStateError` (subclasses `TransientError`): a temporary store read/write failure (for example a timeout) that may succeed on retry.
+- `TransientStateError` (subclasses `TransientError`): the default. A temporary store read/write failure (for example a timeout), **and every caller mistake** — a rejected `null`/`undefined`/unrepresentable write (use `clear()` / `delete()` instead), an item-shape mismatch, an out-of-range deque index, or an invalid scan direction. Caller mistakes are transient on purpose: a permanent error discards the in-flight message and can silently lose data, so a code error retries and stays visible (logs/metrics/lag) until you fix it.
+- `PermanentStateError` (subclasses `PermanentError`): reserved for failures a retry genuinely cannot resolve within the running process — an unregistered or identity-mismatched collection, or a duplicate registration. (A handler may also throw one explicitly to declare its own failure permanent.)
 
 Because they subclass the existing error hierarchy, rethrowing them from a handler classifies the event exactly like a plain `PermanentError` / `TransientError`. Use `isStateError(error)` to narrow an error to either state error class.
 
@@ -1182,8 +1182,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 Errors:
 
-- `PermanentStateError extends PermanentError`: a permanent keyed-state failure (unregistered/identity-mismatched collection, duplicate registration, rejected `null` write, or item-shape mistake).
-- `TransientStateError extends TransientError`: a temporary store read/write failure.
+- `TransientStateError extends TransientError`: the default — a temporary store read/write failure, or any caller mistake (a `null`/unrepresentable write, item-shape mismatch, out-of-range index, invalid scan direction), rejected transient so it retries rather than discarding the message.
+- `PermanentStateError extends PermanentError`: reserved for failures a retry cannot resolve in-process (unregistered/identity-mismatched collection, duplicate registration), or one a handler throws explicitly.
 - `isStateError(error: unknown): error is PermanentStateError | TransientStateError`: type-guard narrowing an error to either state error class.
 
 ## License
