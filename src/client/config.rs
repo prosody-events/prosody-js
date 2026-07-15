@@ -661,7 +661,8 @@ fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
         "map" => Ok(CollectionKind::Map),
         "deque" => Ok(CollectionKind::Deque),
         other => Err(Error::from_reason(format!(
-            "stateCollections[{index}].kind: expected \"value\", \"map\", or \"deque\", got {other:?}"
+            "stateCollections[{index}].kind: expected \"value\", \"map\", or \"deque\", got \
+             {other:?}"
         ))),
     }
 }

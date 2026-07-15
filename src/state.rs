@@ -56,12 +56,13 @@ type ItemIn = Either<Message, JsonItem>;
 ///
 /// The conversion OUTCOME is captured as a `Result` rather than surfaced as a
 /// `from_napi_value` error: a JS value with no JSON representation (a function,
-/// symbol, `undefined`, or external — whether bare or nested inside a container)
-/// fails conversion, and an `Err` returned during argument conversion is thrown
-/// synchronously by napi with the `cause` category tag STRIPPED — the typed
-/// layer would then misclassify the write as transient and retry it forever.
-/// The captured `Err` is instead re-raised as a `permanent`-tagged error inside
-/// the async method body, on the promise-rejection path where `cause` survives.
+/// symbol, `undefined`, or external — whether bare or nested inside a
+/// container) fails conversion, and an `Err` returned during argument
+/// conversion is thrown synchronously by napi with the `cause` category tag
+/// STRIPPED — the typed layer would then misclassify the write as transient and
+/// retry it forever. The captured `Err` is instead re-raised as a
+/// `permanent`-tagged error inside the async method body, on the
+/// promise-rejection path where `cause` survives.
 ///
 /// One nested case does NOT reach here: an `undefined` OBJECT property is
 /// dropped by the serde bridge (as `JSON.stringify` does) rather than failing,
@@ -112,8 +113,8 @@ impl FromNapiValue for JsonItem {
         Ok(Self(
             unsafe { Value::from_napi_value(env, napi_val) }.map_err(|error| {
                 format!(
-                    "value is not representable as JSON (functions, symbols, `undefined`, \
-                     and externals cannot be stored): {error}"
+                    "value is not representable as JSON (functions, symbols, `undefined`, and \
+                     externals cannot be stored): {error}"
                 )
             }),
         ))
@@ -172,7 +173,8 @@ fn permanent_error(message: String) -> Error {
 ///
 /// @param direction The `"forward"` or `"backward"` token.
 /// @returns The matching `Direction`.
-/// @throws Error (permanent) if the token is neither `"forward"` nor `"backward"`.
+/// @throws Error (permanent) if the token is neither `"forward"` nor
+/// `"backward"`.
 fn parse_direction(direction: &str) -> napi::Result<Direction> {
     match direction {
         "forward" => Ok(Direction::Forward),

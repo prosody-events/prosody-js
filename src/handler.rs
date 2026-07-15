@@ -257,9 +257,9 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param message The consumer message to process.
-    /// @param `_demand_type` Whether this is normal processing or failure retry.
-    /// @throws Returns a `JsHandlerError` if the JavaScript callback execution
-    /// fails or if error categorization fails.
+    /// @param `_demand_type` Whether this is normal processing or failure
+    /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
+    /// execution fails or if error categorization fails.
     async fn on_message<C>(
         &self,
         context: C,
@@ -311,9 +311,9 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param trigger The timer trigger to process.
-    /// @param `_demand_type` Whether this is normal processing or failure retry.
-    /// @throws Returns a `JsHandlerError` if the JavaScript callback execution
-    /// fails or if error categorization fails.
+    /// @param `_demand_type` Whether this is normal processing or failure
+    /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
+    /// execution fails or if error categorization fails.
     async fn on_timer<C>(
         &self,
         context: C,
