@@ -1,10 +1,12 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
+use prosody::JsonCodec;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
+use prosody::consumer::kafka_state::{message_deque_state, message_map_state, message_state};
 use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
 use prosody::consumer::middleware::monopolization::MonopolizationConfigurationBuilder;
@@ -14,10 +16,18 @@ use prosody::consumer::middleware::timeout::TimeoutConfigurationBuilder;
 use prosody::consumer::middleware::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::ConsumerBuilders;
 use prosody::high_level::mode::Mode as ProsodyMode;
+use prosody::loader::KafkaLoader;
 use prosody::loader::KafkaLoaderConfiguration;
 use prosody::producer::ProducerConfigurationBuilder;
+use prosody::state::descriptor::{
+    MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
+};
+use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
+use prosody::timers::duration::CompactDuration;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -224,6 +234,58 @@ pub struct Configuration {
     /// timer was scheduled. Accepted values: `"child"` (child-of relationship)
     /// or `"follows_from"`. Default: `"follows_from"`.
     pub timer_spans: Option<String>,
+
+    // Keyed-state configuration
+    /// Keyed-state collections to register before subscribe.
+    ///
+    /// Each entry declares one collection by name, kind, and payload. Duplicate
+    /// names within this set are rejected.
+    pub state_collections: Option<Vec<StateCollectionConfig>>,
+
+    /// Root directory for the local keyed-state cache (the committed-value
+    /// fjall workspace).
+    ///
+    /// Each live client needs its own directory (fjall locks it exclusively).
+    /// Falls back to the `PROSODY_FJALL_CACHE_DIR` environment variable, then a
+    /// per-client temporary directory. Must not be an empty string when set.
+    pub state_cache_dir: Option<String>,
+
+    /// Delay in whole seconds between staging a provisional cell and the
+    /// keyed-state recovery sweep. Every registered TTL must strictly exceed
+    /// this. Defaults to 30 seconds. Must be at least 1 second when set.
+    pub state_recovery_delay_seconds: Option<u32>,
+
+    /// Fallback TTL in whole seconds for state rows whose collection is no
+    /// longer registered. Registered collections never inherit this. Must be at
+    /// least 1 second when set.
+    pub state_default_ttl_seconds: Option<u32>,
+}
+
+/// Declares one keyed-state collection to register before subscribe.
+#[napi(object)]
+pub struct StateCollectionConfig {
+    /// The collection name. Must be non-empty and unique within the client's
+    /// definition set.
+    pub name: String,
+
+    /// The collection kind: `"value"`, `"map"`, or `"deque"`.
+    pub kind: String,
+
+    /// The item payload: `"json"` (JSON values) or `"message"` (the full Kafka
+    /// message the handler received).
+    pub payload: String,
+
+    /// Optional per-write TTL in whole seconds. Must be at least 1 and must
+    /// exceed the recovery delay (the latter checked at consumer build).
+    pub ttl_seconds: Option<u32>,
+
+    /// Optional opt-out of transactional staging (read-uncommitted, at-least
+    /// once). Defaults to transactional.
+    pub read_uncommitted: Option<bool>,
+
+    /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
+    /// disables ordered-scan tracking). Invalid on value or deque collections.
+    pub keyset_limit: Option<u32>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -564,6 +626,225 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
     Ok(builder)
 }
 
+/// The kind of a keyed-state collection.
+enum CollectionKind {
+    /// A single-value collection.
+    Value,
+    /// A `String`-keyed ordered map.
+    Map,
+    /// A deque.
+    Deque,
+}
+
+/// The item payload of a keyed-state collection.
+enum CollectionPayload {
+    /// JSON values.
+    Json,
+    /// The full Kafka message the handler received.
+    Message,
+}
+
+/// Parses a collection-kind token.
+///
+/// @param index The collection's index in `stateCollections`.
+/// @param kind The kind token.
+/// @returns The parsed kind.
+/// @throws Error if the token is not `"value"`, `"map"`, or `"deque"`.
+fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
+    match kind {
+        "value" => Ok(CollectionKind::Value),
+        "map" => Ok(CollectionKind::Map),
+        "deque" => Ok(CollectionKind::Deque),
+        other => Err(Error::from_reason(format!(
+            "stateCollections[{index}].kind: expected \"value\", \"map\", or \"deque\", got {other:?}"
+        ))),
+    }
+}
+
+/// Parses a collection-payload token.
+///
+/// @param index The collection's index in `stateCollections`.
+/// @param payload The payload token.
+/// @returns The parsed payload.
+/// @throws Error if the token is not `"json"` or `"message"`.
+fn parse_payload(index: usize, payload: &str) -> Result<CollectionPayload> {
+    match payload {
+        "json" => Ok(CollectionPayload::Json),
+        "message" => Ok(CollectionPayload::Message),
+        other => Err(Error::from_reason(format!(
+            "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
+        ))),
+    }
+}
+
+/// Applies the shared descriptor options (TTL, commit mode) fluently.
+///
+/// @param descriptor The descriptor to configure.
+/// @param collection The collection configuration.
+/// @returns The configured descriptor.
+fn with_def<D: StateDescriptor>(descriptor: D, collection: &StateCollectionConfig) -> D {
+    let mut descriptor = descriptor;
+    if let Some(ttl) = collection.ttl_seconds {
+        descriptor = descriptor.ttl(CompactDuration::new(ttl));
+    }
+    if collection.read_uncommitted == Some(true) {
+        descriptor = descriptor.read_uncommitted();
+    }
+    descriptor
+}
+
+/// Applies the map-only keyset bound when configured.
+///
+/// @param descriptor The map descriptor to configure.
+/// @param collection The collection configuration.
+/// @returns The configured map descriptor.
+fn with_keyset<KC, V>(
+    descriptor: MapDescriptor<KC, V>,
+    collection: &StateCollectionConfig,
+) -> MapDescriptor<KC, V> {
+    match collection.keyset_limit {
+        Some(limit) => descriptor.keyset_limit(limit as usize),
+        None => descriptor,
+    }
+}
+
+/// Validates one collection and registers its descriptor.
+///
+/// Message collections monomorphize over `KafkaLoader<JsonCodec>`. Their stored
+/// identity is loader-independent (the message ref codec and resolver carry
+/// fixed `"message-ref"` identifiers), so this matches the identity the erased
+/// vend path asserts using the session's own loader.
+///
+/// @param keyed The keyed-state configuration to register into.
+/// @param index The collection's index in `stateCollections`.
+/// @param collection The collection configuration.
+/// @throws Error (permanent) if a field is invalid (the field name is named in
+///   the message).
+fn register_state_collection(
+    keyed: &mut KeyedStateConfiguration,
+    index: usize,
+    collection: &StateCollectionConfig,
+) -> Result<()> {
+    if collection.name.is_empty() {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].name: must not be empty"
+        )));
+    }
+
+    let kind = parse_kind(index, &collection.kind)?;
+    let payload = parse_payload(index, &collection.payload)?;
+
+    if collection.ttl_seconds == Some(0) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].ttlSeconds: must be a whole number of seconds >= 1"
+        )));
+    }
+
+    if let Some(limit) = collection.keyset_limit {
+        if !matches!(kind, CollectionKind::Map) {
+            return Err(Error::from_reason(format!(
+                "stateCollections[{index}].keysetLimit: only valid for map collections"
+            )));
+        }
+        if limit > 4096 {
+            return Err(Error::from_reason(format!(
+                "stateCollections[{index}].keysetLimit: must be within 0..=4096"
+            )));
+        }
+    }
+
+    let name = collection.name.as_str();
+    match (kind, payload) {
+        (CollectionKind::Value, CollectionPayload::Json) => {
+            let _ = keyed.register(with_def(value_state::<JsonCodec>(name), collection));
+        }
+        (CollectionKind::Map, CollectionPayload::Json) => {
+            let descriptor = with_def(map_state::<Utf8KeyCodec, JsonCodec>(name), collection);
+            let _ = keyed.register(with_keyset(descriptor, collection));
+        }
+        (CollectionKind::Deque, CollectionPayload::Json) => {
+            let _ = keyed.register(with_def(deque_state::<JsonCodec>(name), collection));
+        }
+        (CollectionKind::Value, CollectionPayload::Message) => {
+            let _ = keyed.register(with_def(
+                message_state::<KafkaLoader<JsonCodec>>(name),
+                collection,
+            ));
+        }
+        (CollectionKind::Map, CollectionPayload::Message) => {
+            let descriptor = with_def(
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
+                collection,
+            );
+            let _ = keyed.register(with_keyset(descriptor, collection));
+        }
+        (CollectionKind::Deque, CollectionPayload::Message) => {
+            let _ = keyed.register(with_def(
+                message_deque_state::<KafkaLoader<JsonCodec>>(name),
+                collection,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Builds the real `KeyedStateConfiguration` from the given Configuration.
+///
+/// Registers each declared collection synchronously (before subscribe, hence
+/// resubscribe-safe), rejecting duplicate names. Field-level validation names
+/// the offending JS field; core validates the remaining rules (TTL ceiling,
+/// TTL exceeding the recovery delay, identity conflicts) at consumer build.
+///
+/// @param config The Configuration to build from.
+/// @returns The keyed-state configuration with every collection registered.
+/// @throws Error if a keyed-state field is invalid or a name is duplicated.
+pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConfiguration> {
+    let mut keyed = KeyedStateConfiguration::default();
+
+    if let Some(dir) = &config.state_cache_dir {
+        if dir.is_empty() {
+            return Err(Error::from_reason(
+                "stateCacheDir: must not be an empty string",
+            ));
+        }
+        keyed.cache_dir = PathBuf::from(dir);
+    }
+
+    if let Some(seconds) = config.state_default_ttl_seconds {
+        if seconds == 0 {
+            return Err(Error::from_reason(
+                "stateDefaultTtlSeconds: must be a whole number of seconds >= 1",
+            ));
+        }
+        keyed.default_ttl = Some(CompactDuration::new(seconds));
+    }
+
+    if let Some(seconds) = config.state_recovery_delay_seconds {
+        if seconds == 0 {
+            return Err(Error::from_reason(
+                "stateRecoveryDelaySeconds: must be a whole number of seconds >= 1",
+            ));
+        }
+        keyed.recovery_delay = CompactDuration::new(seconds);
+    }
+
+    if let Some(collections) = &config.state_collections {
+        let mut seen = HashSet::with_capacity(collections.len());
+        for (index, collection) in collections.iter().enumerate() {
+            if !seen.insert(collection.name.as_str()) {
+                return Err(Error::from_reason(format!(
+                    "stateCollections[{index}].name: duplicate collection name {:?}",
+                    collection.name
+                )));
+            }
+            register_state_collection(&mut keyed, index, collection)?;
+        }
+    }
+
+    Ok(keyed)
+}
+
 /// Builds `ConsumerBuilders` from the given Configuration.
 ///
 /// @param config The Configuration to build from.
@@ -580,7 +861,7 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
         defer: build_defer_config(config),
         timeout: build_timeout_config(config),
         emitter: build_emitter_config(config)?,
-        keyed_state: KeyedStateConfiguration::default(),
+        keyed_state: build_keyed_state_config(config)?,
     })
 }
 

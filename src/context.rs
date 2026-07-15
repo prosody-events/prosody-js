@@ -4,6 +4,10 @@
 //! `MessageContext` from the `prosody` crate and exposes its functionality to
 //! Node.js through NAPI.
 
+use crate::state::{
+    DequeStateVariant, MapStateVariant, NativeDequeState, NativeMapState, NativeValueState,
+    ValueStateVariant, state_error,
+};
 use chrono::{DateTime, Utc};
 use napi::Error;
 use napi_derive::napi;
@@ -186,5 +190,137 @@ impl NativeContext {
             .await
             .map(|times| times.into_iter().map(DateTime::<Utc>::from).collect())
             .map_err(|error| Error::from_reason(error.to_string()))
+    }
+
+    /// Vends the state handle for the named JSON value collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The value-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn value_state(&self, name: String) -> napi::Result<NativeValueState> {
+        let handle = self
+            .context
+            .value_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeValueState {
+            state: ValueStateVariant::Json(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named JSON map collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The map-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn map_state(&self, name: String) -> napi::Result<NativeMapState> {
+        let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
+        Ok(NativeMapState {
+            state: MapStateVariant::Json(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named JSON deque collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The deque-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+        let handle = self
+            .context
+            .deque_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeDequeState {
+            state: DequeStateVariant::Json(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message value collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message value-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn message_value_state(&self, name: String) -> napi::Result<NativeValueState> {
+        let handle = self
+            .context
+            .message_value_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeValueState {
+            state: ValueStateVariant::Message(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message map collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message map-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn message_map_state(&self, name: String) -> napi::Result<NativeMapState> {
+        let handle = self
+            .context
+            .message_map_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeMapState {
+            state: MapStateVariant::Message(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message deque collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message deque-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    pub fn message_deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+        let handle = self
+            .context
+            .message_deque_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeDequeState {
+            state: DequeStateVariant::Message(handle),
+            name,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 }

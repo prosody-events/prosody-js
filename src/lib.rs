@@ -31,6 +31,9 @@ mod logging;
 /// Module dealing with message-related functionality and structures.
 mod message;
 
+/// Module exposing keyed-state collections and scan cursors to JavaScript.
+mod state;
+
 /// Module dealing with timer-related functionality and structures.
 mod timer;
 

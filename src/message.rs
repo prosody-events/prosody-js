@@ -7,6 +7,8 @@
 use chrono::{DateTime, Utc};
 use napi::bindgen_prelude::BigInt;
 use napi_derive::napi;
+use prosody::consumer::Keyed;
+use prosody::consumer::message::ConsumerMessage;
 use serde_json::Value;
 
 /// Represents a message consumed from a Kafka topic.
@@ -32,4 +34,25 @@ pub struct Message {
 
     /// The message payload as a JSON-serializable value.
     pub payload: Value,
+}
+
+/// Builds the JavaScript `Message` object from a borrowed `ConsumerMessage`.
+///
+/// Shared by the consumer handler bridge and the keyed-state layer, which both
+/// hand JavaScript the same message shape. Borrows the source so message-item
+/// reads (value/map/deque scans) do not consume the resolved message.
+///
+/// @param message The consumer message to project.
+/// @returns The JavaScript-facing `Message` object.
+impl From<&ConsumerMessage<Value>> for Message {
+    fn from(message: &ConsumerMessage<Value>) -> Self {
+        Self {
+            topic: message.topic().to_string(),
+            partition: message.partition(),
+            offset: message.offset().into(),
+            timestamp: *message.timestamp(),
+            key: message.key().to_string(),
+            payload: message.payload().clone(),
+        }
+    }
 }

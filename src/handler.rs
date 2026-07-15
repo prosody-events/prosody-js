@@ -15,10 +15,10 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use prosody::consumer::DemandType;
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::message::ConsumerMessage;
 use prosody::consumer::middleware::FallibleHandler;
-use prosody::consumer::{DemandType, Keyed};
 use prosody::error::{ClassifyError, ErrorCategory};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
@@ -278,14 +278,7 @@ impl FallibleHandler for JsHandler {
             .propagator
             .inject_context(&span.context(), &mut carrier);
 
-        let message = Message {
-            topic: message.topic().to_string(),
-            partition: message.partition(),
-            offset: message.offset().into(),
-            timestamp: *message.timestamp(),
-            key: message.key().to_string(),
-            payload: message.payload().clone(),
-        };
+        let message = Message::from(&message);
 
         debug!("processing message");
 
