@@ -7,12 +7,26 @@
 import type {
   Configuration,
   ConsumerState,
-  Message,
+  Message as NativeMessage,
   Mode,
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Message, Timer, Mode };
+export { Configuration, ConsumerState, Timer, Mode };
+
+/**
+ * Represents a message consumed from a Kafka topic.
+ *
+ * The optional payload type parameter is annotation-level only: the runtime
+ * payload is unchanged, and an unparameterized `Message` means `Message<any>`
+ * (identical to the previous, non-generic type), so existing code keeps
+ * compiling. Message-backed keyed-state collections vend their items as
+ * `Message<P>`.
+ */
+export interface Message<P = any> extends Omit<NativeMessage, "payload"> {
+  /** The message payload as a JSON-serializable value. */
+  payload: P;
+}
 
 /**
  * Wrapper around `MessageContext` for use in Node.js bindings.
@@ -74,6 +88,341 @@ export declare class Context {
    * @throws Error if retrieval fails.
    */
   scheduled(): Promise<Array<Date>>;
+
+  /**
+   * Binds a registered message single-value collection, vending a handle whose
+   * item is the full `Message<P>`.
+   *
+   * The handle and any iterator it opens are valid only within this event
+   * attempt. Throws a {@link PermanentStateError} if the collection name is
+   * unregistered or its registered identity mismatches.
+   * @param definition - A definition from {@link messageValue}.
+   */
+  state<P>(definition: MessageValueDefinition<P>): ValueState<Message<P>>;
+  /**
+   * Binds a registered message ordered-map collection, vending a handle whose
+   * values are the full `Message<P>`. Valid only within this event attempt.
+   * @param definition - A definition from {@link messageMap}.
+   */
+  state<P>(definition: MessageMapDefinition<P>): MapState<Message<P>>;
+  /**
+   * Binds a registered message deque collection, vending a handle whose
+   * elements are the full `Message<P>`. Valid only within this event attempt.
+   * @param definition - A definition from {@link messageDeque}.
+   */
+  state<P>(definition: MessageDequeDefinition<P>): DequeState<Message<P>>;
+  /**
+   * Binds a registered single-value JSON collection. Valid only within this
+   * event attempt.
+   * @param definition - A definition from {@link value}.
+   */
+  state<T>(definition: ValueDefinition<T>): ValueState<T>;
+  /**
+   * Binds a registered ordered-map JSON collection (string keys). Valid only
+   * within this event attempt.
+   * @param definition - A definition from {@link map}.
+   */
+  state<V>(definition: MapDefinition<V>): MapState<V>;
+  /**
+   * Binds a registered deque JSON collection. Valid only within this event
+   * attempt.
+   * @param definition - A definition from {@link deque}.
+   */
+  state<T>(definition: DequeDefinition<T>): DequeState<T>;
+}
+
+/** Scan direction over a map or deque collection. */
+export type ScanDirection = "forward" | "backward";
+
+/** Options accepted by every keyed-state definition constructor. */
+export interface StateDefinitionOptions {
+  /**
+   * Optional per-write TTL in whole seconds. Must be at least 1 and must
+   * exceed the client's recovery delay (enforced core-side).
+   */
+  ttlSeconds?: number;
+  /**
+   * Opt out of transactional staging (read-uncommitted, at-least-once).
+   * Defaults to transactional.
+   */
+  readUncommitted?: boolean;
+}
+
+/** Options accepted by the map definition constructors. */
+export interface MapDefinitionOptions extends StateDefinitionOptions {
+  /**
+   * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
+   * disables ordered-scan tracking). Map collections only.
+   */
+  keysetLimit?: number;
+}
+
+/**
+ * Phantom brand carrying a definition's item type. Never present at runtime —
+ * it exists only so the item type survives on the frozen definition object and
+ * flows into the vended handle.
+ */
+declare const StateItem: unique symbol;
+
+/** A frozen single-value JSON collection definition. */
+export interface ValueDefinition<T = any> {
+  readonly name: string;
+  readonly kind: "value";
+  readonly payload: "json";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly [StateItem]?: T;
+}
+
+/** A frozen ordered-map JSON collection definition (string keys). */
+export interface MapDefinition<V = any> {
+  readonly name: string;
+  readonly kind: "map";
+  readonly payload: "json";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly keysetLimit?: number;
+  readonly [StateItem]?: V;
+}
+
+/** A frozen deque JSON collection definition. */
+export interface DequeDefinition<T = any> {
+  readonly name: string;
+  readonly kind: "deque";
+  readonly payload: "json";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly [StateItem]?: T;
+}
+
+/** A frozen single-value message collection definition (items are `Message<P>`). */
+export interface MessageValueDefinition<P = any> {
+  readonly name: string;
+  readonly kind: "value";
+  readonly payload: "message";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly [StateItem]?: P;
+}
+
+/** A frozen ordered-map message collection definition (values are `Message<P>`). */
+export interface MessageMapDefinition<P = any> {
+  readonly name: string;
+  readonly kind: "map";
+  readonly payload: "message";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly keysetLimit?: number;
+  readonly [StateItem]?: P;
+}
+
+/** A frozen deque message collection definition (elements are `Message<P>`). */
+export interface MessageDequeDefinition<P = any> {
+  readonly name: string;
+  readonly kind: "deque";
+  readonly payload: "message";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly [StateItem]?: P;
+}
+
+/**
+ * Declares a single-value JSON collection. The returned frozen definition is
+ * the single source of typing: place it in `Configuration.stateCollections` to
+ * register the collection, and pass it to `Context.state()` to vend a typed
+ * handle. The type parameter annotates the stored value and is compile-time
+ * only — payloads cross as plain JSON with no runtime validation.
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ */
+export function value<T = any>(
+  name: string,
+  options?: StateDefinitionOptions,
+): ValueDefinition<T>;
+
+/**
+ * Declares an ordered-map JSON collection. Map keys are always `string`. The
+ * returned frozen definition is used both in `Configuration.stateCollections`
+ * and with `Context.state()`. The type parameter annotates the stored value
+ * (compile-time only).
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
+ */
+export function map<V = any>(
+  name: string,
+  options?: MapDefinitionOptions,
+): MapDefinition<V>;
+
+/**
+ * Declares a double-ended-queue JSON collection. The returned frozen definition
+ * is used both in `Configuration.stateCollections` and with `Context.state()`.
+ * The type parameter annotates the stored element (compile-time only).
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ */
+export function deque<T = any>(
+  name: string,
+  options?: StateDefinitionOptions,
+): DequeDefinition<T>;
+
+/**
+ * Declares a single-value message collection: each stored item is the full
+ * Kafka `Message<P>` the handler received. The type parameter annotates the
+ * message payload (compile-time only).
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ */
+export function messageValue<P = any>(
+  name: string,
+  options?: StateDefinitionOptions,
+): MessageValueDefinition<P>;
+
+/**
+ * Declares an ordered-map message collection (string keys; values are the full
+ * Kafka `Message<P>`). The type parameter annotates the message payload
+ * (compile-time only).
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
+ */
+export function messageMap<P = any>(
+  name: string,
+  options?: MapDefinitionOptions,
+): MessageMapDefinition<P>;
+
+/**
+ * Declares a double-ended-queue message collection: each stored element is the
+ * full Kafka `Message<P>`. The type parameter annotates the message payload
+ * (compile-time only).
+ * @param name - The collection name (unique per client).
+ * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ */
+export function messageDeque<P = any>(
+  name: string,
+  options?: StateDefinitionOptions,
+): MessageDequeDefinition<P>;
+
+/**
+ * Typed handle over a single-value keyed-state collection, vended by
+ * `Context.state()`. Valid only within the handler invocation (attempt) that
+ * vended it. Every method opens its own per-operation trace span.
+ */
+export declare class ValueState<T = any> {
+  /** Reads the current value, or null when absent/cleared. */
+  get(): Promise<T | null>;
+  /**
+   * Buffers a write of the value. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError} naming `clear()` — use {@link ValueState#clear}.
+   */
+  set(value: T): Promise<void>;
+  /** Deletes the stored value. */
+  clear(): Promise<void>;
+  /**
+   * Durably commits the buffered operations mid-handler (at-least-once).
+   * Resolves with no value — the erased seam drops the store outcome.
+   */
+  commit(): Promise<void>;
+  /** Discards buffered uncommitted operations back to the committed floor. */
+  rollback(): Promise<void>;
+}
+
+/**
+ * Typed handle over an ordered-map keyed-state collection, vended by
+ * `Context.state()`. Map keys are always `string`. Valid only within the
+ * handler invocation (attempt) that vended it. Every method opens its own
+ * per-operation trace span.
+ */
+export declare class MapState<V = any> {
+  /** Reads the value for `key`, or null when the key is absent. */
+  get(key: string): Promise<V | null>;
+  /**
+   * Inserts or overwrites `key`. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError} — use {@link MapState#delete} to remove.
+   */
+  set(key: string, value: V): Promise<void>;
+  /**
+   * Removes `key`.
+   *
+   * Deliberate divergence from `Map#delete`: returns void, NOT a boolean
+   * "was present" flag — surfacing that boolean would force a hidden read on
+   * every delete. (The underlying native operation is named `remove`.)
+   */
+  delete(key: string): Promise<void>;
+  /** Removes every entry. */
+  clear(): Promise<void>;
+  /**
+   * Async iterator over the live `[key, value]` entries in key order. Valid
+   * only within the handler invocation (attempt) that opened it; early exit
+   * from a `for await` loop closes the underlying cursor.
+   */
+  entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>;
+  /**
+   * Async iterator over the live keys in forward key order. Valid only within
+   * the handler invocation (attempt) that opened it.
+   */
+  keys(): AsyncIterableIterator<string>;
+  /**
+   * Async iterator over the live values in forward key order. Valid only
+   * within the handler invocation (attempt) that opened it.
+   */
+  values(): AsyncIterableIterator<V>;
+  /**
+   * Forward iteration over `[key, value]` entries. Valid only within the
+   * handler invocation (attempt) that opened it.
+   */
+  [Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>;
+  /**
+   * Durably commits the buffered operations mid-handler (at-least-once).
+   * Resolves with no value — the erased seam drops the store outcome.
+   */
+  commit(): Promise<void>;
+  /** Discards buffered uncommitted operations back to the committed floor. */
+  rollback(): Promise<void>;
+}
+
+/**
+ * Typed handle over a double-ended-queue keyed-state collection, vended by
+ * `Context.state()`. Valid only within the handler invocation (attempt) that
+ * vended it. Every method opens its own per-operation trace span.
+ */
+export declare class DequeState<T = any> {
+  /**
+   * Appends an element at the back. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError} naming `clear()`.
+   */
+  push(item: T): Promise<void>;
+  /**
+   * Prepends an element at the front. Writing JSON `null` is rejected with a
+   * {@link PermanentStateError} naming `clear()`.
+   */
+  unshift(item: T): Promise<void>;
+  /** Removes and returns the back element, or null when empty. */
+  pop(): Promise<T | null>;
+  /** Removes and returns the front element, or null when empty. */
+  shift(): Promise<T | null>;
+  /** Returns the number of live elements. */
+  length(): Promise<number>;
+  /** Reports whether the deque holds no live elements. */
+  isEmpty(): Promise<boolean>;
+  /** Reads the element at front-relative position `index`, or null past the end. */
+  get(index: number): Promise<T | null>;
+  /**
+   * Async iterator over the live elements in index order. Valid only within
+   * the handler invocation (attempt) that opened it; early exit from a
+   * `for await` loop closes the underlying cursor.
+   */
+  values(direction?: ScanDirection): AsyncIterableIterator<T>;
+  /**
+   * Forward iteration over the elements. Valid only within the handler
+   * invocation (attempt) that opened it.
+   */
+  [Symbol.asyncIterator](): AsyncIterableIterator<T>;
+  /**
+   * Durably commits the buffered operations mid-handler (at-least-once).
+   * Resolves with no value — the erased seam drops the store outcome.
+   */
+  commit(): Promise<void>;
+  /** Discards buffered uncommitted operations back to the committed floor. */
+  rollback(): Promise<void>;
 }
 
 /**
@@ -276,6 +625,34 @@ export class PermanentError extends EventHandlerError {
    */
   get isPermanent(): true;
 }
+
+/**
+ * Represents a transient keyed-state failure (e.g. a store read/write timeout)
+ * that may succeed on a later attempt. Subclasses {@link TransientError}, so
+ * rethrowing it from a handler classifies the event transient through the
+ * existing error bridge unchanged.
+ */
+export class TransientStateError extends TransientError {}
+
+/**
+ * Represents a permanent keyed-state failure — an unregistered collection name,
+ * a registered-identity mismatch, a duplicate registration, a null write (use
+ * clear()/delete() instead), or an item-shape mistake. Subclasses
+ * {@link PermanentError}, so rethrowing it from a handler classifies the event
+ * permanent through the existing error bridge unchanged.
+ */
+export class PermanentStateError extends PermanentError {}
+
+/**
+ * Name-branded predicate that narrows to either keyed-state error class,
+ * regardless of category.
+ *
+ * @param error - The value to test.
+ * @returns True when the value is a keyed-state error.
+ */
+export function isStateError(
+  error: unknown,
+): error is PermanentStateError | TransientStateError;
 
 /** Type alias for a constructor of an Error subclass. */
 type ErrorClass<T extends Error> = new (...args: any[]) => T;

@@ -47,6 +47,7 @@
     "@sentry/node": "^10.52.0",
     "jest": "^30.4.2",
     "prettier": "^3.8.3",
+    "typescript": "^7.0.2",
     "yarn-upgrade-all": "^0.8.1"
   },
   "engines": {
@@ -60,6 +61,7 @@
     "format:check": "prettier --check .",
     "prepublishOnly": "napi prepublish -t npm --no-gh-release",
     "test": "NODE_OPTIONS='--experimental-vm-modules' yarn run jest",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "universal": "napi universalize",
     "version": "napi version"
   },
