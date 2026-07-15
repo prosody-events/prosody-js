@@ -19,7 +19,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
 pub struct NativeContext {
-    context: BoxEventContext,
+    context: BoxEventContext<serde_json::Value>,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -32,7 +32,10 @@ impl NativeContext {
     /// * `context` - The `BoxEventContext` to wrap.
     /// * `propagator` - The OpenTelemetry propagator to use for context
     ///   extraction.
-    pub fn new(context: BoxEventContext, propagator: Arc<TextMapCompositePropagator>) -> Self {
+    pub fn new(
+        context: BoxEventContext<serde_json::Value>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
         Self {
             context,
             propagator,

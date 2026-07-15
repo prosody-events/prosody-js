@@ -285,7 +285,7 @@ impl FallibleHandler for JsHandler {
         _demand_type: DemandType,
     ) -> Result<(), Self::Error>
     where
-        C: EventContext,
+        C: EventContext<Payload = Self::Payload>,
     {
         let span = message.span();
         let native_context =
@@ -351,7 +351,7 @@ impl FallibleHandler for JsHandler {
         _demand_type: DemandType,
     ) -> Result<(), Self::Error>
     where
-        C: EventContext,
+        C: EventContext<Payload = Self::Payload>,
     {
         // Only process application timers; internal timers are handled by middleware
         if trigger.timer_type != TimerType::Application {

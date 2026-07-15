@@ -3,6 +3,7 @@ use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
+use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
 use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
@@ -13,8 +14,10 @@ use prosody::consumer::middleware::timeout::TimeoutConfigurationBuilder;
 use prosody::consumer::middleware::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::ConsumerBuilders;
 use prosody::high_level::mode::Mode as ProsodyMode;
+use prosody::loader::KafkaLoaderConfiguration;
 use prosody::producer::ProducerConfigurationBuilder;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -34,7 +37,7 @@ pub struct Configuration {
     pub group_id: Option<String>,
 
     /// Global shared cache capacity across all partitions for deduplicating
-    /// messages. Set to 0 to disable deduplication entirely.
+    /// messages. Must be greater than 0.
     pub idempotence_cache_size: Option<u32>,
 
     /// Version string for cache-busting deduplication hashes.
@@ -180,8 +183,8 @@ pub struct Configuration {
     /// Sliding window duration (in milliseconds) for failure rate tracking.
     pub defer_failure_window_ms: Option<u32>,
 
-    /// Cache size for defer middleware.
-    /// Controls capacity for store cache and loader cache.
+    /// Cache size for the deferred-retry message loader.
+    /// Controls capacity for the loader cache.
     pub defer_cache_size: Option<u32>,
 
     /// Maximum deferred store cache entries per Cassandra defer store.
@@ -354,6 +357,26 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.timer_spans(relation);
     }
 
+    if config.defer_cache_size.is_some()
+        || config.defer_seek_timeout_ms.is_some()
+        || config.defer_discard_threshold.is_some()
+    {
+        let mut loader = KafkaLoaderConfiguration::builder();
+        if let Some(cache_size) = config.defer_cache_size {
+            loader.cache_size(cache_size as usize);
+        }
+        if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
+            loader.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
+        }
+        if let Some(discard_threshold) = config.defer_discard_threshold {
+            loader.discard_threshold(i64::from(discard_threshold));
+        }
+        let loader = loader
+            .build()
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+        builder.loader(loader);
+    }
+
     Ok(builder)
 }
 
@@ -503,20 +526,8 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
         builder.failure_window(Duration::from_millis(u64::from(failure_window_ms)));
     }
 
-    if let Some(cache_size) = config.defer_cache_size {
-        builder.cache_size(cache_size as usize);
-    }
-
     if let Some(store_cache_size) = config.defer_store_cache_size {
         builder.store_cache_size(store_cache_size as usize);
-    }
-
-    if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
-        builder.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
-    }
-
-    if let Some(discard_threshold) = config.defer_discard_threshold {
-        builder.discard_threshold(i64::from(discard_threshold));
     }
 
     builder
@@ -576,11 +587,13 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 ///
 /// A `DeduplicationConfigurationBuilder` with the specified configuration
 /// options.
-fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuilder {
+fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurationBuilder> {
     let mut builder = DeduplicationConfigurationBuilder::default();
 
     if let Some(cache_capacity) = config.idempotence_cache_size {
-        builder.cache_capacity(cache_capacity as usize);
+        let capacity = NonZeroUsize::new(cache_capacity as usize)
+            .ok_or_else(|| Error::from_reason("idempotence_cache_size must be greater than 0"))?;
+        builder.cache_capacity(capacity);
     }
 
     if let Some(version) = &config.idempotence_version {
@@ -591,7 +604,7 @@ fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuild
         builder.ttl(Duration::from_secs(u64::from(ttl_s)));
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds `ConsumerBuilders` from the given Configuration.
@@ -606,7 +619,7 @@ fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuild
 pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
     Ok(ConsumerBuilders {
         consumer: build_consumer_config(config)?,
-        dedup: build_dedup_config(config),
+        dedup: build_dedup_config(config)?,
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),
         scheduler: build_scheduler_config(config),
@@ -614,6 +627,7 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
         defer: build_defer_config(config),
         timeout: build_timeout_config(config),
         emitter: build_emitter_config(config)?,
+        keyed_state: KeyedStateConfiguration::default(),
     })
 }
 
