@@ -132,8 +132,8 @@ pub(crate) fn state_error(error: &ErasedStateError) -> Error {
     tagged_error(category_token(error.category()), error.message().to_owned())
 }
 
-/// Builds a permanent-category napi error for a glue-detected argument mistake
-/// (item-shape mismatch, non-lossless offset).
+/// Builds a permanent-category napi error for a glue-detected condition
+/// (argument-shape mistake or value unrepresentable across the boundary).
 ///
 /// @param message The human-readable error message.
 /// @returns The structured napi error tagged permanent.
@@ -145,15 +145,14 @@ fn permanent_error(message: String) -> Error {
 ///
 /// @param direction The `"forward"` or `"backward"` token.
 /// @returns The matching `Direction`.
-/// @throws Error if the token is neither `"forward"` nor `"backward"`.
+/// @throws Error (permanent) if the token is neither `"forward"` nor `"backward"`.
 fn parse_direction(direction: &str) -> napi::Result<Direction> {
     match direction {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
-        other => Err(Error::new(
-            Status::InvalidArg,
-            format!("direction: expected \"forward\" or \"backward\", got {other:?}"),
-        )),
+        other => Err(permanent_error(format!(
+            "direction: expected \"forward\" or \"backward\", got {other:?}"
+        ))),
     }
 }
 
@@ -197,7 +196,7 @@ fn consumer_message(message: Message) -> napi::Result<ConsumerMessage<Value>> {
     }
     let permit = Arc::new(Semaphore::new(1))
         .try_acquire_owned()
-        .map_err(|e| Error::from_reason(format!("failed to acquire message permit: {e}")))?;
+        .map_err(|e| permanent_error(format!("failed to acquire message permit: {e}")))?;
     let value = ConsumerMessageValue {
         source_system: None,
         topic: message.topic.as_str().into(),
@@ -624,7 +623,7 @@ impl NativeDequeState {
         }
         .map_err(|e| state_error(&e))?;
         u32::try_from(len).map_err(|_| {
-            Error::from_reason(format!(
+            permanent_error(format!(
                 "deque length {len} exceeds the u32 range representable to JavaScript"
             ))
         })
