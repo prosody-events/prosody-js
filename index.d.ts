@@ -101,31 +101,38 @@ export declare class Context {
   state<P>(definition: MessageValueDefinition<P>): ValueState<Message<P>>;
   /**
    * Binds a registered message ordered-map collection, vending a handle whose
-   * values are the full `Message<P>`. Valid only within this event attempt.
+   * values are the full `Message<P>`. Valid only within this event attempt;
+   * throws {@link PermanentStateError} on an unregistered name or identity
+   * mismatch.
    * @param definition - A definition from {@link messageMap}.
    */
   state<P>(definition: MessageMapDefinition<P>): MapState<Message<P>>;
   /**
    * Binds a registered message deque collection, vending a handle whose
-   * elements are the full `Message<P>`. Valid only within this event attempt.
+   * elements are the full `Message<P>`. Valid only within this event attempt;
+   * throws {@link PermanentStateError} on an unregistered name or identity
+   * mismatch.
    * @param definition - A definition from {@link messageDeque}.
    */
   state<P>(definition: MessageDequeDefinition<P>): DequeState<Message<P>>;
   /**
    * Binds a registered single-value JSON collection. Valid only within this
-   * event attempt.
+   * event attempt; throws {@link PermanentStateError} on an unregistered name
+   * or identity mismatch.
    * @param definition - A definition from {@link value}.
    */
   state<T>(definition: ValueDefinition<T>): ValueState<T>;
   /**
    * Binds a registered ordered-map JSON collection (string keys). Valid only
-   * within this event attempt.
+   * within this event attempt; throws {@link PermanentStateError} on an
+   * unregistered name or identity mismatch.
    * @param definition - A definition from {@link map}.
    */
   state<V>(definition: MapDefinition<V>): MapState<V>;
   /**
    * Binds a registered deque JSON collection. Valid only within this event
-   * attempt.
+   * attempt; throws {@link PermanentStateError} on an unregistered name or
+   * identity mismatch.
    * @param definition - A definition from {@link deque}.
    */
   state<T>(definition: DequeDefinition<T>): DequeState<T>;

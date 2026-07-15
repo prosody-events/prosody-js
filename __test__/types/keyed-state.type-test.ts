@@ -140,4 +140,12 @@ export async function checks(): Promise<void> {
   d.values("sideways");
   // @ts-expect-error a message deque stores Message<P>, not the bare payload
   await b.push(incoming.payload);
+  // @ts-expect-error keysetLimit is map-only (value options reject it)
+  value<Cart>("v2", { keysetLimit: 5 });
+  // @ts-expect-error keysetLimit is map-only (deque options reject it)
+  deque<string>("d2", { keysetLimit: 5 });
+  // @ts-expect-error map keys() is forward-only — no direction argument
+  t.keys("backward");
+  // @ts-expect-error map values() is forward-only — no direction argument
+  t.values("backward");
 }

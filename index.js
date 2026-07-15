@@ -1185,8 +1185,10 @@ class Context {
    * {@link messageDeque}) — the same frozen object placed in
    * `Configuration.stateCollections`. The returned handle (and any iterator it
    * opens) is scoped to this single event attempt; do not retain it past the
-   * handler invocation. Handles are cached per context by collection name, so
-   * repeated calls for the same definition return the same wrapper.
+   * handler invocation. Handles are cached per context by definition identity
+   * (kind, payload, and name), so repeated calls for the same definition return
+   * the same wrapper; a mismatched definition reusing a name misses the cache
+   * and is rejected core-side at vend.
    *
    * @param {object} definition - A frozen definition from a definition constructor.
    * @returns {ValueState|MapState|DequeState} The typed state handle.
@@ -1194,7 +1196,8 @@ class Context {
    *   registered identity (kind/payload) mismatches, or the kind is unknown.
    */
   state(definition) {
-    const cached = this.stateHandles.get(definition.name);
+    const cacheKey = `${definition.kind}:${definition.payload}:${definition.name}`;
+    const cached = this.stateHandles.get(cacheKey);
     if (cached !== undefined) return cached;
     const message = definition.payload === "message";
     let handle;
@@ -1231,7 +1234,7 @@ class Context {
           `state: unknown collection kind ${JSON.stringify(definition.kind)}`,
         );
     }
-    this.stateHandles.set(definition.name, handle);
+    this.stateHandles.set(cacheKey, handle);
     return handle;
   }
 }
