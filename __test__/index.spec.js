@@ -2130,6 +2130,15 @@ describe("keyed state (unit)", () => {
     expect(() =>
       ctx.state({ name: 1n, kind: "value", payload: "json" }),
     ).toThrow(TransientStateError);
+    // A hostile definition whose property getter throws must still classify as a
+    // caller mistake, not surface the raw synchronous throw.
+    expect(() =>
+      ctx.state({
+        get name() {
+          throw new Error("boom");
+        },
+      }),
+    ).toThrow(TransientStateError);
   });
 });
 

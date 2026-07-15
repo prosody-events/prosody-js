@@ -1289,20 +1289,31 @@ class Context {
    *   durably-registered schema (kind/payload) mismatches (rejected core-side).
    */
   state(definition) {
-    const { name, kind, payload } = definition ?? {};
-    if (typeof name !== "string" || name.length === 0) {
+    let name, kind, payload;
+    try {
+      // Read + validate the definition shape. Wrapped so a hostile definition
+      // (e.g. throwing property getters) still surfaces as a classified caller
+      // mistake rather than a raw synchronous throw.
+      ({ name, kind, payload } = definition ?? {});
+      if (typeof name !== "string" || name.length === 0) {
+        throw new TransientStateError(
+          `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
+        );
+      }
+      if (kind !== "value" && kind !== "map" && kind !== "deque") {
+        throw new TransientStateError(
+          `state: unknown collection kind ${describeValue(kind)}`,
+        );
+      }
+      if (payload !== "json" && payload !== "message") {
+        throw new TransientStateError(
+          `state: unknown collection payload ${describeValue(payload)}`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof EventHandlerError) throw error;
       throw new TransientStateError(
-        `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
-      );
-    }
-    if (kind !== "value" && kind !== "map" && kind !== "deque") {
-      throw new TransientStateError(
-        `state: unknown collection kind ${describeValue(kind)}`,
-      );
-    }
-    if (payload !== "json" && payload !== "message") {
-      throw new TransientStateError(
-        `state: unknown collection payload ${describeValue(payload)}`,
+        "state: the definition could not be read (malformed or hostile object)",
       );
     }
     const cacheKey = `${kind}:${payload}:${name}`;
