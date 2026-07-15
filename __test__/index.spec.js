@@ -2,6 +2,7 @@ const { Readable } = require("stream");
 const { EventEmitter } = require("events");
 const {
   ConsumerState,
+  Context,
   ProsodyClient,
   PermanentError,
   TransientError,
@@ -2105,6 +2106,22 @@ describe("keyed state (unit)", () => {
     await expect(d.get(-1)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.get(2)).resolves.toBe(99);
     await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(TransientStateError);
+  });
+
+  // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:
+  // Context.state() rejects it TRANSIENT (never permanent), before touching the
+  // native context, so a typo never silently vends the wrong collection.
+  it("state() rejects a malformed definition as a transient error", () => {
+    const ctx = new Context({}); // native never reached — validation precedes vend
+    expect(() =>
+      ctx.state({ name: "x", kind: "bogus", payload: "json" }),
+    ).toThrow(TransientStateError);
+    expect(() =>
+      ctx.state({ name: "x", kind: "value", payload: "bogus" }),
+    ).toThrow(TransientStateError);
+    expect(() =>
+      ctx.state({ name: "", kind: "value", payload: "json" }),
+    ).toThrow(TransientStateError);
   });
 });
 

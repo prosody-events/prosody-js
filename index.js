@@ -768,6 +768,25 @@ function messageDeque(name, options) {
  */
 function stateIterator(cursor, transform) {
   let finished = false;
+  // Best-effort close used after a pull or transform failure: it must never
+  // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
+  // from `close()` is swallowed too.
+  const closeQuietly = async () => {
+    try {
+      await cursor.close();
+    } catch {
+      /* the primary error is already propagating */
+    }
+  };
+  // Close on clean exhaustion / early exit, where there is no primary error to
+  // mask: a close failure surfaces through the state-error model.
+  const closeOrThrow = async () => {
+    try {
+      await cursor.close();
+    } catch (error) {
+      throw toStateError(error);
+    }
+  };
   return {
     async next() {
       if (finished) return { value: undefined, done: true };
@@ -776,24 +795,28 @@ function stateIterator(cursor, transform) {
         item = await cursor.next(injectedCarrier());
       } catch (error) {
         finished = true;
-        await cursor.close().catch(() => {});
+        await closeQuietly();
         throw toStateError(error);
       }
       if (item === null) {
         finished = true;
-        await cursor.close().catch((error) => {
-          throw toStateError(error);
-        });
+        await closeOrThrow();
         return { value: undefined, done: true };
       }
-      return { value: transform(item), done: false };
+      try {
+        return { value: transform(item), done: false };
+      } catch (error) {
+        // A transform failure is a binding defect, not a store error; close the
+        // cursor and mark the iterator done rather than leaving it live.
+        finished = true;
+        await closeQuietly();
+        throw error;
+      }
     },
     async return(value) {
       if (!finished) {
         finished = true;
-        await cursor.close().catch((error) => {
-          throw toStateError(error);
-        });
+        await closeOrThrow();
       }
       return { value, done: true };
     },
@@ -1240,22 +1263,41 @@ class Context {
    *
    * @param {object} definition - A frozen definition from a definition constructor.
    * @returns {ValueState|MapState|DequeState} The typed state handle.
-   * @throws {PermanentStateError} If the collection name is unregistered, its
-   *   registered identity (kind/payload) mismatches, or the kind is unknown.
+   * @throws {TransientStateError} If the definition is malformed — a missing or
+   *   non-string `name`, or an unrecognized `kind`/`payload` (a caller mistake,
+   *   so transient rather than a message-discarding permanent).
+   * @throws {PermanentStateError} If the collection name is unregistered or its
+   *   durably-registered schema (kind/payload) mismatches (rejected core-side).
    */
   state(definition) {
-    const cacheKey = `${definition.kind}:${definition.payload}:${definition.name}`;
+    const { name, kind, payload } = definition ?? {};
+    if (typeof name !== "string" || name.length === 0) {
+      throw new TransientStateError(
+        `state: definition.name must be a non-empty string, got ${JSON.stringify(name)}`,
+      );
+    }
+    if (kind !== "value" && kind !== "map" && kind !== "deque") {
+      throw new TransientStateError(
+        `state: unknown collection kind ${JSON.stringify(kind)}`,
+      );
+    }
+    if (payload !== "json" && payload !== "message") {
+      throw new TransientStateError(
+        `state: unknown collection payload ${JSON.stringify(payload)}`,
+      );
+    }
+    const cacheKey = `${kind}:${payload}:${name}`;
     const cached = this.stateHandles.get(cacheKey);
     if (cached !== undefined) return cached;
-    const message = definition.payload === "message";
+    const message = payload === "message";
     let handle;
-    switch (definition.kind) {
+    switch (kind) {
       case "value":
         handle = new ValueState(
           stateSync(() =>
             message
-              ? this.nativeContext.messageValueState(definition.name)
-              : this.nativeContext.valueState(definition.name),
+              ? this.nativeContext.messageValueState(name)
+              : this.nativeContext.valueState(name),
           ),
         );
         break;
@@ -1263,23 +1305,18 @@ class Context {
         handle = new MapState(
           stateSync(() =>
             message
-              ? this.nativeContext.messageMapState(definition.name)
-              : this.nativeContext.mapState(definition.name),
-          ),
-        );
-        break;
-      case "deque":
-        handle = new DequeState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageDequeState(definition.name)
-              : this.nativeContext.dequeState(definition.name),
+              ? this.nativeContext.messageMapState(name)
+              : this.nativeContext.mapState(name),
           ),
         );
         break;
       default:
-        throw new PermanentStateError(
-          `state: unknown collection kind ${JSON.stringify(definition.kind)}`,
+        handle = new DequeState(
+          stateSync(() =>
+            message
+              ? this.nativeContext.messageDequeState(name)
+              : this.nativeContext.dequeState(name),
+          ),
         );
     }
     this.stateHandles.set(cacheKey, handle);

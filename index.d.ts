@@ -325,7 +325,9 @@ export declare class ValueState<T = any> {
    * rejected at runtime with a {@link TransientStateError} naming `clear()` —
    * use {@link ValueState#clear}. Transient so it retries and stays visible
    * rather than discarding the message. (Nested `null`, e.g. inside an object or
-   * array, is permitted and round-trips.)
+   * array, is permitted and round-trips.) The compile-time ban applies to
+   * explicitly-typed collections; an untyped (`any`) collection relies on the
+   * runtime rejection, since `NonNullable<any>` is `any`.
    */
   set(value: NonNullable<T>): Promise<void>;
   /** Deletes the stored value. */
