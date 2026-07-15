@@ -1061,16 +1061,18 @@ class DequeState {
    * rejected with a {@link PermanentStateError}: the native `u32` argument
    * conversion would otherwise silently truncate `1.5` to `1` and wrap `-1` to a
    * huge index, so this guard types the argument at the boundary rather than
-   * letting a mistaken index read the wrong element.
+   * letting a mistaken index read the wrong element. A value above
+   * `4294967295` (`u32::MAX`) is rejected for the same reason — it would wrap
+   * modulo 2^32 and read the wrong element.
    * @param {number} index - The zero-based position from the front.
    * @returns {Promise<*|null>} The element, or null past the end.
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   get(index) {
-    if (!Number.isInteger(index) || index < 0) {
+    if (!Number.isInteger(index) || index < 0 || index > 0xffffffff) {
       return Promise.reject(
         new PermanentStateError(
-          `get: index must be a non-negative integer, got ${index}`,
+          `get: index must be an integer in [0, 4294967295], got ${index}`,
         ),
       );
     }

@@ -1971,6 +1971,7 @@ describe("keyed state (unit)", () => {
     await expect(d.get(1.5)).rejects.toThrow(/index/);
     await expect(d.get(-1)).rejects.toBeInstanceOf(PermanentStateError);
     await expect(d.get(2)).resolves.toBe(99);
+    await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(PermanentStateError);
   });
 });
 
