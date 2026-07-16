@@ -1169,6 +1169,47 @@ describe("ProsodyClient", () => {
       }
     });
 
+    // C2b — reading several keys at once. This checks only the part that is
+    // specific to getMany: you ask for a list of keys and get back a plain
+    // array with one entry per key, a key that isn't there comes back as null,
+    // and asking for nothing gives back an empty array. Getting a single value
+    // back correctly is already covered by C2. Which entry lines up with which
+    // key, how repeated keys are handled, and reading the whole batch at one
+    // moment are all promises the underlying store makes and tests itself, so
+    // they are not repeated here.
+    it("reads several keys at once, giving one array entry per key", async () => {
+      const K = nonce();
+      const missing = nonce();
+      client = makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx, msg) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          try {
+            await m.set("a", 1);
+            await m.set("b", { v: 2 });
+            messageStream.push({
+              result: await m.getMany(["a", missing, "b"]),
+              empty: await m.getMany([]),
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      // we get back an array with one entry per key we asked for; the values
+      // come through unchanged and a missing key is null. We check what came
+      // back and how many, not the order — the store decides the order.
+      expect(Array.isArray(obs.result)).toBe(true);
+      expect(obs.result).toHaveLength(3);
+      expect(obs.result).toEqual(expect.arrayContaining([1, { v: 2 }, null]));
+      // asking for no keys gives back an empty array.
+      expect(obs.empty).toEqual([]);
+    });
+
     // C3 — Deque FFI boundary: elements (rich JSON) marshal through push ->
     // values()/get, `values()` iterates over the native cursor, and pop/shift on
     // an empty deque read as `null` (the `Option::None` -> `null` mapping).
@@ -1353,6 +1394,16 @@ describe("ProsodyClient", () => {
               const scannedKeys = [];
               for await (const [k] of mi.entries("forward"))
                 scannedKeys.push(k);
+              // read several keys at once from a message collection: each
+              // entry comes back as the message that was stored, or null when
+              // the key isn't there.
+              const many = (
+                await mi.getMany(["primary", "absent", "café"])
+              ).map((m) =>
+                m === null
+                  ? null
+                  : { offset: m.offset.toString(), pl: m.payload },
+              );
               messageStream.push({
                 tag: "got",
                 topic: got.topic,
@@ -1363,6 +1414,7 @@ describe("ProsodyClient", () => {
                 cafePayload: cafe.payload,
                 missing,
                 scannedKeys,
+                many,
               });
             }
           } catch (e) {
@@ -1398,6 +1450,15 @@ describe("ProsodyClient", () => {
       expect(byTag.got.scannedKeys).toEqual([...byTag.got.scannedKeys].sort());
       expect(byTag.got.scannedKeys).toContain("primary");
       expect(byTag.got.scannedKeys).toContain("café");
+      // reading several message keys at once gives back an array with one
+      // entry per key: a stored key returns its saved message and a missing key
+      // returns null. We check what came back and how many, not the order. Both
+      // stored keys hold the same message.
+      expect(byTag.got.many).toHaveLength(3);
+      expect(byTag.got.many.filter((m) => m === null)).toHaveLength(1);
+      for (const m of byTag.got.many.filter((m) => m !== null)) {
+        expect(m).toEqual({ offset: orig.offset, pl: { step: 1 } });
+      }
     });
 
     // C5a — commit(): the committed floor survives an attempt that subsequently
@@ -2311,31 +2372,15 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/payload: expected/);
   });
 
-  it("rejects stateDefaultTtlSeconds of zero", () => {
-    expect(
-      () => new ProsodyClient(makeConfig({ stateDefaultTtlSeconds: 0 })),
-    ).toThrow(/stateDefaultTtlSeconds/);
-  });
-
-  // Regression: stateDefaultTtlSeconds arrives as f64, so negative and
-  // fractional values reach the whole-number guard instead of wrapping or
-  // truncating through a u32 coercion.
-  it.each([-1, 2.5, NaN, Infinity])(
-    "rejects non-whole stateDefaultTtlSeconds %p",
-    (stateDefaultTtlSeconds) => {
-      expect(
-        () => new ProsodyClient(makeConfig({ stateDefaultTtlSeconds })),
-      ).toThrow(/stateDefaultTtlSeconds: must be a whole number/);
-    },
-  );
-
   it("rejects stateRecoveryDelaySeconds of zero", () => {
     expect(
       () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds: 0 })),
     ).toThrow(/stateRecoveryDelaySeconds/);
   });
 
-  // Regression: same f64 boundary hazard as stateDefaultTtlSeconds.
+  // Regression: stateRecoveryDelaySeconds arrives as f64, so negative and
+  // fractional values reach the whole-number guard instead of wrapping or
+  // truncating through a u32 coercion.
   it.each([-1, 2.5, NaN, Infinity])(
     "rejects non-whole stateRecoveryDelaySeconds %p",
     (stateRecoveryDelaySeconds) => {

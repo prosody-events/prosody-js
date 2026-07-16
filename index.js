@@ -936,6 +936,20 @@ class MapState {
   }
 
   /**
+   * Reads several keys in a single call. Returns an array with one entry per
+   * key, in the same order you asked, so `result[i]` is the value for
+   * `keys[i]`. A key that isn't there comes back as `null`, and a key you list
+   * more than once is answered at each spot. The whole read happens as one
+   * step, so no other change to this event's state can slip in partway through.
+   * @param {string[]} keys - The keys to read, in order.
+   * @returns {Promise<Array<*|null>>} One entry per key, in the order asked.
+   * @throws {PermanentStateError|TransientStateError} If the read fails.
+   */
+  getMany(keys) {
+    return stateOp((carrier) => this.native.getMany(keys, carrier));
+  }
+
+  /**
    * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
    * value) is a caller mistake, rejected with a {@link TransientStateError} —
    * use {@link MapState#delete} to remove an entry instead. The error is

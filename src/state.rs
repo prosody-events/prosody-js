@@ -507,6 +507,50 @@ impl NativeMapState {
         }
     }
 
+    /// Reads several keys in a single call.
+    ///
+    /// Returns one entry per key, in the same order requested: the entry at
+    /// index `i` is the value for `keys[i]`. A key that isn't there reads as
+    /// null, and a key listed more than once is answered at each of its spots.
+    /// The whole read happens as one step, so no other change to this event's
+    /// state can slip in partway through.
+    ///
+    /// @param keys The keys to read, in order.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns One result per input key; null for a key that is absent.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn get_many(
+        &self,
+        keys: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<Vec<Option<Either<Value, Message>>>> {
+        let span = op_span(
+            &self.propagator,
+            &otel_context,
+            info_span!("map.get_many", collection = %self.name, keys = keys.len() as i64),
+        );
+        match &self.state {
+            MapStateVariant::Json(handle) => handle
+                .get_many(keys)
+                .instrument(span)
+                .await
+                .map(|items| items.into_iter().map(|item| item.map(Either::A)).collect())
+                .map_err(|e| state_error(&e)),
+            MapStateVariant::Message(handle) => handle
+                .get_many(keys)
+                .instrument(span)
+                .await
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| item.map(|message| Either::B(Message::from(&message))))
+                        .collect()
+                })
+                .map_err(|e| state_error(&e)),
+        }
+    }
+
     /// Inserts or overwrites `key`.
     ///
     /// JSON null is rejected with a transient error naming `delete` as the way

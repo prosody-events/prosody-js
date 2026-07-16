@@ -74,6 +74,8 @@ export async function checks(): Promise<void> {
 
   // ---- map ----
   await t.set(incoming.key, incoming.payload.total);
+  const many = await t.getMany([incoming.key, "other"]);
+  assertTrue<Equal<typeof many, (number | null)[]>>();
   await t.delete(incoming.key);
   for await (const [key, total] of t.entries("backward")) {
     assertTrue<Equal<typeof key, string>>();

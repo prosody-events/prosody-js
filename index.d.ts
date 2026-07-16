@@ -353,6 +353,14 @@ export declare class MapState<V = any> {
   /** Reads the value for `key`, or null when the key is absent. */
   get(key: string): Promise<V | null>;
   /**
+   * Reads several keys in a single call. Returns an array with one entry per
+   * key, in the same order you asked, so `result[i]` is the value for
+   * `keys[i]`. A key that isn't there comes back as `null`, and a key you list
+   * more than once is answered at each spot. The whole read happens as one
+   * step, so no other change to this event's state can slip in partway through.
+   */
+  getMany(keys: readonly string[]): Promise<(V | null)[]>;
+  /**
    * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
    * (via {@link !NonNullable}) because a top-level `null` is not a storable
    * value — writing one (or an unrepresentable value) is a caller mistake,

@@ -257,14 +257,6 @@ pub struct Configuration {
     /// a whole number of seconds >= 1 when set (fractional, negative, and
     /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
-
-    /// Fallback TTL in whole seconds for state rows whose collection is no
-    /// longer registered. Registered collections never inherit this. Falls back
-    /// to the `PROSODY_KEYED_STATE_DEFAULT_TTL` environment variable (a
-    /// duration string such as `7d`, or `none` for indefinite retention),
-    /// then to indefinite retention. Must be a whole number of seconds >= 1
-    /// when set (fractional, negative, and non-finite values are rejected).
-    pub state_default_ttl_seconds: Option<f64>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -876,11 +868,6 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
             ));
         }
         keyed.cache_dir = PathBuf::from(dir);
-    }
-
-    if let Some(seconds) = config.state_default_ttl_seconds {
-        let seconds = whole_number_field(seconds, "stateDefaultTtlSeconds", 1, u32::MAX)?;
-        keyed.default_ttl = Some(CompactDuration::new(seconds));
     }
 
     if let Some(seconds) = config.state_recovery_delay_seconds {

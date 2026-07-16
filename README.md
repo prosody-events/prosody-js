@@ -266,12 +266,11 @@ Persistent storage for timers and deferred retries (not needed if `mock: true`):
 
 Register keyed-state collections before you subscribe. Persistence is backed by Cassandra and is not needed when `mock: true`. See the [Keyed State](#keyed-state-1) feature section for handler usage; the client-level knobs and per-collection fields are below. Where an option and an environment variable are paired, an explicitly set option wins; otherwise the environment variable applies, then the default.
 
-| Option / Environment Variable                                      | Description                                                                                                                                                                                                                                           | Default             |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `stateCollections` / -                                             | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                                      | (none)              |
-| `stateCacheDir` / `PROSODY_FJALL_CACHE_DIR`                        | Root directory for the local committed-value cache; each live client needs its own directory (it is locked exclusively)                                                                                                                               | per-client temp dir |
-| `stateRecoveryDelaySeconds` / `PROSODY_KEYED_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`.                | 30s                 |
-| `stateDefaultTtlSeconds` / `PROSODY_KEYED_STATE_DEFAULT_TTL`       | Fallback TTL for rows whose collection is no longer registered; registered collections never inherit it. The option is whole seconds; the env var is a duration string (e.g. `7d`), second-granularity, min `1s`, or `none` for indefinite retention. | none (kept forever) |
+| Option / Environment Variable                                      | Description                                                                                                                                                                                                                            | Default             |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `stateCollections` / -                                             | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)              |
+| `stateCacheDir` / `PROSODY_FJALL_CACHE_DIR`                        | Root directory for the local committed-value cache; each live client needs its own directory (it is locked exclusively)                                                                                                                | per-client temp dir |
+| `stateRecoveryDelaySeconds` / `PROSODY_KEYED_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                 |
 
 Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Prefer the definition constructors (`value` / `map` / `deque` and their `message*` variants, documented below): they serialize into `stateCollections` so you declare each collection once and reuse the same object with `context.state()`.
 
@@ -733,6 +732,7 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 `MapState<V>` (keys are always `string`):
 
 - `get(key: string): Promise<V | null>`: reads the value for `key`, or `null` when absent.
+- `getMany(keys: readonly string[]): Promise<(V | null)[]>`: reads several keys in one call, returning one entry per key in the same order (`result[i]` is the value for `keys[i]`); a missing key is `null`, and a repeated key is answered at each spot. The whole read happens as one step, so no other change to this event's state slips in partway through.
 - `set(key: string, value: V): Promise<void>`: inserts or overwrites. Writing JSON `null` is rejected — call `delete(key)`.
 - `delete(key: string): Promise<void>`: removes `key`. Deliberately returns `void`, not a boolean "was present" flag (surfacing that would force a hidden read on every delete).
 - `clear(): Promise<void>`: removes every entry.
@@ -1152,6 +1152,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 `MapState<V>` (keys are `string`):
 
 - `get(key: string): Promise<V | null>`
+- `getMany(keys: readonly string[]): Promise<(V | null)[]>`
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
