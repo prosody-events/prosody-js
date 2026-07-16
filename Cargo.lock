@@ -1796,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.4.0"
-source = "git+https://github.com/prosody-events/prosody.git?branch=feat%2Fvalue-state-memory-foundation#48b6d9dd42c5a801bec803b1743d33dc15d72d9a"
+source = "git+https://github.com/prosody-events/prosody.git?branch=feat%2Fvalue-state-memory-foundation#53ad940e9cd8dd5433b5e47f1b92d469fe87b3f9"
 dependencies = [
  "ahash",
  "aho-corasick",
