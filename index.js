@@ -581,8 +581,8 @@ const permanent = createErrorDecorator(PermanentError);
 
 /**
  * Injects the active OpenTelemetry context into a fresh carrier for one native
- * operation — the per-operation span pattern the timer and state methods use
- * (one carrier, and therefore one span, per call).
+ * operation. Native glue activates the carrier without recording a binding
+ * span, so the core semantic operation span joins the JavaScript trace directly.
  * @returns {Record<string, string>} The populated carrier.
  * @private
  */
@@ -769,8 +769,9 @@ function messageDeque(name, options) {
 
 /**
  * Adapts a chunked native scan cursor to the item-oriented JS async-iterator
- * protocol. A fresh carrier and span are created per native chunk, while
- * individual `next()` calls drain the retained chunk without crossing N-API.
+ * protocol. A fresh carrier is propagated per native chunk without recording
+ * a span, while individual `next()` calls drain the retained chunk without
+ * crossing N-API.
  * Native `null` (exhausted) maps to `{ done: true }`. Early exit from a `for await` loop
  * (`break`/`return`/`throw`) invokes `return()`, which awaits the native
  * `close()`; exhaustion and a pull error also close the cursor. Once finished,
@@ -790,7 +791,20 @@ function stateIterator(cursor, transform) {
   let finished = false;
   let chunk = [];
   let offset = 0;
-  let pulling = null;
+  let queue = Promise.resolve();
+  // Serialize the complete iterator protocol, not just native pulls. Without
+  // this queue, concurrent next() continuations can both reset `offset` after
+  // awaiting the same chunk and yield the same first item. return() shares the
+  // queue so it cannot close the cursor underneath an active next().
+  const enqueue = (operation) => {
+    const result = queue.then(operation, operation);
+    // A rejected operation must not poison later cleanup or done checks.
+    queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
   // Best-effort close used after a pull or transform failure: it must never
   // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
   // from `close()` is swallowed too.
@@ -811,50 +825,51 @@ function stateIterator(cursor, transform) {
     }
   };
   return {
-    async next() {
-      if (finished) return { value: undefined, done: true };
-      while (offset >= chunk.length) {
-        chunk = [];
-        offset = 0;
+    next() {
+      return enqueue(async () => {
+        if (finished) return { value: undefined, done: true };
+        while (offset >= chunk.length) {
+          chunk = [];
+          offset = 0;
+          try {
+            chunk = await cursor.nextChunk(injectedCarrier());
+          } catch (error) {
+            finished = true;
+            await closeQuietly();
+            throw toStateError(error);
+          }
+          if (chunk === null) {
+            chunk = [];
+            finished = true;
+            await closeOrThrow();
+            return { value: undefined, done: true };
+          }
+        }
+        const item = chunk[offset];
+        // Release consumed values even while the rest of a large chunk remains.
+        chunk[offset] = undefined;
+        offset += 1;
         try {
-          pulling ??= cursor.nextChunk(injectedCarrier());
-          chunk = await pulling;
+          return { value: transform(item), done: false };
         } catch (error) {
+          // A transform failure is a binding defect, not a store error; close the
+          // cursor and mark the iterator done rather than leaving it live.
           finished = true;
           await closeQuietly();
-          throw toStateError(error);
-        } finally {
-          pulling = null;
+          throw error;
         }
-        if (chunk === null) {
-          chunk = [];
-          finished = true;
-          await closeOrThrow();
-          return { value: undefined, done: true };
-        }
-      }
-      const item = chunk[offset];
-      // Release consumed values even while the rest of a large chunk remains.
-      chunk[offset] = undefined;
-      offset += 1;
-      try {
-        return { value: transform(item), done: false };
-      } catch (error) {
-        // A transform failure is a binding defect, not a store error; close the
-        // cursor and mark the iterator done rather than leaving it live.
-        finished = true;
-        await closeQuietly();
-        throw error;
-      }
+      });
     },
-    async return(value) {
-      if (!finished) {
-        finished = true;
-        chunk = [];
-        offset = 0;
-        await closeOrThrow();
-      }
-      return { value, done: true };
+    return(value) {
+      return enqueue(async () => {
+        if (!finished) {
+          finished = true;
+          chunk = [];
+          offset = 0;
+          await closeOrThrow();
+        }
+        return { value, done: true };
+      });
     },
     [Symbol.asyncIterator]() {
       return this;
@@ -864,8 +879,9 @@ function stateIterator(cursor, transform) {
 
 /**
  * Typed handle over a single-value keyed-state collection, vended by
- * {@link Context#state}. Every method opens its own per-operation span. Handles
- * are valid only within the handler invocation (attempt) that vended them.
+ * {@link Context#state}. Core records one semantic span per operation; this
+ * binding propagates context without adding an N-API span. Handles are valid
+ * only within the handler invocation (attempt) that vended them.
  */
 class ValueState {
   /**
@@ -930,9 +946,9 @@ class ValueState {
 
 /**
  * Typed handle over an ordered-map keyed-state collection, vended by
- * {@link Context#state}. Map keys are always strings. Every method opens its
- * own per-operation span. Handles and iterators are valid only within the
- * handler invocation (attempt) that vended them.
+ * {@link Context#state}. Map keys are always strings. Core records one semantic
+ * span per operation; this binding propagates context without adding an N-API
+ * span. Handles and iterators are valid only within the handler invocation.
  */
 class MapState {
   /**
@@ -1018,7 +1034,7 @@ class MapState {
    */
   entries(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction)),
+      stateSync(() => this.native.scan(direction, injectedCarrier())),
       (entry) => entry,
     );
   }
@@ -1030,7 +1046,7 @@ class MapState {
    */
   keys() {
     return stateIterator(
-      stateSync(() => this.native.scan("forward")),
+      stateSync(() => this.native.scan("forward", injectedCarrier())),
       (entry) => entry[0],
     );
   }
@@ -1042,7 +1058,7 @@ class MapState {
    */
   values() {
     return stateIterator(
-      stateSync(() => this.native.scan("forward")),
+      stateSync(() => this.native.scan("forward", injectedCarrier())),
       (entry) => entry[1],
     );
   }
@@ -1077,9 +1093,9 @@ class MapState {
 
 /**
  * Typed handle over a double-ended-queue keyed-state collection, vended by
- * {@link Context#state}. Every method opens its own per-operation span. Handles
- * and iterators are valid only within the handler invocation (attempt) that
- * vended them.
+ * {@link Context#state}. Core records one semantic span per operation; this
+ * binding propagates context without adding an N-API span. Handles and
+ * iterators are valid only within the handler invocation that vended them.
  */
 class DequeState {
   /**
@@ -1090,22 +1106,26 @@ class DequeState {
   }
 
   /**
-   * Appends an element at the back. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError}.
+   * Appends an element at the back. Writing JSON `null` is a caller mistake
+   * rejected with a {@link TransientStateError}, so an uncaught handler bug
+   * retries instead of committing the offset and losing the message.
    * @param {*} item - The element to append.
    * @returns {Promise<void>}
-   * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
+   * @throws {TransientStateError} If `item` is JSON `null` or otherwise invalid.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   push(item) {
     return stateOp((carrier) => this.native.pushBack(item, carrier));
   }
 
   /**
-   * Prepends an element at the front. Writing JSON `null` is rejected with a
-   * {@link PermanentStateError}.
+   * Prepends an element at the front. Writing JSON `null` is a caller mistake
+   * rejected with a {@link TransientStateError}, so an uncaught handler bug
+   * retries instead of committing the offset and losing the message.
    * @param {*} item - The element to prepend.
    * @returns {Promise<void>}
-   * @throws {PermanentStateError|TransientStateError} On null/shape/store failure.
+   * @throws {TransientStateError} If `item` is JSON `null` or otherwise invalid.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   unshift(item) {
     return stateOp((carrier) => this.native.pushFront(item, carrier));
@@ -1185,7 +1205,7 @@ class DequeState {
    */
   values(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction)),
+      stateSync(() => this.native.scan(direction, injectedCarrier())),
       (item) => item,
     );
   }

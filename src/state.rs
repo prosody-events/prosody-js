@@ -6,11 +6,11 @@
 //! `serde-json` bridge, exactly like message payloads) and Kafka-message items
 //! cross as the same `Message` object shape handlers already receive.
 //!
-//! Every operation opens its own tracing span the timer-method way (extract the
-//! parent from the JS-side carrier, then instrument the erased future) — spans
-//! open per operation and per cursor chunk pull, never at vend, because vended
-//! handles outlive the vend call. Scan pulls amortize that boundary work over
-//! vectors of up to 256 immediately-ready items.
+//! Every operation extracts the JS-side carrier and activates it while polling
+//! the erased future, allowing core's semantic collection span to join the
+//! event trace without an extra N-API binding span. Scans activate the carrier
+//! while core constructs its stream span; pulls transport vectors of up to 256
+//! immediately-ready items without creating per-chunk binding spans.
 //!
 //! Errors carry their category (`"permanent"` / `"transient"`) as the message
 //! of the JavaScript error's `cause`, a machine-readable data channel the
@@ -28,6 +28,7 @@ use napi::bindgen_prelude::{
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use opentelemetry::trace::FutureExt;
 use prosody::consumer::event_context::{
     BoxDequeState, BoxMapState, BoxStateCursor, BoxValueState, ErasedCategory, ErasedStateError,
 };
@@ -39,8 +40,7 @@ use std::num::NonZeroUsize;
 use std::ptr;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing::{Instrument, Span, debug, info_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::Span;
 
 /// Item shape crossing INTO a state handle. `Message` is tried first so a
 /// genuine message object routes to the message arm; a plain JSON value fails
@@ -218,23 +218,16 @@ fn parse_direction(direction: &str) -> napi::Result<Direction> {
     }
 }
 
-/// Opens the per-operation span and re-establishes the event parent from the
-/// JS-side carrier, exactly like the timer methods on `NativeContext`.
+/// Extracts the event parent propagated by the JavaScript handler.
 ///
 /// @param propagator The OpenTelemetry propagator for context extraction.
 /// @param otelContext The propagated OpenTelemetry carrier.
-/// @param span The freshly-created operation span.
-/// @returns The span with its parent set.
-fn op_span(
+/// @returns The extracted OpenTelemetry context.
+fn op_context(
     propagator: &TextMapCompositePropagator,
     otel_context: &HashMap<String, String>,
-    span: Span,
-) -> Span {
-    let context = propagator.extract(otel_context);
-    if let Err(err) = span.set_parent(context) {
-        debug!("failed to set parent span: {err:#}");
-    }
-    span
+) -> opentelemetry::Context {
+    propagator.extract(otel_context)
 }
 
 /// Rebuilds a `ConsumerMessage` from the JavaScript `Message` for a
@@ -322,8 +315,6 @@ const SCAN_READY_CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
 pub struct NativeValueState {
     /// The wrapped erased value handle.
     pub(crate) state: ValueStateVariant,
-    /// The registered collection name (a span field).
-    pub(crate) name: String,
     /// The propagator used to re-establish the event parent per operation.
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
@@ -340,21 +331,17 @@ impl NativeValueState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Either<Value, Message>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("value.get", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             ValueStateVariant::Json(handle) => handle
                 .get()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(Either::A))
                 .map_err(|e| state_error(&e)),
             ValueStateVariant::Message(handle) => handle
                 .get()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
                 .map_err(|e| state_error(&e)),
@@ -380,18 +367,14 @@ impl NativeValueState {
         item: ItemIn,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("value.set", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match (&self.state, item) {
             (ValueStateVariant::Json(handle), Either::B(JsonItem(value))) => {
                 let value = value.map_err(transient_error)?;
                 reject_null(&value, "; use clear() to remove the value")?;
                 handle
                     .set(value)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -399,7 +382,7 @@ impl NativeValueState {
                 let message = consumer_message(message)?;
                 handle
                     .set(message)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -419,14 +402,10 @@ impl NativeValueState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("value.clear", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            ValueStateVariant::Json(handle) => handle.clear().instrument(span).await,
-            ValueStateVariant::Message(handle) => handle.clear().instrument(span).await,
+            ValueStateVariant::Json(handle) => handle.clear().with_context(context).await,
+            ValueStateVariant::Message(handle) => handle.clear().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -437,14 +416,10 @@ impl NativeValueState {
     /// @throws Error carrying the category on `cause` if the commit fails.
     #[napi(writable = false)]
     pub async fn commit(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("value.commit", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            ValueStateVariant::Json(handle) => handle.commit().instrument(span).await,
-            ValueStateVariant::Message(handle) => handle.commit().instrument(span).await,
+            ValueStateVariant::Json(handle) => handle.commit().with_context(context).await,
+            ValueStateVariant::Message(handle) => handle.commit().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -456,14 +431,10 @@ impl NativeValueState {
     /// @param otelContext The OpenTelemetry context for tracing.
     #[napi(writable = false)]
     pub async fn rollback(&self, otel_context: HashMap<String, String>) {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("value.rollback", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            ValueStateVariant::Json(handle) => handle.rollback().instrument(span).await,
-            ValueStateVariant::Message(handle) => handle.rollback().instrument(span).await,
+            ValueStateVariant::Json(handle) => handle.rollback().with_context(context).await,
+            ValueStateVariant::Message(handle) => handle.rollback().with_context(context).await,
         }
     }
 }
@@ -473,8 +444,6 @@ impl NativeValueState {
 pub struct NativeMapState {
     /// The wrapped erased map handle.
     pub(crate) state: MapStateVariant,
-    /// The registered collection name (a span field).
-    pub(crate) name: String,
     /// The propagator used to re-establish the event parent per operation.
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
@@ -493,21 +462,17 @@ impl NativeMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Either<Value, Message>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.get", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Json(handle) => handle
                 .get(key)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(Either::A))
                 .map_err(|e| state_error(&e)),
             MapStateVariant::Message(handle) => handle
                 .get(key)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
                 .map_err(|e| state_error(&e)),
@@ -532,21 +497,17 @@ impl NativeMapState {
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<Option<Either<Value, Message>>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.get_many", collection = %self.name, keys = keys.len() as i64),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Json(handle) => handle
                 .get_many(keys)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|items| items.into_iter().map(|item| item.map(Either::A)).collect())
                 .map_err(|e| state_error(&e)),
             MapStateVariant::Message(handle) => handle
                 .get_many(keys)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|items| {
                     items
@@ -578,18 +539,14 @@ impl NativeMapState {
         item: ItemIn,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.set", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match (&self.state, item) {
             (MapStateVariant::Json(handle), Either::B(JsonItem(value))) => {
                 let value = value.map_err(transient_error)?;
                 reject_null(&value, "; use delete(key) to remove the entry")?;
                 handle
                     .set(key, value)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -597,7 +554,7 @@ impl NativeMapState {
                 let message = consumer_message(message)?;
                 handle
                     .set(key, message)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -622,14 +579,10 @@ impl NativeMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.remove", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            MapStateVariant::Json(handle) => handle.remove(key).instrument(span).await,
-            MapStateVariant::Message(handle) => handle.remove(key).instrument(span).await,
+            MapStateVariant::Json(handle) => handle.remove(key).with_context(context).await,
+            MapStateVariant::Message(handle) => handle.remove(key).with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -640,37 +593,39 @@ impl NativeMapState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.clear", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            MapStateVariant::Json(handle) => handle.clear().instrument(span).await,
-            MapStateVariant::Message(handle) => handle.clear().instrument(span).await,
+            MapStateVariant::Json(handle) => handle.clear().with_context(context).await,
+            MapStateVariant::Message(handle) => handle.clear().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
 
     /// Opens a demand-driven cursor over the live entries in key order.
     ///
-    /// Synchronous — it performs no I/O and opens no span; each cursor chunk
-    /// pull opens its own span. Entries are yielded as `(key, value)` pairs.
+    /// Synchronous — it performs no I/O. The extracted JavaScript context is
+    /// active while core constructs its semantic stream span; chunk pulls do
+    /// not create binding spans. Entries are yielded as `(key, value)` pairs.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
+    /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns A cursor over the map entries.
     /// @throws Error if the direction token is invalid.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(&self, direction: String) -> napi::Result<NativeStateCursor> {
+    pub fn scan(
+        &self,
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<NativeStateCursor> {
         let dir = parse_direction(&direction)?;
+        let _guard = op_context(&self.propagator, &otel_context).attach();
         let cursor = match &self.state {
             MapStateVariant::Json(handle) => CursorVariant::MapJson(handle.scan(dir)),
             MapStateVariant::Message(handle) => CursorVariant::MapMessage(handle.scan(dir)),
         };
         Ok(NativeStateCursor {
             cursor,
-            name: self.name.clone(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -681,14 +636,10 @@ impl NativeMapState {
     /// @throws Error carrying the category on `cause` if the commit fails.
     #[napi(writable = false)]
     pub async fn commit(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.commit", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            MapStateVariant::Json(handle) => handle.commit().instrument(span).await,
-            MapStateVariant::Message(handle) => handle.commit().instrument(span).await,
+            MapStateVariant::Json(handle) => handle.commit().with_context(context).await,
+            MapStateVariant::Message(handle) => handle.commit().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -698,14 +649,10 @@ impl NativeMapState {
     /// @param otelContext The OpenTelemetry context for tracing.
     #[napi(writable = false)]
     pub async fn rollback(&self, otel_context: HashMap<String, String>) {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("map.rollback", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            MapStateVariant::Json(handle) => handle.rollback().instrument(span).await,
-            MapStateVariant::Message(handle) => handle.rollback().instrument(span).await,
+            MapStateVariant::Json(handle) => handle.rollback().with_context(context).await,
+            MapStateVariant::Message(handle) => handle.rollback().with_context(context).await,
         }
     }
 }
@@ -715,8 +662,6 @@ impl NativeMapState {
 pub struct NativeDequeState {
     /// The wrapped erased deque handle.
     pub(crate) state: DequeStateVariant,
-    /// The registered collection name (a span field).
-    pub(crate) name: String,
     /// The propagator used to re-establish the event parent per operation.
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
@@ -731,14 +676,10 @@ impl NativeDequeState {
     ///   the count exceeds the `u32` range.
     #[napi(writable = false)]
     pub async fn len(&self, otel_context: HashMap<String, String>) -> napi::Result<u32> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.len", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         let len = match &self.state {
-            DequeStateVariant::Json(handle) => handle.len().instrument(span).await,
-            DequeStateVariant::Message(handle) => handle.len().instrument(span).await,
+            DequeStateVariant::Json(handle) => handle.len().with_context(context).await,
+            DequeStateVariant::Message(handle) => handle.len().with_context(context).await,
         }
         .map_err(|e| state_error(&e))?;
         u32::try_from(len).map_err(|_| {
@@ -755,14 +696,10 @@ impl NativeDequeState {
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.is_empty", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            DequeStateVariant::Json(handle) => handle.is_empty().instrument(span).await,
-            DequeStateVariant::Message(handle) => handle.is_empty().instrument(span).await,
+            DequeStateVariant::Json(handle) => handle.is_empty().with_context(context).await,
+            DequeStateVariant::Message(handle) => handle.is_empty().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -779,22 +716,18 @@ impl NativeDequeState {
         index: u32,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Either<Value, Message>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.get", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         let index = index as usize;
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .get(index)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(Either::A))
                 .map_err(|e| state_error(&e)),
             DequeStateVariant::Message(handle) => handle
                 .get(index)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
                 .map_err(|e| state_error(&e)),
@@ -819,18 +752,14 @@ impl NativeDequeState {
         item: ItemIn,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.push_back", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match (&self.state, item) {
             (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
                 let value = value.map_err(transient_error)?;
                 reject_null(&value, " in a deque")?;
                 handle
                     .push_back(value)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -838,7 +767,7 @@ impl NativeDequeState {
                 let message = consumer_message(message)?;
                 handle
                     .push_back(message)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -869,18 +798,14 @@ impl NativeDequeState {
         item: ItemIn,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.push_front", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match (&self.state, item) {
             (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
                 let value = value.map_err(transient_error)?;
                 reject_null(&value, " in a deque")?;
                 handle
                     .push_front(value)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -888,7 +813,7 @@ impl NativeDequeState {
                 let message = consumer_message(message)?;
                 handle
                     .push_front(message)
-                    .instrument(span)
+                    .with_context(context)
                     .await
                     .map_err(|e| state_error(&e))
             }
@@ -911,21 +836,17 @@ impl NativeDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Either<Value, Message>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.pop_front", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .pop_front()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(Either::A))
                 .map_err(|e| state_error(&e)),
             DequeStateVariant::Message(handle) => handle
                 .pop_front()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
                 .map_err(|e| state_error(&e)),
@@ -942,21 +863,17 @@ impl NativeDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Either<Value, Message>>> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.pop_back", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .pop_back()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(Either::A))
                 .map_err(|e| state_error(&e)),
             DequeStateVariant::Message(handle) => handle
                 .pop_back()
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
                 .map_err(|e| state_error(&e)),
@@ -969,37 +886,39 @@ impl NativeDequeState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.clear", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            DequeStateVariant::Json(handle) => handle.clear().instrument(span).await,
-            DequeStateVariant::Message(handle) => handle.clear().instrument(span).await,
+            DequeStateVariant::Json(handle) => handle.clear().with_context(context).await,
+            DequeStateVariant::Message(handle) => handle.clear().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
 
     /// Opens a demand-driven cursor over the live elements in index order.
     ///
-    /// Synchronous — it performs no I/O and opens no span; each cursor chunk
-    /// pull opens its own span.
+    /// Synchronous — it performs no I/O. The extracted JavaScript context is
+    /// active while core constructs its semantic stream span; chunk pulls do
+    /// not create binding spans.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
+    /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns A cursor over the deque elements.
     /// @throws Error if the direction token is invalid.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(&self, direction: String) -> napi::Result<NativeStateCursor> {
+    pub fn scan(
+        &self,
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<NativeStateCursor> {
         let dir = parse_direction(&direction)?;
+        let _guard = op_context(&self.propagator, &otel_context).attach();
         let cursor = match &self.state {
             DequeStateVariant::Json(handle) => CursorVariant::DequeJson(handle.scan(dir)),
             DequeStateVariant::Message(handle) => CursorVariant::DequeMessage(handle.scan(dir)),
         };
         Ok(NativeStateCursor {
             cursor,
-            name: self.name.clone(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -1010,14 +929,10 @@ impl NativeDequeState {
     /// @throws Error carrying the category on `cause` if the commit fails.
     #[napi(writable = false)]
     pub async fn commit(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.commit", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            DequeStateVariant::Json(handle) => handle.commit().instrument(span).await,
-            DequeStateVariant::Message(handle) => handle.commit().instrument(span).await,
+            DequeStateVariant::Json(handle) => handle.commit().with_context(context).await,
+            DequeStateVariant::Message(handle) => handle.commit().with_context(context).await,
         }
         .map_err(|e| state_error(&e))
     }
@@ -1027,30 +942,25 @@ impl NativeDequeState {
     /// @param otelContext The OpenTelemetry context for tracing.
     #[napi(writable = false)]
     pub async fn rollback(&self, otel_context: HashMap<String, String>) {
-        let span = op_span(
-            &self.propagator,
-            &otel_context,
-            info_span!("deque.rollback", collection = %self.name),
-        );
+        let context = op_context(&self.propagator, &otel_context);
         match &self.state {
-            DequeStateVariant::Json(handle) => handle.rollback().instrument(span).await,
-            DequeStateVariant::Message(handle) => handle.rollback().instrument(span).await,
+            DequeStateVariant::Json(handle) => handle.rollback().with_context(context).await,
+            DequeStateVariant::Message(handle) => handle.rollback().with_context(context).await,
         }
     }
 }
 
 /// Demand-driven scan cursor over a map or deque collection.
 ///
-/// Pulling is lazy: each `next_chunk()` opens its own span, awaits one stream
-/// item, and asks core to drain only the immediately-ready tail. Chunking,
+/// Pulling is lazy: each `next_chunk()` restores the JavaScript context without
+/// creating a binding span, awaits one stream item, and asks core to drain only
+/// the immediately-ready tail. Chunking,
 /// exhaustion, error ordering, serialization, close-idempotence, and
 /// use-after-close behavior are core-owned; this layer only transports.
 #[napi]
 pub struct NativeStateCursor {
     /// The wrapped erased cursor.
     cursor: CursorVariant,
-    /// The scanned collection name (a span field).
-    name: String,
     /// The propagator used to re-establish the event parent per pull.
     propagator: Arc<TextMapCompositePropagator>,
 }
@@ -1060,8 +970,8 @@ impl NativeStateCursor {
     /// Pulls the next immediately-ready chunk of scanned items.
     ///
     /// Awaits the first item, then drains up to 255 more items only while they
-    /// are immediately ready. This amortizes N-API and tracing overhead without
-    /// waiting to fill a chunk.
+    /// are immediately ready. This amortizes N-API overhead without waiting to
+    /// fill a chunk.
     ///
     /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns The next non-empty vector of items, or null when exhausted.
@@ -1073,32 +983,21 @@ impl NativeStateCursor {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Vec<Either4<Value, (String, Value), Message, (String, Message)>>>>
     {
-        let span = match &self.cursor {
-            CursorVariant::DequeJson(_) | CursorVariant::DequeMessage(_) => op_span(
-                &self.propagator,
-                &otel_context,
-                info_span!("deque.stream.next", collection = %self.name),
-            ),
-            CursorVariant::MapJson(_) | CursorVariant::MapMessage(_) => op_span(
-                &self.propagator,
-                &otel_context,
-                info_span!("map.stream.next", collection = %self.name),
-            ),
-        };
+        let context = op_context(&self.propagator, &otel_context);
         match &self.cursor {
             CursorVariant::DequeJson(cursor) => cursor
                 .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::A).collect())),
             CursorVariant::MapJson(cursor) => cursor
                 .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::B).collect())),
             CursorVariant::DequeMessage(cursor) => cursor
                 .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|chunk| {
                     chunk.map(|items| {
@@ -1110,7 +1009,7 @@ impl NativeStateCursor {
                 }),
             CursorVariant::MapMessage(cursor) => cursor
                 .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .instrument(span)
+                .with_context(context)
                 .await
                 .map(|chunk| {
                     chunk.map(|items| {

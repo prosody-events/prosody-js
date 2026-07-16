@@ -2153,6 +2153,70 @@ describe("keyed state (unit)", () => {
     expect(fake.closedCount()).toBe(1);
   });
 
+  it("iterator serializes concurrent next calls without duplicates or concurrent pulls", async () => {
+    let activePulls = 0;
+    let maxActivePulls = 0;
+    const fake = makeFiniteCursor(
+      [
+        ["a", 1],
+        ["b", 2],
+        ["c", 3],
+      ],
+      2,
+    );
+    const cursor = {
+      async nextChunk(...args) {
+        activePulls += 1;
+        maxActivePulls = Math.max(maxActivePulls, activePulls);
+        try {
+          await Promise.resolve();
+          return await fake.cursor.nextChunk(...args);
+        } finally {
+          activePulls -= 1;
+        }
+      },
+      close: (...args) => fake.cursor.close(...args),
+    };
+    const it = new MapState({ scan: () => cursor }).entries();
+
+    await expect(
+      Promise.all([it.next(), it.next(), it.next()]),
+    ).resolves.toEqual([
+      { value: ["a", 1], done: false },
+      { value: ["b", 2], done: false },
+      { value: ["c", 3], done: false },
+    ]);
+    expect(maxActivePulls).toBe(1);
+    await expect(it.next()).resolves.toEqual({ value: undefined, done: true });
+    expect(fake.closedCount()).toBe(1);
+  });
+
+  it("iterator queues return behind an active next and closes exactly once", async () => {
+    let releasePull;
+    const pullGate = new Promise((resolve) => (releasePull = resolve));
+    let closed = 0;
+    const cursor = {
+      async nextChunk() {
+        await pullGate;
+        return [["a", 1]];
+      },
+      async close() {
+        closed += 1;
+      },
+    };
+    const it = new MapState({ scan: () => cursor }).entries();
+    const next = it.next();
+    const returned = it.return("stop");
+
+    await Promise.resolve();
+    expect(closed).toBe(0);
+    releasePull();
+    await expect(next).resolves.toEqual({ value: ["a", 1], done: false });
+    await expect(returned).resolves.toEqual({ value: "stop", done: true });
+    expect(closed).toBe(1);
+    await expect(it.next()).resolves.toEqual({ value: undefined, done: true });
+  });
+
   // A3 — a pull error closes the cursor, wraps to the typed state error, and
   // finishes the iterator (no further pulls).
   it("iterator pull error closes, wraps to a state error, and finishes", async () => {

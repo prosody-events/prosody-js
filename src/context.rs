@@ -12,13 +12,12 @@ use chrono::{DateTime, Utc};
 use napi::Error;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use opentelemetry::trace::FutureExt;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, debug, info_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
@@ -84,14 +83,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("schedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .schedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -112,14 +106,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("clearAndSchedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .clear_and_schedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -139,14 +128,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("unschedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .unschedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -157,14 +141,10 @@ impl NativeContext {
     #[napi(writable = false)]
     pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         let context = self.propagator.extract(&otel_context);
-        let span = info_span!("clearScheduled");
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
 
         self.context
             .clear_scheduled(TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -179,14 +159,10 @@ impl NativeContext {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<DateTime<Utc>>> {
         let context = self.propagator.extract(&otel_context);
-        let span = info_span!("scheduled");
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
 
         self.context
             .scheduled(TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map(|times| times.into_iter().map(DateTime::<Utc>::from).collect())
             .map_err(|error| Error::from_reason(error.to_string()))
@@ -210,7 +186,6 @@ impl NativeContext {
             .map_err(|e| state_error(&e))?;
         Ok(NativeValueState {
             state: ValueStateVariant::Json(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -230,7 +205,6 @@ impl NativeContext {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
         Ok(NativeMapState {
             state: MapStateVariant::Json(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -253,7 +227,6 @@ impl NativeContext {
             .map_err(|e| state_error(&e))?;
         Ok(NativeDequeState {
             state: DequeStateVariant::Json(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -275,7 +248,6 @@ impl NativeContext {
             .map_err(|e| state_error(&e))?;
         Ok(NativeValueState {
             state: ValueStateVariant::Message(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -297,7 +269,6 @@ impl NativeContext {
             .map_err(|e| state_error(&e))?;
         Ok(NativeMapState {
             state: MapStateVariant::Message(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -319,7 +290,6 @@ impl NativeContext {
             .map_err(|e| state_error(&e))?;
         Ok(NativeDequeState {
             state: DequeStateVariant::Message(handle),
-            name,
             propagator: Arc::clone(&self.propagator),
         })
     }
