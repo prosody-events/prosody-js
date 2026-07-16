@@ -768,9 +768,10 @@ function messageDeque(name, options) {
 }
 
 /**
- * Adapts a native scan cursor to the JS async-iterator protocol. Each `next()`
- * injects a fresh carrier (one span per pull) and maps the native `null`
- * (exhausted) to `{ done: true }`. Early exit from a `for await` loop
+ * Adapts a chunked native scan cursor to the item-oriented JS async-iterator
+ * protocol. A fresh carrier and span are created per native chunk, while
+ * individual `next()` calls drain the retained chunk without crossing N-API.
+ * Native `null` (exhausted) maps to `{ done: true }`. Early exit from a `for await` loop
  * (`break`/`return`/`throw`) invokes `return()`, which awaits the native
  * `close()`; exhaustion and a pull error also close the cursor. Once finished,
  * the cursor is never touched again. A pull error is never masked by the
@@ -787,6 +788,9 @@ function messageDeque(name, options) {
  */
 function stateIterator(cursor, transform) {
   let finished = false;
+  let chunk = [];
+  let offset = 0;
+  let pulling = null;
   // Best-effort close used after a pull or transform failure: it must never
   // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
   // from `close()` is swallowed too.
@@ -809,19 +813,30 @@ function stateIterator(cursor, transform) {
   return {
     async next() {
       if (finished) return { value: undefined, done: true };
-      let item;
-      try {
-        item = await cursor.next(injectedCarrier());
-      } catch (error) {
-        finished = true;
-        await closeQuietly();
-        throw toStateError(error);
+      while (offset >= chunk.length) {
+        chunk = [];
+        offset = 0;
+        try {
+          pulling ??= cursor.nextChunk(injectedCarrier());
+          chunk = await pulling;
+        } catch (error) {
+          finished = true;
+          await closeQuietly();
+          throw toStateError(error);
+        } finally {
+          pulling = null;
+        }
+        if (chunk === null) {
+          chunk = [];
+          finished = true;
+          await closeOrThrow();
+          return { value: undefined, done: true };
+        }
       }
-      if (item === null) {
-        finished = true;
-        await closeOrThrow();
-        return { value: undefined, done: true };
-      }
+      const item = chunk[offset];
+      // Release consumed values even while the rest of a large chunk remains.
+      chunk[offset] = undefined;
+      offset += 1;
       try {
         return { value: transform(item), done: false };
       } catch (error) {
@@ -835,6 +850,8 @@ function stateIterator(cursor, transform) {
     async return(value) {
       if (!finished) {
         finished = true;
+        chunk = [];
+        offset = 0;
         await closeOrThrow();
       }
       return { value, done: true };

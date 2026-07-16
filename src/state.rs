@@ -8,8 +8,9 @@
 //!
 //! Every operation opens its own tracing span the timer-method way (extract the
 //! parent from the JS-side carrier, then instrument the erased future) — spans
-//! open per operation and per cursor `next()`, never at vend, because vended
-//! handles outlive the vend call.
+//! open per operation and per cursor chunk pull, never at vend, because vended
+//! handles outlive the vend call. Scan pulls amortize that boundary work over
+//! vectors of up to 256 immediately-ready items.
 //!
 //! Errors carry their category (`"permanent"` / `"transient"`) as the message
 //! of the JavaScript error's `cause`, a machine-readable data channel the
@@ -34,6 +35,7 @@ use prosody::consumer::message::{ConsumerMessage, ConsumerMessageValue};
 use prosody::state::Direction;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::ptr;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -305,6 +307,11 @@ enum CursorVariant {
     /// A map message scan yielding `(key, message)` entries.
     MapMessage(BoxStateCursor<(String, ConsumerMessage<Value>)>),
 }
+
+/// Maximum number of immediately-ready scan items transported through N-API
+/// in one vector. Core owns ready draining, error ordering, and pull
+/// serialization; this binding owns only the transport cap and conversion.
+const SCAN_READY_CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
 
 /// Erased single-value state handle, vended per event.
 ///
@@ -647,8 +654,8 @@ impl NativeMapState {
 
     /// Opens a demand-driven cursor over the live entries in key order.
     ///
-    /// Synchronous — it performs no I/O and opens no span; each cursor `next()`
-    /// opens its own span. Entries are yielded as `(key, value)` pairs.
+    /// Synchronous — it performs no I/O and opens no span; each cursor chunk
+    /// pull opens its own span. Entries are yielded as `(key, value)` pairs.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
     /// @returns A cursor over the map entries.
@@ -976,8 +983,8 @@ impl NativeDequeState {
 
     /// Opens a demand-driven cursor over the live elements in index order.
     ///
-    /// Synchronous — it performs no I/O and opens no span; each cursor `next()`
-    /// opens its own span.
+    /// Synchronous — it performs no I/O and opens no span; each cursor chunk
+    /// pull opens its own span.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
     /// @returns A cursor over the deque elements.
@@ -1034,9 +1041,10 @@ impl NativeDequeState {
 
 /// Demand-driven scan cursor over a map or deque collection.
 ///
-/// Pulling is lazy: each `next()` opens its own span and drives the underlying
-/// erased stream one step. Exhaustion, close-idempotence, and use-after-close
-/// errors are all core-owned; this layer only transports.
+/// Pulling is lazy: each `next_chunk()` opens its own span, awaits one stream
+/// item, and asks core to drain only the immediately-ready tail. Chunking,
+/// exhaustion, error ordering, serialization, close-idempotence, and
+/// use-after-close behavior are core-owned; this layer only transports.
 #[napi]
 pub struct NativeStateCursor {
     /// The wrapped erased cursor.
@@ -1049,18 +1057,22 @@ pub struct NativeStateCursor {
 
 #[napi]
 impl NativeStateCursor {
-    /// Pulls the next scanned item.
+    /// Pulls the next immediately-ready chunk of scanned items.
+    ///
+    /// Awaits the first item, then drains up to 255 more items only while they
+    /// are immediately ready. This amortizes N-API and tracing overhead without
+    /// waiting to fill a chunk.
     ///
     /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The next item (a deque value/message, or a map `[key, value]`
-    ///   entry), or null when the scan is exhausted.
+    /// @returns The next non-empty vector of items, or null when exhausted.
     /// @throws Error carrying the category on `cause` if the pull fails or the
     ///   cursor was closed.
     #[napi(writable = false)]
-    pub async fn next(
+    pub async fn next_chunk(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either4<Value, (String, Value), Message, (String, Message)>>> {
+    ) -> napi::Result<Option<Vec<Either4<Value, (String, Value), Message, (String, Message)>>>>
+    {
         let span = match &self.cursor {
             CursorVariant::DequeJson(_) | CursorVariant::DequeMessage(_) => op_span(
                 &self.propagator,
@@ -1075,35 +1087,46 @@ impl NativeStateCursor {
         };
         match &self.cursor {
             CursorVariant::DequeJson(cursor) => cursor
-                .next()
+                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
                 .instrument(span)
                 .await
-                .map(|item| item.map(Either4::A))
-                .map_err(|e| state_error(&e)),
+                .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::A).collect())),
             CursorVariant::MapJson(cursor) => cursor
-                .next()
+                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
                 .instrument(span)
                 .await
-                .map(|item| item.map(Either4::B))
-                .map_err(|e| state_error(&e)),
+                .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::B).collect())),
             CursorVariant::DequeMessage(cursor) => cursor
-                .next()
+                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
                 .instrument(span)
                 .await
-                .map(|item| item.map(|message| Either4::C(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map(|chunk| {
+                    chunk.map(|items| {
+                        items
+                            .into_iter()
+                            .map(|message| Either4::C(Message::from(&message)))
+                            .collect()
+                    })
+                }),
             CursorVariant::MapMessage(cursor) => cursor
-                .next()
+                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
                 .instrument(span)
                 .await
-                .map(|item| item.map(|(key, message)| Either4::D((key, Message::from(&message)))))
-                .map_err(|e| state_error(&e)),
+                .map(|chunk| {
+                    chunk.map(|items| {
+                        items
+                            .into_iter()
+                            .map(|(key, message)| Either4::D((key, Message::from(&message))))
+                            .collect()
+                    })
+                }),
         }
+        .map_err(|error| state_error(&error))
     }
 
     /// Closes the cursor, releasing the underlying stream.
     ///
-    /// Idempotent; a subsequent `next()` errors. No span — pure teardown.
+    /// Idempotent; a subsequent `next_chunk()` errors. No span — pure teardown.
     ///
     /// @returns A promise that resolves when the cursor is closed.
     #[napi(writable = false)]

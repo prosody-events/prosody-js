@@ -2056,9 +2056,9 @@ describe("keyed state (unit)", () => {
     const counts = { closed: 0, nextCalls: 0 };
     return {
       cursor: {
-        async next() {
+        async nextChunk() {
           counts.nextCalls += 1;
-          return ["k" + counts.nextCalls, counts.nextCalls];
+          return [["k" + counts.nextCalls, counts.nextCalls]];
         },
         async close() {
           counts.closed += 1;
@@ -2072,19 +2072,24 @@ describe("keyed state (unit)", () => {
 
   // A finite cursor that yields `items` then null (exhausted), closing on
   // exhaustion.
-  const makeFiniteCursor = (items) => {
+  const makeFiniteCursor = (items, chunkSize = 1) => {
     let i = 0;
-    const counts = { closed: 0 };
+    const counts = { closed: 0, pulls: 0 };
     return {
       cursor: {
-        async next() {
-          return i < items.length ? items[i++] : null;
+        async nextChunk() {
+          counts.pulls += 1;
+          if (i >= items.length) return null;
+          const chunk = items.slice(i, i + chunkSize);
+          i += chunk.length;
+          return chunk;
         },
         async close() {
           counts.closed += 1;
         },
       },
       closedCount: () => counts.closed,
+      pullCount: () => counts.pulls,
     };
   };
 
@@ -2124,12 +2129,36 @@ describe("keyed state (unit)", () => {
     expect(fake.closedCount()).toBe(1);
   });
 
+  it("iterator flattens native ready chunks without pulling per item", async () => {
+    const fake = makeFiniteCursor(
+      [
+        ["a", 1],
+        ["b", 2],
+        ["c", 3],
+        ["d", 4],
+      ],
+      3,
+    );
+    const m = new MapState({ scan: () => fake.cursor });
+    const collected = [];
+    for await (const entry of m.entries()) collected.push(entry);
+    expect(collected).toEqual([
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+      ["d", 4],
+    ]);
+    // Two data chunks plus the exhaustion pull, not one native pull per item.
+    expect(fake.pullCount()).toBe(3);
+    expect(fake.closedCount()).toBe(1);
+  });
+
   // A3 — a pull error closes the cursor, wraps to the typed state error, and
   // finishes the iterator (no further pulls).
   it("iterator pull error closes, wraps to a state error, and finishes", async () => {
     const counts = { closed: 0 };
     const cursor = {
-      async next() {
+      async nextChunk() {
         const e = new Error("scan boom");
         e.cause = new Error("transient");
         throw e;
