@@ -1232,7 +1232,7 @@ describe("ProsodyClient", () => {
               messageStream.push({
                 tag: "full",
                 collected,
-                head: await d.get(0), // some marshalled element (not asserting which)
+                head: await d.at(0), // some marshalled element (not asserting which)
                 popped: await d.pop(), // a marshalled element
               });
             } else if (msg.key === Dempty) {
@@ -1319,9 +1319,9 @@ describe("ProsodyClient", () => {
       expect(orig.payload).toEqual({ step: 1 });
     });
 
-    // C4b — Message collection (messageDeque): same-event push -> get(0) -> scan
+    // C4b — Message collection (messageDeque): same-event push -> at(0) -> scan
     // round-trips the full Message.
-    it("messageDeque round-trips the full message through push/get/scan", async () => {
+    it("messageDeque round-trips the full message through push/at/scan", async () => {
       const MD = nonce();
       client = makeStateClient();
       await client.subscribe({
@@ -1329,7 +1329,7 @@ describe("ProsodyClient", () => {
           const dl = ctx.state(STATE_DEFS.msgLog);
           try {
             await dl.push(msg);
-            const head = await dl.get(0);
+            const head = await dl.at(0);
             const scanned = [];
             for await (const m of dl.values("forward")) scanned.push(m);
             messageStream.push({
@@ -2250,21 +2250,50 @@ describe("keyed state (unit)", () => {
     expect(isStateError(new Error("x"))).toBe(false);
   });
 
-  // A5 — DequeState.get rejects a fractional or negative index as a caller
-  // mistake (TransientStateError — retry, never discard; Appendix-2 deque-index
-  // row; the native u32 conversion would otherwise truncate/wrap).
-  it("deque get rejects a fractional or negative index but allows valid ones", async () => {
-    const d = new DequeState({ get: async () => 99 });
-    await expect(d.get(1.5)).rejects.toBeInstanceOf(TransientStateError);
-    await expect(d.get(1.5)).rejects.toThrow(/index/);
-    await expect(d.get(-1)).rejects.toBeInstanceOf(TransientStateError);
-    await expect(d.get(2)).resolves.toBe(99);
-    await expect(d.get(2 ** 32)).rejects.toBeInstanceOf(TransientStateError);
+  // A5 — DequeState.at() rejects a non-integer index as a caller mistake
+  // (TransientStateError — retry, never discard; the native u32 conversion would
+  // otherwise truncate a fraction), resolves a negative index against the current
+  // length like Array.prototype.at, and treats any out-of-range position as a
+  // normal absent read (null) rather than an error.
+  it("deque at() validates the index and counts negatives from the end", async () => {
+    // native.get echoes its index; native.len reports a length of 3.
+    const d = new DequeState({ get: async (i) => i, len: async () => 3 });
+    // Fractional / NaN / infinite indices are caller mistakes -> transient reject.
+    await expect(d.at(1.5)).rejects.toBeInstanceOf(TransientStateError);
+    await expect(d.at(1.5)).rejects.toThrow(/index/);
+    await expect(d.at(NaN)).rejects.toBeInstanceOf(TransientStateError);
+    await expect(d.at(Infinity)).rejects.toBeInstanceOf(TransientStateError);
+    // A non-negative index in range reads that position.
+    await expect(d.at(2)).resolves.toBe(2);
+    // A negative index counts back from the current length (3): -1 -> position 2.
+    await expect(d.at(-1)).resolves.toBe(2);
+    // A negative index past the front is out of range -> null, no native read.
+    await expect(d.at(-4)).resolves.toBeNull();
+    // Beyond the u32 range is out of range -> null, never a wrapped read.
+    await expect(d.at(2 ** 32)).resolves.toBeNull();
     // A hostile non-number (Symbol) must REJECT, not throw synchronously while
-    // building the diagnostic — get() is declared to return a Promise.
-    await expect(d.get(Symbol("x"))).rejects.toBeInstanceOf(
-      TransientStateError,
-    );
+    // building the diagnostic — at() is declared to return a Promise.
+    await expect(d.at(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
+  });
+
+  // A5b — MapState.has() reports presence off a real read: the native get is
+  // mapped to a boolean (present -> true, absent/null -> false) without leaking
+  // the value. DequeState.clear() passes straight through to the native clear.
+  it("map has() maps a read to a boolean and deque clear() passes through", async () => {
+    const m = new MapState({
+      get: async (key) => (key === "present" ? { v: 1 } : null),
+    });
+    await expect(m.has("present")).resolves.toBe(true);
+    await expect(m.has("absent")).resolves.toBe(false);
+
+    let cleared = false;
+    const d = new DequeState({
+      clear: async () => {
+        cleared = true;
+      },
+    });
+    await expect(d.clear()).resolves.toBeUndefined();
+    expect(cleared).toBe(true);
   });
 
   // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:

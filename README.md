@@ -686,8 +686,11 @@ client.subscribe({
     const current = (await c.get()) ?? { items: [] }; // Cart | null
     await c.set({ items: [...current.items, message.payload.orderId] });
 
-    await context.state(totals).set(message.key, message.payload.total);
-    for await (const [key, total] of context.state(totals).entries()) {
+    const totalsByKey = context.state(totals); // MapState<number>
+    if (!(await totalsByKey.has(message.key))) {
+      await totalsByKey.set(message.key, message.payload.total);
+    }
+    for await (const [key, total] of totalsByKey.entries()) {
       // key: string, total: number
       void key;
       void total;
@@ -695,8 +698,10 @@ client.subscribe({
 
     const b = context.state(backlog); // DequeState<Message<OrderEvent>>
     await b.push(message);
-    const oldest = await b.get(0); // Message<OrderEvent> | null
+    const oldest = await b.at(0); // front, like arr.at(0) — Message | null
+    const newest = await b.at(-1); // back, like arr.at(-1) — Message | null
     void oldest;
+    void newest;
   },
 });
 ```
@@ -733,10 +738,11 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 
 - `get(key: string): Promise<V | null>`: reads the value for `key`, or `null` when absent.
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`: reads several keys in one call, returning one entry per key in the same order (`result[i]` is the value for `keys[i]`); a missing key is `null`, and a repeated key is answered at each spot. The whole read happens as one step, so no other change to this event's state slips in partway through.
+- `has(key: string): Promise<boolean>`: whether `key` currently has a value. This is a genuine read — no cheaper than `get` today — so use it to express intent (or to avoid materializing a large value), not to save work.
 - `set(key: string, value: V): Promise<void>`: inserts or overwrites. Writing JSON `null` is rejected — call `delete(key)`.
 - `delete(key: string): Promise<void>`: removes `key`. Deliberately returns `void`, not a boolean "was present" flag (surfacing that would force a hidden read on every delete).
 - `clear(): Promise<void>`: removes every entry.
-- `entries(direction?)` / `keys()` / `values()` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
+- `entries(direction?)` / `keys(direction?)` / `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
 - `commit(): Promise<void>` / `rollback(): Promise<void>`.
 
 `DequeState<T>`:
@@ -747,13 +753,14 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 - `shift(): Promise<T | null>`: removes and returns the front element, or `null` when empty.
 - `length(): Promise<number>`: number of live elements.
 - `isEmpty(): Promise<boolean>`: whether the deque holds no live elements.
-- `get(index: number): Promise<T | null>`: reads the element at front-relative `index`, or `null` past the end. `index` must be a non-negative integer; a fractional, negative, or out-of-range value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message).
+- `clear(): Promise<void>`: removes every element.
+- `at(index: number): Promise<T | null>`: reads the element at `index`, like `Array.prototype.at` — a non-negative `index` counts from the front (`0` is the front), a negative `index` counts back from the end (`-1` is the back). Any out-of-range position (including every index on an empty deque) is `null`. `index` must be a safe integer; a fractional, `NaN`, or infinite value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message). A negative `index` is resolved against the current `length`, so it makes one extra boundary crossing that a non-negative index does not.
 - `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
 - `commit(): Promise<void>` / `rollback(): Promise<void>`.
 
 ### Scan Iteration
 
-Maps expose `entries(direction?)`, `keys()`, and `values()`; deques expose `values(direction?)`. Each returns an `AsyncIterableIterator`, so you can drive it with `for await`. `direction` is `"forward"` (default) or `"backward"`. On a map, `keys()` and `values()` are always forward-only; only `entries()` accepts a direction. Both classes also implement `[Symbol.asyncIterator]` as forward iteration (map: `[key, value]` entries; deque: elements), so the handle itself is iterable.
+Maps expose `entries(direction?)`, `keys(direction?)`, and `values(direction?)`; deques expose `values(direction?)`. Each returns an `AsyncIterableIterator`, so you can drive it with `for await`. `direction` is `"forward"` (default) or `"backward"`: on a map it selects ascending or descending key order, on a deque front-to-back or back-to-front. Both classes also implement `[Symbol.asyncIterator]` as forward iteration (map: `[key, value]` entries; deque: elements), so the handle itself is iterable.
 
 Iterators are valid only within the attempt that opened them. Exiting a `for await` loop early closes the underlying cursor (the iterator's `return()` calls the native `close()`), so an early `break` releases the scan promptly:
 
@@ -783,7 +790,7 @@ Both resolve with no value. The erased core seam deliberately drops the store ou
 
 Keyed-state failures surface as structured errors that flow through the same handler-error bridge as everything else (the transient/permanent category is carried as data, never parsed from the message):
 
-- `TransientStateError` (subclasses `TransientError`): the default. A temporary store read/write failure (for example a timeout), **and every caller mistake** — a rejected `null`/`undefined`/unrepresentable write (use `clear()` / `delete()` instead), an item-shape mismatch, an out-of-range deque index, or an invalid scan direction. Caller mistakes are transient on purpose: a permanent error discards the in-flight message and can silently lose data, so a code error retries and stays visible (logs/metrics/lag) until you fix it.
+- `TransientStateError` (subclasses `TransientError`): the default. A temporary store read/write failure (for example a timeout), **and every caller mistake** — a rejected `null`/`undefined`/unrepresentable write (use `clear()` / `delete()` instead), an item-shape mismatch, a non-integer deque index (an out-of-range index instead reads as `null`), or an invalid scan direction. Caller mistakes are transient on purpose: a permanent error discards the in-flight message and can silently lose data, so a code error retries and stays visible (logs/metrics/lag) until you fix it.
 - `PermanentStateError` (subclasses `PermanentError`): reserved for failures a retry genuinely cannot resolve within the running process — an unregistered or identity-mismatched collection, or a duplicate registration. (A handler may also throw one explicitly to declare its own failure permanent.)
 
 Because they subclass the existing error hierarchy, rethrowing them from a handler classifies the event exactly like a plain `PermanentError` / `TransientError`. Use `isStateError(error)` to narrow an error to either state error class.
@@ -1153,12 +1160,13 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 - `get(key: string): Promise<V | null>`
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`
+- `has(key: string): Promise<boolean>`
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
 - `entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>`
-- `keys(): AsyncIterableIterator<string>`
-- `values(): AsyncIterableIterator<V>`
+- `keys(direction?: ScanDirection): AsyncIterableIterator<string>`
+- `values(direction?: ScanDirection): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
 - `commit(): Promise<void>`
 - `rollback(): Promise<void>`
@@ -1171,7 +1179,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `shift(): Promise<T | null>`
 - `length(): Promise<number>`
 - `isEmpty(): Promise<boolean>`
-- `get(index: number): Promise<T | null>`
+- `clear(): Promise<void>`
+- `at(index: number): Promise<T | null>`
 - `values(direction?: ScanDirection): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
 - `commit(): Promise<void>`
@@ -1183,7 +1192,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 Errors:
 
-- `TransientStateError extends TransientError`: the default — a temporary store read/write failure, or any caller mistake (a `null`/unrepresentable write, item-shape mismatch, out-of-range index, invalid scan direction), rejected transient so it retries rather than discarding the message.
+- `TransientStateError extends TransientError`: the default — a temporary store read/write failure, or any caller mistake (a `null`/unrepresentable write, item-shape mismatch, non-integer deque index, invalid scan direction), rejected transient so it retries rather than discarding the message.
 - `PermanentStateError extends PermanentError`: reserved for failures a retry cannot resolve in-process (unregistered/identity-mismatched collection, duplicate registration), or one a handler throws explicitly.
 - `isStateError(error: unknown): error is PermanentStateError | TransientStateError`: type-guard narrowing an error to either state error class.
 

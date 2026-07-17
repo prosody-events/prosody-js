@@ -76,6 +76,7 @@ export async function checks(): Promise<void> {
   await t.set(incoming.key, incoming.payload.total);
   const many = await t.getMany([incoming.key, "other"]);
   assertTrue<Equal<typeof many, (number | null)[]>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.has>>, boolean>>();
   await t.delete(incoming.key);
   for await (const [key, total] of t.entries("backward")) {
     assertTrue<Equal<typeof key, string>>();
@@ -84,10 +85,11 @@ export async function checks(): Promise<void> {
   for await (const entry of t) {
     assertTrue<Equal<typeof entry, [string, number]>>();
   }
-  for await (const key of t.keys()) {
+  // keys()/values() take the same optional direction as entries().
+  for await (const key of t.keys("backward")) {
     assertTrue<Equal<typeof key, string>>();
   }
-  for await (const v of t.values()) {
+  for await (const v of t.values("backward")) {
     assertTrue<Equal<typeof v, number>>();
   }
 
@@ -100,12 +102,18 @@ export async function checks(): Promise<void> {
   void shifted;
   assertTrue<Equal<Awaited<ReturnType<typeof d.length>>, number>>();
   assertTrue<Equal<Awaited<ReturnType<typeof d.isEmpty>>, boolean>>();
+  await d.clear();
+  const front: string | null = await d.at(0);
+  const back: string | null = await d.at(-1);
+  void front;
+  void back;
+  assertTrue<Equal<Awaited<ReturnType<typeof d.at>>, string | null>>();
   for await (const item of d.values("backward")) {
     assertTrue<Equal<typeof item, string>>();
   }
 
   // ---- message collections carry Message<P> ----
-  const oldest = await b.get(0);
+  const oldest = await b.at(0);
   assertTrue<Equal<typeof oldest, Message<OrderEvent> | null>>();
   if (oldest !== null) {
     const orderId: string = oldest.payload.orderId;
@@ -140,16 +148,14 @@ export async function checks(): Promise<void> {
   await t.set("k", "not-a-number");
   // @ts-expect-error direction is a closed "forward" | "backward" set
   d.values("sideways");
+  // @ts-expect-error the same closed set applies to map keys()
+  t.keys("sideways");
   // @ts-expect-error a message deque stores Message<P>, not the bare payload
   await b.push(incoming.payload);
   // @ts-expect-error keysetLimit is map-only (value options reject it)
   value<Cart>("v2", { keysetLimit: 5 });
   // @ts-expect-error keysetLimit is map-only (deque options reject it)
   deque<string>("d2", { keysetLimit: 5 });
-  // @ts-expect-error map keys() is forward-only — no direction argument
-  t.keys("backward");
-  // @ts-expect-error map values() is forward-only — no direction argument
-  t.values("backward");
 
   // ---- handles are vended by context.state(), never constructed directly ----
   // @ts-expect-error ValueState has a private constructor

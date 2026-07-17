@@ -138,7 +138,11 @@ export declare class Context {
   state<T>(definition: DequeDefinition<T>): DequeState<T>;
 }
 
-/** Scan direction over a map or deque collection. */
+/**
+ * Scan direction over a map or deque collection. `"forward"` visits a map in
+ * ascending key order and a deque from front to back; `"backward"` reverses
+ * each. Defaults to `"forward"` wherever it is optional.
+ */
 export type ScanDirection = "forward" | "backward";
 
 /** Options accepted by every keyed-state definition constructor. */
@@ -361,6 +365,12 @@ export declare class MapState<V = any> {
    */
   getMany(keys: readonly string[]): Promise<(V | null)[]>;
   /**
+   * Reports whether `key` currently has a value. This is a genuine read — no
+   * cheaper than {@link MapState#get} today — so reach for it to express intent
+   * (or to avoid materializing a large value you don't need), not to save work.
+   */
+  has(key: string): Promise<boolean>;
+  /**
    * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
    * (via {@link !NonNullable}) because a top-level `null` is not a storable
    * value — writing one (or an unrepresentable value) is a caller mistake,
@@ -386,15 +396,17 @@ export declare class MapState<V = any> {
    */
   entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>;
   /**
-   * Async iterator over the live keys in forward key order. Valid only within
-   * the handler invocation (attempt) that opened it.
+   * Async iterator over the live keys in key order. Valid only within the
+   * handler invocation (attempt) that opened it; early exit from a `for await`
+   * loop closes the underlying cursor.
    */
-  keys(): AsyncIterableIterator<string>;
+  keys(direction?: ScanDirection): AsyncIterableIterator<string>;
   /**
-   * Async iterator over the live values in forward key order. Valid only
-   * within the handler invocation (attempt) that opened it.
+   * Async iterator over the live values in key order. Valid only within the
+   * handler invocation (attempt) that opened it; early exit from a `for await`
+   * loop closes the underlying cursor.
    */
-  values(): AsyncIterableIterator<V>;
+  values(direction?: ScanDirection): AsyncIterableIterator<V>;
   /**
    * Forward iteration over `[key, value]` entries. Valid only within the
    * handler invocation (attempt) that opened it.
@@ -439,13 +451,19 @@ export declare class DequeState<T = any> {
   length(): Promise<number>;
   /** Reports whether the deque holds no live elements. */
   isEmpty(): Promise<boolean>;
+  /** Removes every element. */
+  clear(): Promise<void>;
   /**
-   * Reads the element at front-relative position `index`, or null past the end.
-   * `index` must be a non-negative integer in `[0, 4294967295]`; a fractional,
-   * negative, or out-of-range value is a caller mistake, rejected with a
-   * {@link TransientStateError} (it retries and stays visible).
+   * Reads the element at `index`, like `Array.prototype.at`: a non-negative
+   * `index` counts from the front (`0` is the front), a negative `index` counts
+   * back from the end (`-1` is the back). Any out-of-range position — including
+   * every index on an empty deque — resolves to null. `index` must be a safe
+   * integer; a fractional, `NaN`, or infinite value is a caller mistake,
+   * rejected with a {@link TransientStateError} (it retries and stays visible).
+   * A negative `index` is resolved against the current {@link DequeState#length},
+   * so it makes an extra boundary crossing that a non-negative one does not.
    */
-  get(index: number): Promise<T | null>;
+  at(index: number): Promise<T | null>;
   /**
    * Async iterator over the live elements in index order. Valid only within
    * the handler invocation (attempt) that opened it; early exit from a

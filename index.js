@@ -983,6 +983,20 @@ class MapState {
   }
 
   /**
+   * Reports whether `key` currently has a value. This is a genuine read — no
+   * cheaper than {@link MapState#get} today — so reach for it to express intent
+   * (or to avoid materializing a large value you don't need), not to save work.
+   * @param {string} key - The map key.
+   * @returns {Promise<boolean>} True when the key is present.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  has(key) {
+    return stateOp((carrier) => this.native.get(key, carrier)).then(
+      (value) => value !== null,
+    );
+  }
+
+  /**
    * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
    * value) is a caller mistake, rejected with a {@link TransientStateError} —
    * use {@link MapState#delete} to remove an entry instead. The error is
@@ -1040,25 +1054,33 @@ class MapState {
   }
 
   /**
-   * Opens an async iterator over the live keys in forward key order. Valid only
-   * within the handler invocation (attempt) that opened it.
+   * Opens an async iterator over the live keys in key order. Valid only within
+   * the handler invocation (attempt) that opened it; early exit closes the
+   * underlying cursor.
+   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
    * @returns {AsyncIterableIterator<string>} The keys iterator.
+   * @throws {TransientStateError} If the direction token is invalid (a caller
+   *   mistake — retries, not discarded).
    */
-  keys() {
+  keys(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan("forward", injectedCarrier())),
+      stateSync(() => this.native.scan(direction, injectedCarrier())),
       (entry) => entry[0],
     );
   }
 
   /**
-   * Opens an async iterator over the live values in forward key order. Valid
-   * only within the handler invocation (attempt) that opened it.
+   * Opens an async iterator over the live values in key order. Valid only
+   * within the handler invocation (attempt) that opened it; early exit closes
+   * the underlying cursor.
+   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
    * @returns {AsyncIterableIterator<*>} The values iterator.
+   * @throws {TransientStateError} If the direction token is invalid (a caller
+   *   mistake — retries, not discarded).
    */
-  values() {
+  values(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan("forward", injectedCarrier())),
+      stateSync(() => this.native.scan(direction, injectedCarrier())),
       (entry) => entry[1],
     );
   }
@@ -1168,30 +1190,52 @@ class DequeState {
   }
 
   /**
-   * Reads the element at front-relative position `index`.
+   * Removes every element.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  clear() {
+    return stateOp((carrier) => this.native.clear(carrier));
+  }
+
+  /**
+   * Reads the element at `index`, like `Array.prototype.at`. A non-negative
+   * `index` counts from the front (`0` is the front element); a negative
+   * `index` counts back from the end (`-1` is the back element). Any in-range
+   * position resolves to its element; any out-of-range position — including
+   * every index on an empty deque — resolves to null, the same absence sentinel
+   * `pop`/`shift` use.
    *
-   * `index` must be a non-negative integer. A fractional or negative number is
-   * rejected with a {@link TransientStateError}: the native `u32` argument
-   * conversion would otherwise silently truncate `1.5` to `1` and wrap `-1` to a
-   * huge index, so this guard types the argument at the boundary rather than
-   * letting a mistaken index read the wrong element. A value above
-   * `4294967295` (`u32::MAX`) is rejected for the same reason — it would wrap
-   * modulo 2^32 and read the wrong element. The error is transient (a caller
-   * mistake retries and stays visible, never discards the message).
-   * @param {number} index - The zero-based position from the front.
-   * @returns {Promise<*|null>} The element, or null past the end.
+   * `index` must be a safe integer; a fractional, `NaN`, or infinite value is a
+   * caller mistake, rejected with a {@link TransientStateError} so it retries
+   * and stays visible rather than silently reading the wrong element (a bare
+   * `u32` conversion would truncate `1.5` to `1`). The error is transient — a
+   * caller mistake never discards the message.
+   *
+   * Negative indices are resolved against the current {@link DequeState#length},
+   * so `at(-1)` makes two boundary crossings (a length read, then the element
+   * read); a non-negative index makes one. Within a handler attempt the deque
+   * has a single owner, so nothing else mutates it between the two reads.
+   * @param {number} index - The position: front-relative if `>= 0`, else back-relative.
+   * @returns {Promise<*|null>} The element, or null when the position is out of range.
    * @throws {TransientStateError} On an index mistake or a transient store
    *   failure; {@link PermanentStateError} only if the store reports one.
    */
-  get(index) {
-    if (!Number.isInteger(index) || index < 0 || index > 0xffffffff) {
-      return Promise.reject(
-        new TransientStateError(
-          `get: index must be an integer in [0, 4294967295], got ${describeValue(index)}`,
-        ),
+  async at(index) {
+    if (!Number.isSafeInteger(index)) {
+      throw new TransientStateError(
+        `at: index must be a safe integer, got ${describeValue(index)}`,
       );
     }
-    return stateOp((carrier) => this.native.get(index, carrier));
+    let position = index;
+    if (position < 0) {
+      position += await this.length();
+      // Still negative: the deque is shorter than |index|, so nothing is there.
+      if (position < 0) return null;
+    }
+    // Beyond the addressable u32 range can only be past the end, never a wrap.
+    if (position > 0xffffffff) return null;
+    return stateOp((carrier) => this.native.get(position, carrier));
   }
 
   /**
