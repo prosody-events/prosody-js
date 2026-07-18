@@ -282,6 +282,7 @@ Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Pref
 | `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)         | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                 | false      |
 | `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)     | 128        |
+| `capacity`        | Deque-only; bounded backlog (a whole number `>= 1`), enforced lazily on push        | (none)     |
 
 ## Liveness and Readiness Probes
 
@@ -652,59 +653,109 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Prosody supports keyed state: per-key data that a handler reads and writes and that survives across events. State is partitioned by the message key, so each key has a single writer at a time, and by default writes settle atomically with the event — a handler that throws leaves no partial state. Values are either JSON payloads or the full Kafka `Message` the handler received. Register collections on the client before subscribing, then bind them inside the handler with `context.state(definition)`:
+Prosody supports keyed state: per-key data that a handler reads and writes and that survives across events. State is partitioned by the message key, so each key has a single writer at a time, and by default writes settle atomically with the event — a handler that throws leaves no partial state. Values are either JSON payloads or the full Kafka `Message` the handler received.
+
+### A durable counter per key
+
+A `Value` gives every Kafka key durable local memory: update it in the handler, and Prosody publishes the new state only when that event succeeds — even across restarts and rebalances. Declare the collection once, register it on the client, then bind it inside the handler and read-modify-write:
 
 ```typescript
-import {
-  ProsodyClient,
-  value,
-  map,
-  messageDeque,
-  Message,
-} from "@prosody-events/prosody";
+import { ProsodyClient, value, type Message } from "@prosody-events/prosody";
 
-interface Cart {
-  items: string[];
-}
-interface OrderEvent {
-  orderId: string;
-  total: number;
-}
-
-const cart = value<Cart>("cart", { ttlSeconds: 30 * 86400 });
-const totals = map<number>("totals"); // keys are always string
-const backlog = messageDeque<OrderEvent>("backlog");
+const COUNT = value<number>("count"); // one durable number per key
 
 const client = new ProsodyClient({
   ...config,
-  stateCollections: [cart, totals, backlog],
+  stateCollections: [COUNT],
 });
 
 client.subscribe({
-  async onMessage(context, message: Message<OrderEvent>, signal) {
-    const c = context.state(cart); // ValueState<Cart>
-    const current = (await c.get()) ?? { items: [] }; // Cart | null
-    await c.set({ items: [...current.items, message.payload.orderId] });
-
-    const totalsByKey = context.state(totals); // MapState<number>
-    if (!(await totalsByKey.has(message.key))) {
-      await totalsByKey.set(message.key, message.payload.total);
-    }
-    for await (const [key, total] of totalsByKey.entries()) {
-      // key: string, total: number
-      void key;
-      void total;
-    }
-
-    const b = context.state(backlog); // DequeState<Message<OrderEvent>>
-    await b.push(message);
-    const oldest = await b.at(0); // front, like arr.at(0) — Message | null
-    const newest = await b.at(-1); // back, like arr.at(-1) — Message | null
-    void oldest;
-    void newest;
+  async onMessage(context, message: Message) {
+    const count = context.state(COUNT); // this key's counter, for this event
+    const n = ((await count.get()) ?? 0) + 1; // ?? 0 for the first event
+    await count.set(n); // settles atomically with the event
   },
 });
 ```
+
+That is one coherent event transition: the increment settles with the event, so a redelivery never double-counts a committed increment and a crash never leaves the counter half-written.
+
+### Batch a burst of events per user
+
+Your consumer reads a stream of activity events — likes, comments, follows — each tagged with the user it's about (the Kafka key). If you send a notification for every event, an active moment spams the user. What you want: tell them the instant something happens, but if more arrives right after, hold it and send a single summary a few minutes later.
+
+By hand this is surprisingly involved — you need a durable place to stash pending events _for each user_, a timer _for each user_ to send the summary, and all of it has to survive the process restarting or the work moving to another machine. Prosody gives you exactly those two things: durable per-key state and a per-key timer.
+
+1. **First event for a user** → send it now, mark that a batch is open, and set a timer for 5 minutes out.
+2. **More events arrive before the timer fires** → don't notify again; just save each one.
+3. **Timer fires** → send one summary of everything saved, then close the batch so the next event starts fresh.
+
+```typescript
+import {
+  value,
+  messageDeque,
+  type EventHandler,
+  type Message,
+} from "@prosody-events/prosody";
+
+interface Activity {
+  actor: string;
+  action: string;
+}
+
+// Your own delivery function (push, email, …) — the only thing here you write.
+declare function notify(
+  userId: string,
+  activities: Message<Activity>[],
+): Promise<void>;
+
+// Declare the collections once, at module scope; register both on the client
+// via `stateCollections: [WINDOW, PENDING]`.
+const WINDOW = value<boolean>("window"); // is a batch open for this user?
+const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep the latest 100 messages
+
+const handler = {
+  async onMessage(context, message: Message<Activity>) {
+    // message.key = userId; message.payload = { actor, action }
+    const window = context.state(WINDOW); // bind THIS user's handles for THIS event
+    const pending = context.state(PENDING);
+    if (!(await window.get())) {
+      // no batch open → this is the first event: send it right away
+      await notify(message.key, [message]);
+      await window.set(true);
+      // clearAndSchedule (not schedule): timers are NOT rolled back with state,
+      // so a retried event must not stack a second timer — this keeps exactly one.
+      await context.clearAndSchedule(new Date(Date.now() + 5 * 60_000));
+    } else {
+      await pending.push(message); // a batch is open → just save the message
+    }
+  },
+
+  async onTimer(context, timer) {
+    // fires ~5 minutes later, for timer.key
+    const window = context.state(WINDOW);
+    const pending = context.state(PENDING);
+    const batch: Message<Activity>[] = [];
+    for await (const msg of pending.values()) {
+      batch.push(msg); // the scan resolves the saved messages concurrently
+    }
+    if (batch.length > 0) {
+      await notify(timer.key, batch); // one summary of the actual saved messages
+    }
+    await pending.clear(); // empty the buffer
+    await window.clear(); // close the batch; the next event opens a fresh one
+  },
+} satisfies EventHandler;
+```
+
+A few things worth calling out:
+
+- **Bind handles inside the handler.** `context.state(WINDOW)` / `context.state(PENDING)` return per-event handles; the definitions are module-scope constants. `onMessage` keys off `message.key`; `onTimer` keys off **`timer.key`**. Scheduling takes an absolute `Date`, so "5 minutes from now" is `new Date(Date.now() + 5 * 60_000)`.
+- **`clearAndSchedule`, not `schedule`.** The timer system is not transactional with state — a plain `schedule` on a retry would stack a second timer and fire the digest twice. `clearAndSchedule` keeps exactly one timer per key across retries.
+- **Drain the deque with the scan, never a `shift` loop.** A `messageDeque` stores whole Kafka messages and resolves each back on read, so `values()` resolves the saved messages concurrently; a `shift()`-per-item drain would be one Kafka fetch serially per element. Because the messages are re-fetched from the source topic, this pattern needs the topic's retention to comfortably exceed the batching window (5 minutes against days-long retention is safe; a compacted topic or a window that can outlive retention calls for a plain `deque` of payloads instead — an unfetchable reference surfaces as an error, not silent absence).
+- **`capacity: 100`** bounds the buffer so one unusually active user can't grow it without limit. On overflow the oldest saved message drops — the summary is "up to the 100 most recent."
+- **`value<boolean>` is a flag**, only ever `true` or absent — close it with `clear()`, never `set(false)`. The timer, not the flag, owns when the batch ends.
+- **No races to reason about.** Prosody runs at most one handler at a time per key, so a message and the timer for the same user never overlap. Sending a notification is an outside effect that isn't undone if the event is retried, so a retry may resend it; a production notifier should use an idempotency key or an outbox.
 
 ### Definitions
 
@@ -717,7 +768,9 @@ A definition constructor declares one collection and returns a frozen definition
 - `messageMap<P>(name, options?)`: ordered map of `Message<P>` (string keys). Vends `MapState<Message<P>>`.
 - `messageDeque<P>(name, options?)`: deque of `Message<P>`. Vends `DequeState<Message<P>>`.
 
-`options` accepts `ttlSeconds` and `readUncommitted` on every kind, plus `keysetLimit` on maps only. The type parameter is annotation-level only: payloads cross the boundary as plain JSON with no runtime validation, so the parameter guides your TypeScript but does not enforce a shape at runtime.
+`options` accepts `ttlSeconds` and `readUncommitted` on every kind, plus `keysetLimit` on maps only and `capacity` on deques only. The type parameter is annotation-level only: payloads cross the boundary as plain JSON with no runtime validation, so the parameter guides your TypeScript but does not enforce a shape at runtime.
+
+A deque `capacity` (a whole number `>= 1`) bounds the backlog. It is runtime configuration only — not persisted, not part of the collection's identity, and freely changeable across deploys. Enforcement is lazy and push-only: each push evicts from the opposite end toward the bound (no value decode, no Kafka fetch for a message deque), so a deque reconfigured smaller reports its old length until the next few pushes trim it. Describe it as "at most N slots," evicted opposite-end-first — not "the N most recent," which only holds for a push-back-only deque.
 
 ### Registration
 
@@ -738,7 +791,7 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 
 - `get(key: string): Promise<V | null>`: reads the value for `key`, or `null` when absent.
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`: reads several keys in one call, returning one entry per key in the same order (`result[i]` is the value for `keys[i]`); a missing key is `null`, and a repeated key is answered at each spot. The whole read happens as one step, so no other change to this event's state slips in partway through.
-- `has(key: string): Promise<boolean>`: whether `key` currently has a value. This is a genuine read — no cheaper than `get` today — so use it to express intent (or to avoid materializing a large value), not to save work.
+- `has(key: string): Promise<boolean>`: whether `key` currently has a stored value. A presence check that skips the value decode and the resolver — for a message-backed map it answers with zero Kafka fetches and can report `true` for a message that can no longer be fetched. Not zero-I/O (a cache miss can still reach the store), but cheaper than `get` when you only need presence.
 - `set(key: string, value: V): Promise<void>`: inserts or overwrites. Writing JSON `null` is rejected — call `delete(key)`.
 - `delete(key: string): Promise<void>`: removes `key`. Deliberately returns `void`, not a boolean "was present" flag (surfacing that would force a hidden read on every delete).
 - `clear(): Promise<void>`: removes every entry.
@@ -754,13 +807,15 @@ Put the definitions in `Configuration.stateCollections` when constructing the cl
 - `length(): Promise<number>`: number of live elements.
 - `isEmpty(): Promise<boolean>`: whether the deque holds no live elements.
 - `clear(): Promise<void>`: removes every element.
-- `at(index: number): Promise<T | null>`: reads the element at `index`, like `Array.prototype.at` — a non-negative `index` counts from the front (`0` is the front), a negative `index` counts back from the end (`-1` is the back). Any out-of-range position (including every index on an empty deque) is `null`. `index` must be a safe integer; a fractional, `NaN`, or infinite value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message). A negative `index` is resolved against the current `length`, so it makes one extra boundary crossing that a non-negative index does not.
+- `at(index: number): Promise<T | null>`: reads the element at `index`, like `Array.prototype.at` — a non-negative `index` counts from the front (`0` is the front), a negative `index` counts back from the end (`-1` is the back). Any out-of-range position (including every index on an empty deque) is `null`. `index` must be a safe integer; a fractional, `NaN`, or infinite value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message). The endpoints `at(0)` and `at(-1)` ride the front/back peeks — a single read, and `at(-1)` makes no length probe; any other negative `index` is resolved against the current `length`, so it makes one extra boundary crossing that a non-negative index does not.
 - `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
 - `commit(): Promise<void>` / `rollback(): Promise<void>`.
 
 ### Scan Iteration
 
 Maps expose `entries(direction?)`, `keys(direction?)`, and `values(direction?)`; deques expose `values(direction?)`. Each returns an `AsyncIterableIterator`, so you can drive it with `for await`. `direction` is `"forward"` (default) or `"backward"`: on a map it selects ascending or descending key order, on a deque front-to-back or back-to-front. Both classes also implement `[Symbol.asyncIterator]` as forward iteration (map: `[key, value]` entries; deque: elements), so the handle itself is iterable.
+
+`keys(direction?)` is the cheap path: it skips the value decode and the resolver, so a message-backed map enumerates keys with zero Kafka fetches. It still reads presence, so it is not zero-I/O — but when you only need the keys, prefer it over `entries()` (which resolves every value). `values()` and `entries()` stay full projections over the resolving pair scan.
 
 Iterators are valid only within the attempt that opened them. Exiting a `for await` loop early closes the underlying cursor (the iterator's `return()` calls the native `close()`), so an early `break` releases the scan promptly:
 
