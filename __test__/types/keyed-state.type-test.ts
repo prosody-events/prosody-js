@@ -112,6 +112,15 @@ export async function checks(): Promise<void> {
     assertTrue<Equal<typeof item, string>>();
   }
 
+  // ---- deque capacity (bounded backlog) is a deque-only option ----
+  const bounded = deque<string>("bd", { capacity: 100 });
+  const messageBounded = messageDeque<OrderEvent>("mbd", { capacity: 50 });
+  // The frozen definitions expose an optional readonly capacity.
+  assertTrue<Equal<typeof bounded.capacity, number | undefined>>();
+  assertTrue<Equal<typeof messageBounded.capacity, number | undefined>>();
+  void bounded;
+  void messageBounded;
+
   // ---- message collections carry Message<P> ----
   const oldest = await b.at(0);
   assertTrue<Equal<typeof oldest, Message<OrderEvent> | null>>();
@@ -156,6 +165,10 @@ export async function checks(): Promise<void> {
   value<Cart>("v2", { keysetLimit: 5 });
   // @ts-expect-error keysetLimit is map-only (deque options reject it)
   deque<string>("d2", { keysetLimit: 5 });
+  // @ts-expect-error capacity is deque-only (value options reject it)
+  value<Cart>("v3", { capacity: 5 });
+  // @ts-expect-error capacity is deque-only (map options reject it)
+  map<number>("m3", { capacity: 5 });
 
   // ---- handles are vended by context.state(), never constructed directly ----
   // @ts-expect-error ValueState has a private constructor

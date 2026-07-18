@@ -168,6 +168,18 @@ export interface MapDefinitionOptions extends StateDefinitionOptions {
   keysetLimit?: number;
 }
 
+/** Options accepted by the deque definition constructors. */
+export interface DequeDefinitionOptions extends StateDefinitionOptions {
+  /**
+   * Optional maximum element count (bounded backlog). Must be a whole number
+   * >= 1. Runtime-only: not persisted, not part of collection identity, and
+   * changeable across deploys. Enforced lazily on push — the opposite end is
+   * evicted toward the bound (no decode, no fetch); a shrunk deque reports its
+   * old length until the next push trims it. Deque collections only.
+   */
+  capacity?: number;
+}
+
 /**
  * Phantom brand carrying a definition's item type. Never present at runtime —
  * it exists only so the item type survives on the frozen definition object and
@@ -203,6 +215,7 @@ export interface DequeDefinition<T = any> {
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly capacity?: number;
   readonly [StateItem]?: T;
 }
 
@@ -234,6 +247,7 @@ export interface MessageDequeDefinition<P = any> {
   readonly payload: "message";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly capacity?: number;
   readonly [StateItem]?: P;
 }
 
@@ -269,11 +283,12 @@ export function map<V = any>(
  * is used both in `Configuration.stateCollections` and with `Context.state()`.
  * The type parameter annotates the stored element (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
+ *   `capacity` (bounded backlog; enforced lazily on push).
  */
 export function deque<T = any>(
   name: string,
-  options?: StateDefinitionOptions,
+  options?: DequeDefinitionOptions,
 ): DequeDefinition<T>;
 
 /**
@@ -305,11 +320,12 @@ export function messageMap<P = any>(
  * full Kafka `Message<P>`. The type parameter annotates the message payload
  * (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
+ *   `capacity` (bounded backlog; enforced lazily on push).
  */
 export function messageDeque<P = any>(
   name: string,
-  options?: StateDefinitionOptions,
+  options?: DequeDefinitionOptions,
 ): MessageDequeDefinition<P>;
 
 /**
@@ -365,9 +381,11 @@ export declare class MapState<V = any> {
    */
   getMany(keys: readonly string[]): Promise<(V | null)[]>;
   /**
-   * Reports whether `key` currently has a value. This is a genuine read — no
-   * cheaper than {@link MapState#get} today — so reach for it to express intent
-   * (or to avoid materializing a large value you don't need), not to save work.
+   * Reports whether `key` currently has a stored value. A presence check that
+   * skips the value decode and the resolver: for a message-backed map it
+   * answers with zero Kafka fetches and can report `true` for a message that
+   * can no longer be fetched. Not zero-I/O — a cache miss can still reach the
+   * store — but cheaper than {@link MapState#get} when you only need presence.
    */
   has(key: string): Promise<boolean>;
   /**
@@ -396,9 +414,11 @@ export declare class MapState<V = any> {
    */
   entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>;
   /**
-   * Async iterator over the live keys in key order. Valid only within the
-   * handler invocation (attempt) that opened it; early exit from a `for await`
-   * loop closes the underlying cursor.
+   * Async iterator over the live keys in key order. Skips the value decode and
+   * the resolver, so a message-backed map enumerates keys with zero Kafka
+   * fetches; it still reads presence, so it is not zero-I/O. Valid only within
+   * the handler invocation (attempt) that opened it; early exit from a
+   * `for await` loop closes the underlying cursor.
    */
   keys(direction?: ScanDirection): AsyncIterableIterator<string>;
   /**
@@ -460,8 +480,11 @@ export declare class DequeState<T = any> {
    * every index on an empty deque — resolves to null. `index` must be a safe
    * integer; a fractional, `NaN`, or infinite value is a caller mistake,
    * rejected with a {@link TransientStateError} (it retries and stays visible).
-   * A negative `index` is resolved against the current {@link DequeState#length},
-   * so it makes an extra boundary crossing that a non-negative one does not.
+   *
+   * The endpoints `at(0)` and `at(-1)` ride the front/back peeks — a single
+   * read, and `at(-1)` makes no length read. Any other negative `index` is
+   * resolved against the current {@link DequeState#length}, so it makes an
+   * extra boundary crossing that a non-negative one does not.
    */
   at(index: number): Promise<T | null>;
   /**

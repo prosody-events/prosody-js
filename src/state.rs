@@ -289,7 +289,11 @@ pub(crate) enum DequeStateVariant {
     Message(BoxDequeState<ConsumerMessage<Value>>),
 }
 
-/// The four cursor flavours a scan yields, one per (collection, payload) pair.
+/// The cursor flavours a scan or key-scan yields.
+///
+/// The four scan flavours are one per (collection, payload) pair; `MapKey` is
+/// the single key-only flavour — keys are `String` for both json and message
+/// maps, since core's key scan skips the value and never varies by payload.
 enum CursorVariant {
     /// A deque JSON scan yielding values.
     DequeJson(BoxStateCursor<Value>),
@@ -299,6 +303,8 @@ enum CursorVariant {
     DequeMessage(BoxStateCursor<ConsumerMessage<Value>>),
     /// A map message scan yielding `(key, message)` entries.
     MapMessage(BoxStateCursor<(String, ConsumerMessage<Value>)>),
+    /// A map key-only scan yielding bare keys (no value decode, no resolver).
+    MapKey(BoxStateCursor<String>),
 }
 
 /// Maximum number of immediately-ready scan items transported through N-API
@@ -519,6 +525,35 @@ impl NativeMapState {
         }
     }
 
+    /// Reports whether a stored cell exists for `key`.
+    ///
+    /// Reads the event's dirty overlay (read-your-writes) and answers presence
+    /// WITHOUT decoding the value or running the resolver — a message-backed
+    /// map answers with zero Kafka fetches and can report `true` for a
+    /// message that can no longer be fetched. This is NOT "no I/O": a cache
+    /// miss can still reach Cassandra, so it is async and fallible exactly
+    /// like `get`.
+    ///
+    /// @param key The map key.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns True when a stored cell exists for `key`.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn contains(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            MapStateVariant::Json(handle) => handle.contains_key(key).with_context(context).await,
+            MapStateVariant::Message(handle) => {
+                handle.contains_key(key).with_context(context).await
+            }
+        }
+        .map_err(|e| state_error(&e))
+    }
+
     /// Inserts or overwrites `key`.
     ///
     /// JSON null is rejected with a transient error naming `delete` as the way
@@ -630,6 +665,37 @@ impl NativeMapState {
         })
     }
 
+    /// Opens a demand-driven cursor over the live KEYS in key order.
+    ///
+    /// Skips the value codec and the resolver (no value decode, no Kafka
+    /// fetch), so a message-backed map enumerates keys with zero Kafka
+    /// fetches — but it still reads presence, so it is not zero-I/O.
+    /// Synchronous like `scan`: the extracted JavaScript context is active
+    /// while core constructs its semantic stream span. Yields bare keys.
+    ///
+    /// @param direction The scan direction (`"forward"` or `"backward"`).
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns A cursor over the map keys.
+    /// @throws Error if the direction token is invalid.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn keys(
+        &self,
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<NativeStateCursor> {
+        let dir = parse_direction(&direction)?;
+        let _guard = op_context(&self.propagator, &otel_context).attach();
+        let cursor = match &self.state {
+            MapStateVariant::Json(handle) => CursorVariant::MapKey(handle.keys(dir)),
+            MapStateVariant::Message(handle) => CursorVariant::MapKey(handle.keys(dir)),
+        };
+        Ok(NativeStateCursor {
+            cursor,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
     /// Durably commits the buffered operations mid-handler.
     ///
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -727,6 +793,70 @@ impl NativeDequeState {
                 .map_err(|e| state_error(&e)),
             DequeStateVariant::Message(handle) => handle
                 .get(index)
+                .with_context(context)
+                .await
+                .map(|item| item.map(|message| Either::B(Message::from(&message))))
+                .map_err(|e| state_error(&e)),
+        }
+    }
+
+    /// Reads the front endpoint SLOT without a length round trip — exactly
+    /// `get(0)`.
+    ///
+    /// Decodes and resolves the returned element (unlike eviction). An empty
+    /// deque, or a front endpoint slot expired under a TTL, yields null even
+    /// when live interior elements exist — a peek never searches inward.
+    ///
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns The front element, or null when the endpoint slot is empty.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn peek_front(
+        &self,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<Option<Either<Value, Message>>> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            DequeStateVariant::Json(handle) => handle
+                .peek_front()
+                .with_context(context)
+                .await
+                .map(|item| item.map(Either::A))
+                .map_err(|e| state_error(&e)),
+            DequeStateVariant::Message(handle) => handle
+                .peek_front()
+                .with_context(context)
+                .await
+                .map(|item| item.map(|message| Either::B(Message::from(&message))))
+                .map_err(|e| state_error(&e)),
+        }
+    }
+
+    /// Reads the back endpoint SLOT without a length round trip — exactly
+    /// `get(len − 1)`.
+    ///
+    /// Decodes and resolves the returned element (unlike eviction). An empty
+    /// deque, or a back endpoint slot expired under a TTL, yields null even
+    /// when live interior elements exist — a peek never searches inward.
+    ///
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns The back element, or null when the endpoint slot is empty.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn peek_back(
+        &self,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<Option<Either<Value, Message>>> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            DequeStateVariant::Json(handle) => handle
+                .peek_back()
+                .with_context(context)
+                .await
+                .map(|item| item.map(Either::A))
+                .map_err(|e| state_error(&e)),
+            DequeStateVariant::Message(handle) => handle
+                .peek_back()
                 .with_context(context)
                 .await
                 .map(|item| item.map(|message| Either::B(Message::from(&message))))
@@ -1019,6 +1149,21 @@ impl NativeStateCursor {
                             .collect()
                     })
                 }),
+            CursorVariant::MapKey(cursor) => cursor
+                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
+                .with_context(context)
+                .await
+                // Keys are strings; carry them through the existing value arm
+                // rather than widening the cursor union — napi materializes a
+                // `Value::String` straight to a JS string, and no value was
+                // decoded to produce it.
+                .map(|chunk| {
+                    chunk.map(|keys| {
+                        keys.into_iter()
+                            .map(|k| Either4::A(Value::String(k)))
+                            .collect()
+                    })
+                }),
         }
         .map_err(|error| state_error(&error))
     }
@@ -1035,6 +1180,7 @@ impl NativeStateCursor {
             CursorVariant::MapJson(cursor) => cursor.close().await,
             CursorVariant::DequeMessage(cursor) => cursor.close().await,
             CursorVariant::MapMessage(cursor) => cursor.close().await,
+            CursorVariant::MapKey(cursor) => cursor.close().await,
         }
     }
 }

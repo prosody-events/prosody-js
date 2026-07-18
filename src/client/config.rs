@@ -287,6 +287,13 @@ pub struct StateCollectionConfig {
     /// (fractional, negative, and non-finite values are rejected). Invalid on
     /// value or deque collections.
     pub keyset_limit: Option<f64>,
+
+    /// Optional deque-only capacity (bounded backlog). Must be a whole number
+    /// >= 1 (fractional, zero, negative, and non-finite values are rejected).
+    /// Runtime configuration only — not persisted, not part of collection
+    /// identity, and freely changeable across deploys; enforced lazily on push.
+    /// Invalid on value or map collections.
+    pub capacity: Option<f64>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -796,6 +803,31 @@ fn register_state_collection(
         None => None,
     };
 
+    let capacity = match collection.capacity {
+        Some(value) => {
+            if !matches!(kind, CollectionKind::Deque) {
+                return Err(Error::from_reason(format!(
+                    "stateCollections[{index}].capacity: only valid for deque collections"
+                )));
+            }
+            let bound = whole_number_field(
+                value,
+                &format!("stateCollections[{index}].capacity"),
+                1,
+                u32::MAX,
+            )?;
+            // `whole_number_field` with min 1 already rejects zero, so the
+            // `NonZeroUsize` conversion cannot fail; `ok_or_else` keeps it
+            // lint-clean (no unwrap) without a reachable error path.
+            Some(NonZeroUsize::new(bound as usize).ok_or_else(|| {
+                Error::from_reason(format!(
+                    "stateCollections[{index}].capacity: must be positive"
+                ))
+            })?)
+        }
+        None => None,
+    };
+
     let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
     match (kind, payload) {
@@ -815,11 +847,15 @@ fn register_state_collection(
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
-            let _ = keyed.register(with_def(
+            let mut descriptor = with_def(
                 deque_state::<JsonCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
-            ));
+            );
+            if let Some(bound) = capacity {
+                descriptor = descriptor.capacity(bound);
+            }
+            let _ = keyed.register(descriptor);
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
@@ -837,11 +873,15 @@ fn register_state_collection(
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
-            let _ = keyed.register(with_def(
+            let mut descriptor = with_def(
                 message_deque_state::<KafkaLoader<JsonCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
-            ));
+            );
+            if let Some(bound) = capacity {
+                descriptor = descriptor.capacity(bound);
+            }
+            let _ = keyed.register(descriptor);
         }
     }
 

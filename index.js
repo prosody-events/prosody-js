@@ -682,7 +682,8 @@ function stateSync(operation) {
  * @param {string} name - The collection name.
  * @param {string} kind - `"value"`, `"map"`, or `"deque"`.
  * @param {string} payload - `"json"` or `"message"`.
- * @param {object} [options] - Optional ttlSeconds / readUncommitted / keysetLimit.
+ * @param {object} [options] - Optional ttlSeconds / readUncommitted, map-only
+ *   keysetLimit, and deque-only capacity.
  * @returns {Readonly<object>} The frozen definition.
  * @private
  */
@@ -694,6 +695,7 @@ function stateDefinition(name, kind, payload, options = {}) {
     definition.readUncommitted = options.readUncommitted;
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
+  if (options.capacity !== undefined) definition.capacity = options.capacity;
   return Object.freeze(definition);
 }
 
@@ -724,7 +726,8 @@ function map(name, options) {
  * Declares a double-ended-queue JSON collection. The type parameter annotates
  * the stored element (compile-time only).
  * @param {string} name - The collection name (unique per client).
- * @param {object} [options] - `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param {object} [options] - `ttlSeconds` (whole seconds), `readUncommitted`,
+ *   and deque-only `capacity` (bounded backlog; enforced lazily on push).
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function deque(name, options) {
@@ -760,7 +763,8 @@ function messageMap(name, options) {
  * full Kafka {@link Message}. The type parameter annotates the message payload
  * (compile-time only).
  * @param {string} name - The collection name (unique per client).
- * @param {object} [options] - `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param {object} [options] - `ttlSeconds` (whole seconds), `readUncommitted`,
+ *   and deque-only `capacity` (bounded backlog; enforced lazily on push).
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageDeque(name, options) {
@@ -983,17 +987,17 @@ class MapState {
   }
 
   /**
-   * Reports whether `key` currently has a value. This is a genuine read — no
-   * cheaper than {@link MapState#get} today — so reach for it to express intent
-   * (or to avoid materializing a large value you don't need), not to save work.
+   * Reports whether `key` currently has a stored value. A presence check that
+   * skips the value decode and the resolver: for a message-backed map it
+   * answers with zero Kafka fetches and can report `true` for a message that
+   * can no longer be fetched. Not zero-I/O — a cache miss can still reach the
+   * store — but cheaper than {@link MapState#get} when you only need presence.
    * @param {string} key - The map key.
    * @returns {Promise<boolean>} True when the key is present.
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   has(key) {
-    return stateOp((carrier) => this.native.get(key, carrier)).then(
-      (value) => value !== null,
-    );
+    return stateOp((carrier) => this.native.contains(key, carrier));
   }
 
   /**
@@ -1054,9 +1058,11 @@ class MapState {
   }
 
   /**
-   * Opens an async iterator over the live keys in key order. Valid only within
-   * the handler invocation (attempt) that opened it; early exit closes the
-   * underlying cursor.
+   * Opens an async iterator over the live keys in key order. Skips the value
+   * decode and the resolver, so a message-backed map enumerates keys with zero
+   * Kafka fetches; it still reads presence, so it is not zero-I/O. Valid only
+   * within the handler invocation (attempt) that opened it; early exit closes
+   * the underlying cursor.
    * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
    * @returns {AsyncIterableIterator<string>} The keys iterator.
    * @throws {TransientStateError} If the direction token is invalid (a caller
@@ -1064,8 +1070,8 @@ class MapState {
    */
   keys(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
-      (entry) => entry[0],
+      stateSync(() => this.native.keys(direction, injectedCarrier())),
+      (key) => key,
     );
   }
 
@@ -1212,10 +1218,13 @@ class DequeState {
    * `u32` conversion would truncate `1.5` to `1`). The error is transient — a
    * caller mistake never discards the message.
    *
-   * Negative indices are resolved against the current {@link DequeState#length},
-   * so `at(-1)` makes two boundary crossings (a length read, then the element
-   * read); a non-negative index makes one. Within a handler attempt the deque
-   * has a single owner, so nothing else mutates it between the two reads.
+   * The endpoints `at(0)` and `at(-1)` ride the front/back peeks — a single
+   * read, the same core primitive the other clients use; `at(-1)` makes no
+   * length read. Any other negative index is resolved against the current
+   * {@link DequeState#length}, so it makes two boundary crossings (a length
+   * read, then the element read); any other non-negative index makes one.
+   * Within a handler attempt the deque has a single owner, so nothing else
+   * mutates it between the two reads.
    * @param {number} index - The position: front-relative if `>= 0`, else back-relative.
    * @returns {Promise<*|null>} The element, or null when the position is out of range.
    * @throws {TransientStateError} On an index mistake or a transient store
@@ -1227,6 +1236,10 @@ class DequeState {
         `at: index must be a safe integer, got ${describeValue(index)}`,
       );
     }
+    if (index === 0)
+      return stateOp((carrier) => this.native.peekFront(carrier));
+    if (index === -1)
+      return stateOp((carrier) => this.native.peekBack(carrier));
     let position = index;
     if (position < 0) {
       position += await this.length();

@@ -2252,21 +2252,17 @@ describe("keyed state (unit)", () => {
 
   // A5 — DequeState.at() rejects a non-integer index as a caller mistake
   // (TransientStateError — retry, never discard; the native u32 conversion would
-  // otherwise truncate a fraction), resolves a negative index against the current
-  // length like Array.prototype.at, and treats any out-of-range position as a
-  // normal absent read (null) rather than an error.
-  it("deque at() validates the index and counts negatives from the end", async () => {
-    // native.get echoes its index; native.len reports a length of 3.
+  // otherwise truncate a fraction) and treats any out-of-range position as a
+  // normal absent read (null) rather than an error. Endpoint routing to the
+  // peeks and the negative-index length path are covered in A5d.
+  it("deque at() validates the index and returns null out of range", async () => {
+    // native.len reports a length of 3; get echoes its index for any read.
     const d = new DequeState({ get: async (i) => i, len: async () => 3 });
     // Fractional / NaN / infinite indices are caller mistakes -> transient reject.
     await expect(d.at(1.5)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(1.5)).rejects.toThrow(/index/);
     await expect(d.at(NaN)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(Infinity)).rejects.toBeInstanceOf(TransientStateError);
-    // A non-negative index in range reads that position.
-    await expect(d.at(2)).resolves.toBe(2);
-    // A negative index counts back from the current length (3): -1 -> position 2.
-    await expect(d.at(-1)).resolves.toBe(2);
     // A negative index past the front is out of range -> null, no native read.
     await expect(d.at(-4)).resolves.toBeNull();
     // Beyond the u32 range is out of range -> null, never a wrapped read.
@@ -2276,13 +2272,11 @@ describe("keyed state (unit)", () => {
     await expect(d.at(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
   });
 
-  // A5b — MapState.has() reports presence off a real read: the native get is
-  // mapped to a boolean (present -> true, absent/null -> false) without leaking
-  // the value. DequeState.clear() passes straight through to the native clear.
-  it("map has() maps a read to a boolean and deque clear() passes through", async () => {
-    const m = new MapState({
-      get: async (key) => (key === "present" ? { v: 1 } : null),
-    });
+  // A5b — MapState.has() rides the cheap presence path (native.contains), which
+  // returns the boolean directly — no value decode. DequeState.clear() passes
+  // straight through to the native clear.
+  it("map has() rides native contains and deque clear() passes through", async () => {
+    const m = new MapState({ contains: async (key) => key === "present" });
     await expect(m.has("present")).resolves.toBe(true);
     await expect(m.has("absent")).resolves.toBe(false);
 
@@ -2294,6 +2288,37 @@ describe("keyed state (unit)", () => {
     });
     await expect(d.clear()).resolves.toBeUndefined();
     expect(cleared).toBe(true);
+  });
+
+  // A5c — MapState.keys() rides the cheap key cursor (native.keys), yielding
+  // bare keys with no value decode. The transform is identity, not the old
+  // pair-projection (entry[0]) — multi-char keys catch a stray `[0]` that a
+  // single-character key would hide.
+  it("map keys() iterates the key cursor and yields bare keys", async () => {
+    const fake = makeFiniteCursor(["apple", "berry", "cherry"]);
+    const m = new MapState({ keys: () => fake.cursor });
+    const collected = [];
+    for await (const key of m.keys()) collected.push(key);
+    expect(collected).toEqual(["apple", "berry", "cherry"]);
+    expect(fake.closedCount()).toBe(1);
+  });
+
+  // A5d — DequeState.at() routes the endpoints to the peeks (native.peekFront /
+  // peekBack, one read each) and every other index through native.get; negative
+  // indices past -1 still resolve against native.len.
+  it("deque at() routes endpoints to peeks and other indices to get", async () => {
+    const d = new DequeState({
+      peekFront: async () => "F",
+      peekBack: async () => "B",
+      get: async (i) => i,
+      len: async () => 3,
+    });
+    await expect(d.at(0)).resolves.toBe("F");
+    await expect(d.at(-1)).resolves.toBe("B");
+    // A non-endpoint non-negative index reads through get.
+    await expect(d.at(2)).resolves.toBe(2);
+    // A negative index past -1 resolves against len (3): -2 -> position 1.
+    await expect(d.at(-2)).resolves.toBe(1);
   });
 
   // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:
@@ -2470,6 +2495,49 @@ describe("keyed state configuration validation", () => {
           makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
         ),
     ).toThrow(/keysetLimit: only valid for map/);
+  });
+
+  it("rejects capacity on a non-deque collection", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [value("v", { capacity: 5 })] }),
+        ),
+    ).toThrow(/capacity: only valid for deque/);
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({ stateCollections: [map("m", { capacity: 5 })] }),
+        ),
+    ).toThrow(/capacity: only valid for deque/);
+  });
+
+  // capacity is NonZeroUsize core-side: zero, fractional, negative, and
+  // non-finite values are all rejected as non-whole at registration.
+  it.each([0, 2.5, -1, NaN, Infinity])(
+    "rejects non-whole/zero capacity %p",
+    (capacity) => {
+      expect(
+        () =>
+          new ProsodyClient(
+            makeConfig({ stateCollections: [deque("d", { capacity })] }),
+          ),
+      ).toThrow(/capacity: must be a whole number in 1..=/);
+    },
+  );
+
+  it("accepts a positive capacity on both deque flavours", () => {
+    expect(
+      () =>
+        new ProsodyClient(
+          makeConfig({
+            stateCollections: [
+              deque("d", { capacity: 100 }),
+              messageDeque("md", { capacity: 100 }),
+            ],
+          }),
+        ),
+    ).not.toThrow();
   });
 
   it("rejects an unknown kind token", () => {
