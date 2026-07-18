@@ -179,6 +179,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn value_state(&self, name: String) -> napi::Result<NativeValueState> {
         let handle = self
             .context
@@ -201,6 +202,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn map_state(&self, name: String) -> napi::Result<NativeMapState> {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
         Ok(NativeMapState {
@@ -220,6 +222,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
         let handle = self
             .context
@@ -241,6 +244,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn message_value_state(&self, name: String) -> napi::Result<NativeValueState> {
         let handle = self
             .context
@@ -262,6 +266,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn message_map_state(&self, name: String) -> napi::Result<NativeMapState> {
         let handle = self
             .context
@@ -283,6 +288,7 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     pub fn message_deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
         let handle = self
             .context

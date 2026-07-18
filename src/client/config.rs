@@ -635,6 +635,7 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
 }
 
 /// The kind of a keyed-state collection.
+#[derive(Clone, Copy)]
 enum CollectionKind {
     /// A single-value collection.
     Value,
@@ -750,6 +751,44 @@ fn with_keyset<KC, V>(
     }
 }
 
+/// Parses the deque-only capacity bound when configured.
+///
+/// @param index The collection's index (for error messages).
+/// @param collection The collection configuration.
+/// @param kind The parsed collection kind; capacity is deque-only.
+/// @returns The validated capacity bound, if any.
+/// @throws Error (permanent) if capacity is set on a non-deque collection or is
+///   not a positive whole number.
+fn parse_capacity(
+    index: usize,
+    collection: &StateCollectionConfig,
+    kind: CollectionKind,
+) -> Result<Option<NonZeroUsize>> {
+    let Some(value) = collection.capacity else {
+        return Ok(None);
+    };
+    if !matches!(kind, CollectionKind::Deque) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].capacity: only valid for deque collections"
+        )));
+    }
+    let bound = whole_number_field(
+        value,
+        &format!("stateCollections[{index}].capacity"),
+        1,
+        u32::MAX,
+    )?;
+    // `whole_number_field` with min 1 already rejects zero, so the `NonZeroUsize`
+    // conversion cannot fail; `ok_or_else` keeps it lint-clean (no unwrap).
+    Ok(Some(NonZeroUsize::new(bound as usize).ok_or_else(
+        || {
+            Error::from_reason(format!(
+                "stateCollections[{index}].capacity: must be positive"
+            ))
+        },
+    )?))
+}
+
 /// Validates one collection and registers its descriptor.
 ///
 /// Message collections monomorphize over `KafkaLoader<JsonCodec>`. Their stored
@@ -803,30 +842,7 @@ fn register_state_collection(
         None => None,
     };
 
-    let capacity = match collection.capacity {
-        Some(value) => {
-            if !matches!(kind, CollectionKind::Deque) {
-                return Err(Error::from_reason(format!(
-                    "stateCollections[{index}].capacity: only valid for deque collections"
-                )));
-            }
-            let bound = whole_number_field(
-                value,
-                &format!("stateCollections[{index}].capacity"),
-                1,
-                u32::MAX,
-            )?;
-            // `whole_number_field` with min 1 already rejects zero, so the
-            // `NonZeroUsize` conversion cannot fail; `ok_or_else` keeps it
-            // lint-clean (no unwrap) without a reachable error path.
-            Some(NonZeroUsize::new(bound as usize).ok_or_else(|| {
-                Error::from_reason(format!(
-                    "stateCollections[{index}].capacity: must be positive"
-                ))
-            })?)
-        }
-        None => None,
-    };
+    let capacity = parse_capacity(index, collection, kind)?;
 
     let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
