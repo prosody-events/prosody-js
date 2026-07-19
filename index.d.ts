@@ -14,16 +14,44 @@ import type {
 
 export { Configuration, ConsumerState, Timer, Mode };
 
+/** A primitive value representable in JSON. */
+export type JsonPrimitive = null | boolean | number | string;
+
+/**
+ * Any value representable in JSON.
+ *
+ * This is a compile-time contract. Prosody serializes payloads at runtime but
+ * does not validate them against a more specific application payload type.
+ */
+export type JsonValue =
+  | JsonPrimitive
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+/**
+ * Maps an application type to its JSON-compatible shape. This lets APIs
+ * accept ordinary interfaces and type aliases without requiring an index
+ * signature, while rejecting non-JSON members wherever they are nested.
+ */
+export type JsonCompatible<T> = T extends JsonPrimitive
+  ? T
+  : T extends bigint | symbol | undefined | ((...args: any[]) => unknown)
+    ? never
+    : T extends readonly (infer Item)[]
+      ? readonly JsonCompatible<Item>[]
+      : T extends object
+        ? { readonly [Key in keyof T]: JsonCompatible<T[Key]> }
+        : never;
+
 /**
  * Represents a message consumed from a Kafka topic.
  *
  * The optional payload type parameter is annotation-level only: the runtime
- * payload is unchanged, and an unparameterized `Message` means `Message<any>`
- * (identical to the previous, non-generic type), so existing code keeps
- * compiling. Message-backed keyed-state collections vend their items as
- * `Message<P>`.
+ * payload is unchanged. An unparameterized `Message` uses {@link JsonValue};
+ * provide an application payload type for precise field-level checking.
+ * Message-backed keyed-state collections vend their items as `Message<P>`.
  */
-export interface Message<P = any> extends Omit<NativeMessage, "payload"> {
+export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */
   payload: P;
 }
@@ -188,7 +216,7 @@ export interface DequeDefinitionOptions extends StateDefinitionOptions {
 declare const StateItem: unique symbol;
 
 /** A frozen single-value JSON collection definition. */
-export interface ValueDefinition<T = any> {
+export interface ValueDefinition<T = JsonValue> {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "json";
@@ -198,7 +226,7 @@ export interface ValueDefinition<T = any> {
 }
 
 /** A frozen ordered-map JSON collection definition (string keys). */
-export interface MapDefinition<V = any> {
+export interface MapDefinition<V = JsonValue> {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "json";
@@ -209,7 +237,7 @@ export interface MapDefinition<V = any> {
 }
 
 /** A frozen deque JSON collection definition. */
-export interface DequeDefinition<T = any> {
+export interface DequeDefinition<T = JsonValue> {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "json";
@@ -220,7 +248,7 @@ export interface DequeDefinition<T = any> {
 }
 
 /** A frozen single-value message collection definition (items are `Message<P>`). */
-export interface MessageValueDefinition<P = any> {
+export interface MessageValueDefinition<P = JsonValue> {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "message";
@@ -230,7 +258,7 @@ export interface MessageValueDefinition<P = any> {
 }
 
 /** A frozen ordered-map message collection definition (values are `Message<P>`). */
-export interface MessageMapDefinition<P = any> {
+export interface MessageMapDefinition<P = JsonValue> {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "message";
@@ -241,7 +269,7 @@ export interface MessageMapDefinition<P = any> {
 }
 
 /** A frozen deque message collection definition (elements are `Message<P>`). */
-export interface MessageDequeDefinition<P = any> {
+export interface MessageDequeDefinition<P = JsonValue> {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "message";
@@ -260,7 +288,7 @@ export interface MessageDequeDefinition<P = any> {
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
  */
-export function value<T = any>(
+export function value<T = JsonValue>(
   name: string,
   options?: StateDefinitionOptions,
 ): ValueDefinition<T>;
@@ -273,7 +301,7 @@ export function value<T = any>(
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
  */
-export function map<V = any>(
+export function map<V = JsonValue>(
   name: string,
   options?: MapDefinitionOptions,
 ): MapDefinition<V>;
@@ -286,7 +314,7 @@ export function map<V = any>(
  * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
  *   `capacity` (bounded backlog; enforced lazily on push).
  */
-export function deque<T = any>(
+export function deque<T = JsonValue>(
   name: string,
   options?: DequeDefinitionOptions,
 ): DequeDefinition<T>;
@@ -298,7 +326,7 @@ export function deque<T = any>(
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
  */
-export function messageValue<P = any>(
+export function messageValue<P = JsonValue>(
   name: string,
   options?: StateDefinitionOptions,
 ): MessageValueDefinition<P>;
@@ -310,7 +338,7 @@ export function messageValue<P = any>(
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
  */
-export function messageMap<P = any>(
+export function messageMap<P = JsonValue>(
   name: string,
   options?: MapDefinitionOptions,
 ): MessageMapDefinition<P>;
@@ -323,7 +351,7 @@ export function messageMap<P = any>(
  * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
  *   `capacity` (bounded backlog; enforced lazily on push).
  */
-export function messageDeque<P = any>(
+export function messageDeque<P = JsonValue>(
   name: string,
   options?: DequeDefinitionOptions,
 ): MessageDequeDefinition<P>;
@@ -333,7 +361,7 @@ export function messageDeque<P = any>(
  * `Context.state()`. Valid only within the handler invocation (attempt) that
  * vended it. Every method opens its own per-operation trace span.
  */
-export declare class ValueState<T = any> {
+export declare class ValueState<T = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */
   private constructor(native: unknown);
   /** Reads the current value, or null when absent/cleared. */
@@ -345,9 +373,7 @@ export declare class ValueState<T = any> {
    * rejected at runtime with a {@link TransientStateError} naming `clear()` —
    * use {@link ValueState#clear}. Transient so it retries and stays visible
    * rather than discarding the message. (Nested `null`, e.g. inside an object or
-   * array, is permitted and round-trips.) The compile-time ban applies to
-   * explicitly-typed collections; an untyped (`any`) collection relies on the
-   * runtime rejection, since `NonNullable<any>` is `any`.
+   * array, is permitted and round-trips.)
    */
   set(value: NonNullable<T>): Promise<void>;
   /** Deletes the stored value. */
@@ -367,7 +393,7 @@ export declare class ValueState<T = any> {
  * handler invocation (attempt) that vended it. Every method opens its own
  * per-operation trace span.
  */
-export declare class MapState<V = any> {
+export declare class MapState<V = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */
   private constructor(native: unknown);
   /** Reads the value for `key`, or null when the key is absent. */
@@ -446,7 +472,7 @@ export declare class MapState<V = any> {
  * `Context.state()`. Valid only within the handler invocation (attempt) that
  * vended it. Every method opens its own per-operation trace span.
  */
-export declare class DequeState<T = any> {
+export declare class DequeState<T = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */
   private constructor(native: unknown);
   /**
@@ -525,7 +551,7 @@ export interface Logger {
   trace: (message: string | undefined | null, metadata?: any) => void;
 }
 
-export interface EventHandler {
+export interface EventHandler<P = JsonValue> {
   /**
    * Callback function to handle incoming messages.
    *
@@ -536,7 +562,7 @@ export interface EventHandler {
    */
   onMessage?: (
     context: Context,
-    message: Message,
+    message: Message<P>,
     signal: AbortSignal,
   ) => Promise<void>;
 
@@ -604,10 +630,10 @@ export declare class ProsodyClient {
    * @returns A promise that resolves when the message has been successfully sent.
    * @throws Error if the send operation fails or is aborted.
    */
-  send(
+  send<P>(
     topic: string,
     key: string,
-    payload: unknown,
+    payload: P & JsonCompatible<P>,
     signal?: AbortSignal,
   ): Promise<void>;
 
@@ -618,7 +644,7 @@ export declare class ProsodyClient {
    * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
    * @throws Error if the subscription fails to establish.
    */
-  subscribe(eventHandler: EventHandler): Promise<void>;
+  subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>;
 
   /**
    * Unsubscribes from receiving messages and shuts down the consumer.

@@ -21,6 +21,13 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 npm install @prosody-events/prosody
 ```
 
+The package ships TypeScript declarations for the public API.
+`EventHandler<P>` carries an application payload type into `Message<P>`, and
+keyed-state definitions carry their item types through `context.state()`.
+Unparameterized handlers, messages, definitions, and state handles default to
+`JsonValue`. See the [strict TypeScript examples](examples/) for IDE-ready
+projects compiled by the repository typecheck.
+
 ## Quick Start
 
 ```javascript
@@ -31,11 +38,11 @@ const client = new ProsodyClient({
   // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
   bootstrapServers: "localhost:9092",
 
-  // To allow loopbacks, the source_system must be different from the group_id.
-  // Normally, the source_system would be left unspecified, which would default to the group_id.
+  // To allow loopbacks, sourceSystem must be different from groupId.
+  // Normally, sourceSystem is omitted and defaults to groupId.
   sourceSystem: "my-application-source",
 
-  // The group_id should be set to the name of your application
+  // groupId should be set to the name of your application
   groupId: "my-consumer-group",
 
   // Topics the client should subscribe to
@@ -715,7 +722,7 @@ const WINDOW = value<boolean>("window"); // is a batch open for this user?
 const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep the latest 100 messages
 
 const handler = {
-  async onMessage(context, message: Message<Activity>) {
+  async onMessage(context, message) {
     // message.key = userId; message.payload = { actor, action }
     const window = context.state(WINDOW); // bind THIS user's handles for THIS event
     const pending = context.state(PENDING);
@@ -745,15 +752,19 @@ const handler = {
     await pending.clear(); // empty the buffer
     await window.clear(); // close the batch; the next event opens a fresh one
   },
-} satisfies EventHandler;
+} satisfies EventHandler<Activity>;
 ```
 
 A few things worth calling out:
 
+The complete, strictly type-checked source is also available at
+[`examples/windowing.ts`](examples/windowing.ts). The repository typecheck
+compiles it with the same public declarations consumers receive.
+
 - **Bind handles inside the handler.** `context.state(WINDOW)` / `context.state(PENDING)` return per-event handles; the definitions are module-scope constants. `onMessage` keys off `message.key`; `onTimer` keys off **`timer.key`**. Scheduling takes an absolute `Date`, so "5 minutes from now" is `new Date(Date.now() + 5 * 60_000)`.
 - **`clearAndSchedule`, not `schedule`.** The timer system is not transactional with state — a plain `schedule` on a retry would stack a second timer and fire the digest twice. `clearAndSchedule` keeps exactly one timer per key across retries.
 - **Drain the deque with the scan, never a `shift` loop.** A `messageDeque` stores whole Kafka messages and resolves each back on read, so `values()` resolves the saved messages concurrently; a `shift()`-per-item drain would be one Kafka fetch serially per element. Because the messages are re-fetched from the source topic, this pattern needs the topic's retention to comfortably exceed the batching window (5 minutes against days-long retention is safe; a compacted topic or a window that can outlive retention calls for a plain `deque` of payloads instead — an unfetchable reference surfaces as an error, not silent absence).
-- **`capacity: 100`** bounds the buffer so one unusually active user can't grow it without limit. On overflow the oldest saved message drops — the summary is "up to the 100 most recent."
+- **`capacity: 100`** bounds the buffer so one unusually active user can't grow it without limit. A push-back-only queue like this example evicts the oldest saved message; in general, overflow evicts from the end opposite the push.
 - **`value<boolean>` is a flag**, only ever `true` or absent — close it with `clear()`, never `set(false)`. The timer, not the flag, owns when the batch ends.
 - **No races to reason about.** Prosody runs at most one handler at a time per key, so a message and the timer for the same user never overlap. Sending a notification is an outside effect that isn't undone if the event is retried, so a retry may resend it; a production notifier should use an idempotency key or an outbox.
 
@@ -1137,18 +1148,19 @@ your changes before merging to `main`.
 ### ProsodyClient
 
 - `constructor(config: Configuration)`: Initialize a new ProsodyClient with the given configuration.
-- `send(topic: string, key: string, payload: any, signal?: AbortSignal): Promise<void>`: Send a message to a specified
+- `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
-- `subscribe(eventHandler: EventHandler): void`: Subscribe to messages using the provided handler.
+- `subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>`: Subscribe using a handler whose payload type flows into `Message<P>`.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
 
 ### EventHandler
 
 Interface for handling messages and timers:
 
-- `onMessage?: (context: Context, message: Message, signal: AbortSignal) => Promise<void>`: Handles incoming messages
+- `EventHandler<P = JsonValue>` carries the application payload type through to the message callback.
+- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<void>`: Handles incoming messages
 - `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events
 
 ### Message
@@ -1160,9 +1172,14 @@ Represents a Kafka message with the following properties:
 - `offset: bigint`: The message offset within the partition.
 - `timestamp: Date`: The timestamp when the message was created or sent.
 - `key: string`: The message key.
-- `payload: any`: The message payload as a JSON-serializable value.
+- `payload: P`: The statically typed message payload.
 
-`Message` takes an optional payload type parameter, `Message<P>`, used by message-backed state collections to type `payload`. Unparameterized `Message` is `Message<any>`.
+`Message` takes an optional payload type parameter, `Message<P>`, used by handlers and message-backed state collections to type `payload`. Unparameterized `Message` is `Message<JsonValue>`, preserving useful JSON safety without requiring an application-specific payload type.
+
+`JsonValue` describes arbitrary JSON data. `JsonCompatible<T>` checks a known
+application type recursively, so ordinary interfaces work with `send()` while
+functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields are
+reported by TypeScript before the message reaches the serializer.
 
 ### Context
 
@@ -1194,12 +1211,12 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 Definition constructors (each returns a frozen definition object used both in `Configuration.stateCollections` and with `context.state()`):
 
-- `value<T = any>(name: string, options?: StateDefinitionOptions): ValueDefinition<T>`
-- `map<V = any>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
-- `deque<T = any>(name: string, options?: StateDefinitionOptions): DequeDefinition<T>`
-- `messageValue<P = any>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
-- `messageMap<P = any>(name: string, options?: MapDefinitionOptions): MessageMapDefinition<P>`
-- `messageDeque<P = any>(name: string, options?: StateDefinitionOptions): MessageDequeDefinition<P>`
+- `value<T = JsonValue>(name: string, options?: StateDefinitionOptions): ValueDefinition<T>`
+- `map<V = JsonValue>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
+- `deque<T = JsonValue>(name: string, options?: StateDefinitionOptions): DequeDefinition<T>`
+- `messageValue<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
+- `messageMap<P = JsonValue>(name: string, options?: MapDefinitionOptions): MessageMapDefinition<P>`
+- `messageDeque<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageDequeDefinition<P>`
 
 `StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `MapDefinitionOptions` extends it with `keysetLimit?: number`.
 

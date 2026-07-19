@@ -128,9 +128,9 @@ impl NativeClient {
     /// established @throws Error if the subscription fails
     #[napi(
         writable = false,
-        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [Context, Message, \
+        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, Message, \
                         Record<string, string>]) => Promise<void>; onTimer: (err: null | Error, \
-                        args: [Context, Timer, Record<string, string>]) => Promise<void>; \
+                        args: [NativeContext, Timer, Record<string, string>]) => Promise<void>; \
                         isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {

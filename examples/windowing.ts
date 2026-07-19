@@ -1,16 +1,4 @@
-/**
- * The canonical burst-batching example from the README, compiled under the
- * repo's `strict` config. Compilation IS the test: `npm run typecheck` builds
- * `__test__/types/**`, so this proves the README block type-checks — the
- * `capacity` option, the `satisfies EventHandler` narrowing, and the message
- * deque scan all included. Keep this fixture and the README block identical.
- */
-import {
-  value,
-  messageDeque,
-  type EventHandler,
-  type Message,
-} from "../../index";
+import { value, messageDeque, type EventHandler, type Message } from "../index";
 
 interface Activity {
   actor: string;

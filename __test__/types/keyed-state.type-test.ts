@@ -7,6 +7,7 @@ import {
   Configuration,
   Context,
   DequeState,
+  JsonValue,
   MapState,
   Message,
   PermanentStateError,
@@ -41,6 +42,7 @@ const tags = deque<string>("tags", { readUncommitted: true });
 const lastOrder = messageValue<OrderEvent>("last-order");
 const orderIndex = messageMap<OrderEvent>("order-index");
 const backlog = messageDeque<OrderEvent>("backlog");
+const defaultJson = value("default-json");
 
 // The SAME definition objects serialize into the client configuration.
 const config: Configuration = {
@@ -65,6 +67,8 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<typeof om, MapState<Message<OrderEvent>>>>();
   const b = context.state(backlog);
   assertTrue<Equal<typeof b, DequeState<Message<OrderEvent>>>>();
+  const defaultState = context.state(defaultJson);
+  assertTrue<Equal<typeof defaultState, ValueState<JsonValue>>>();
 
   // ---- value ----
   const current: Cart | null = await c.get();
@@ -136,9 +140,9 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<Awaited<ReturnType<typeof c.commit>>, void>>();
   assertTrue<Equal<Awaited<ReturnType<typeof c.rollback>>, void>>();
 
-  // ---- unparameterized Message keeps compiling (additive generic) ----
-  const legacy: Message = incoming;
-  void legacy;
+  // ---- unparameterized Message retains the safe JSON default ----
+  const defaultMessage = null as unknown as Message;
+  assertTrue<Equal<typeof defaultMessage.payload, JsonValue>>();
 
   // ---- errors ----
   const err: unknown = new PermanentStateError("boom");

@@ -6,8 +6,8 @@
     "lib": ["es2022"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "types": [],
-    "skipLibCheck": true
+    "types": ["node"],
+    "skipLibCheck": false
   },
-  "include": ["__test__/types"]
+  "include": ["bindings.d.ts", "index.d.ts", "__test__/types", "examples"]
 }
