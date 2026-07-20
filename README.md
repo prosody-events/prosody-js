@@ -661,16 +661,18 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Prosody supports keyed state: per-key data that a handler reads and writes and that survives across events. State is partitioned by the message key, so each key has a single writer at a time, and by default writes settle atomically with the event — a handler that throws leaves no partial state. Values are either JSON payloads or the full Kafka `Message` the handler received.
+Keyed state is durable working memory for a stream. Each Kafka key gets its own value, map, or deque, so a handler can relate the current event to earlier events for the same key. State survives restarts and rebalances. By default, Prosody saves a handler's changes only when the event succeeds.
 
-### A durable counter per key
+Use keyed state for time-aware processing over each key in a stream: counters, deduplication data, rolling aggregates, pending work, and state machines. This work can be slow and expensive when it requires repeated relational database queries. Keyed state is not designed to be the source of truth for core business data or to provide relational operations such as joins. Keep that data in a relational database and use the right tool for each job.
 
-A `Value` gives every Kafka key durable local memory: update it in the handler, and Prosody publishes the new state only when that event succeeds — even across restarts and rebalances. Declare the collection once, register it on the client, then bind it inside the handler and read-modify-write:
+Give collections a TTL whenever the state does not need to live forever. Choose one comfortably longer than the configured recovery delay and the longest timer or workflow. This prevents inactive keys from accumulating state indefinitely.
+
+### A counter for each key
+
+Declare each collection once, register it on the client, and ask the event context for the current key's state:
 
 ```typescript
-import { ProsodyClient, value, type Message } from "@prosody-events/prosody";
-
-const COUNT = value<number>("count"); // one durable number per key
+const COUNT = value<number>("count", { ttlSeconds: 30 * 24 * 60 * 60 });
 
 const client = new ProsodyClient({
   ...config,
@@ -678,189 +680,81 @@ const client = new ProsodyClient({
 });
 
 client.subscribe({
-  async onMessage(context, message: Message) {
-    const count = context.state(COUNT); // this key's counter, for this event
-    const n = ((await count.get()) ?? 0) + 1; // ?? 0 for the first event
-    await count.set(n); // settles atomically with the event
+  async onMessage(context) {
+    const count = context.state(COUNT);
+    await count.set(((await count.get()) ?? 0) + 1);
   },
 });
 ```
 
-That is one coherent event transition: the increment settles with the event, so a redelivery never double-counts a committed increment and a crash never leaves the counter half-written.
+The TTL keeps counters for recently active keys for 30 days. Omit it only when indefinite retention is intentional.
 
-### Batch a burst of events per user
+### Window activity into one notification
 
-Your consumer reads a stream of activity events — likes, comments, follows — each tagged with the user it's about (the Kafka key). If you send a notification for every event, an active moment spams the user. What you want: tell them the instant something happens, but if more arrives right after, hold it and send a single summary a few minutes later.
-
-By hand this is surprisingly involved — you need a durable place to stash pending events _for each user_, a timer _for each user_ to send the summary, and all of it has to survive the process restarting or the work moving to another machine. Prosody gives you exactly those two things: durable per-key state and a per-key timer.
-
-1. **First event for a user** → send it now, mark that a batch is open, and set a timer for 5 minutes out.
-2. **More events arrive before the timer fires** → don't notify again; just save each one.
-3. **Timer fires** → send one summary of everything saved, then close the batch so the next event starts fresh.
+This example sends a user's first activity immediately, saves further activity for five minutes, then sends one summary. The Kafka message key is the user ID.
 
 ```typescript
-import {
-  value,
-  messageDeque,
-  type EventHandler,
-  type Message,
-} from "@prosody-events/prosody";
-
-interface Activity {
-  actor: string;
-  action: string;
-}
-
-// Your own delivery function (push, email, …) — the only thing here you write.
-declare function notify(
-  userId: string,
-  activities: Message<Activity>[],
-): Promise<void>;
-
-// Declare the collections once, at module scope; register both on the client
-// via `stateCollections: [WINDOW, PENDING]`.
-const WINDOW = value<boolean>("window"); // is a batch open for this user?
-const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep the latest 100 messages
+const WINDOW = value<boolean>("window", { ttlSeconds: 24 * 60 * 60 });
+const PENDING = messageDeque<Activity>("pending", {
+  capacity: 100,
+  ttlSeconds: 24 * 60 * 60,
+});
 
 const handler = {
   async onMessage(context, message) {
-    // message.key = userId; message.payload = { actor, action }
-    const window = context.state(WINDOW); // bind THIS user's handles for THIS event
+    const window = context.state(WINDOW);
     const pending = context.state(PENDING);
-    if (!(await window.get())) {
-      // no batch open → this is the first event: send it right away
-      await notify(message.key, [message]);
-      await window.set(true);
-      // clearAndSchedule (not schedule): timers are NOT rolled back with state,
-      // so a retried event must not stack a second timer — this keeps exactly one.
-      await context.clearAndSchedule(new Date(Date.now() + 5 * 60_000));
-    } else {
-      await pending.push(message); // a batch is open → just save the message
+
+    if (await window.get()) {
+      await pending.push(message);
+      return;
     }
+
+    await notify(message.key, [message]);
+    await window.set(true);
+    await context.clearAndSchedule(new Date(Date.now() + 5 * 60_000));
   },
 
   async onTimer(context, timer) {
-    // fires ~5 minutes later, for timer.key
-    const window = context.state(WINDOW);
     const pending = context.state(PENDING);
     const batch: Message<Activity>[] = [];
-    for await (const msg of pending.values()) {
-      batch.push(msg); // the scan resolves the saved messages concurrently
-    }
-    if (batch.length > 0) {
-      await notify(timer.key, batch); // one summary of the actual saved messages
-    }
-    await pending.clear(); // empty the buffer
-    await window.clear(); // close the batch; the next event opens a fresh one
+    for await (const message of pending.values()) batch.push(message);
+
+    if (batch.length > 0) await notify(timer.key, batch);
+    await pending.clear();
+    await context.state(WINDOW).clear();
   },
 } satisfies EventHandler<Activity>;
 ```
 
-A few things worth calling out:
+See the complete, type-checked example for imports, types, client setup, and `notify`: [`examples/windowing.ts`](examples/windowing.ts).
 
-The complete, strictly type-checked source is also available at
-[`examples/windowing.ts`](examples/windowing.ts). The repository typecheck
-compiles it with the same public declarations consumers receive.
+A few details matter:
 
-- **Bind handles inside the handler.** `context.state(WINDOW)` / `context.state(PENDING)` return per-event handles; the definitions are module-scope constants. `onMessage` keys off `message.key`; `onTimer` keys off **`timer.key`**. Scheduling takes an absolute `Date`, so "5 minutes from now" is `new Date(Date.now() + 5 * 60_000)`.
-- **`clearAndSchedule`, not `schedule`.** The timer system is not transactional with state — a plain `schedule` on a retry would stack a second timer and fire the digest twice. `clearAndSchedule` keeps exactly one timer per key across retries.
-- **Drain the deque with the scan, never a `shift` loop.** A `messageDeque` stores whole Kafka messages and resolves each back on read, so `values()` resolves the saved messages concurrently; a `shift()`-per-item drain would be one Kafka fetch serially per element. Because the messages are re-fetched from the source topic, this pattern needs the topic's retention to comfortably exceed the batching window (5 minutes against days-long retention is safe; a compacted topic or a window that can outlive retention calls for a plain `deque` of payloads instead — an unfetchable reference surfaces as an error, not silent absence).
-- **`capacity: 100`** bounds the buffer so one unusually active user can't grow it without limit. A push-back-only queue like this example evicts the oldest saved message; in general, overflow evicts from the end opposite the push.
-- **`value<boolean>` is a flag**, only ever `true` or absent — close it with `clear()`, never `set(false)`. The timer, not the flag, owns when the batch ends.
-- **No races to reason about.** Prosody runs at most one handler at a time per key, so a message and the timer for the same user never overlap. Sending a notification is an outside effect that isn't undone if the event is retried, so a retry may resend it; a production notifier should use an idempotency key or an outbox.
+- Register both definitions in `stateCollections` before subscribing. Keyed state uses Cassandra unless `mock: true`.
+- Use `clearAndSchedule`, not `schedule`, so a retried event does not add another timer for the same key.
+- `capacity: 100` bounds each user's pending queue. Because this example only pushes at the back, overflow drops the oldest saved message.
+- A `messageDeque` keeps references to Kafka messages and fetches them when read. Keep source-topic retention longer than the window; use a plain `deque` of payloads when that is not guaranteed.
+- Prosody runs one handler at a time for a key, so that key's message and timer handlers do not overlap.
+- Notifications are external effects: retrying an event can send one again. Use an idempotency key or an outbox when duplicates matter.
 
-### Definitions
+### Collections and handles
 
-A definition constructor declares one collection and returns a frozen definition object carrying its `name`, `kind`, and `payload`. Reference that definition both in `Configuration.stateCollections` (registration) and in `context.state()` (binding) — declare each collection once and reuse it. (Reuse is a convenience, not a requirement: binding matches a definition to a registered collection by its `name`/`kind`/`payload` fields, not by object identity, so a structurally-equal definition also works.) Three kinds, each with a JSON variant (values are your JSON payload) and a message variant (values are the full Kafka `Message<P>`):
+Definitions describe the collection; `context.state(definition)` returns the current key's handle. Create handles inside the handler and do not retain them or their iterators afterward.
 
-- `value<T>(name, options?)`: single value. Vends `ValueState<T>`.
-- `map<V>(name, options?)`: ordered map with **string** keys. Vends `MapState<V>`.
-- `deque<T>(name, options?)`: double-ended queue. Vends `DequeState<T>`.
-- `messageValue<P>(name, options?)`: single value holding a `Message<P>`. Vends `ValueState<Message<P>>`.
-- `messageMap<P>(name, options?)`: ordered map of `Message<P>` (string keys). Vends `MapState<Message<P>>`.
-- `messageDeque<P>(name, options?)`: deque of `Message<P>`. Vends `DequeState<Message<P>>`.
+| Collection         | JSON payload | Kafka message     | Main operations                                                      |
+| ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
+| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                |
+| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `set`, `delete`, `entries`, `keys`, `clear` |
+| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear` |
 
-`options` accepts `ttlSeconds` and `readUncommitted` on every kind, plus `keysetLimit` on maps only and `capacity` on deques only. The type parameter is annotation-level only: payloads cross the boundary as plain JSON with no runtime validation, so the parameter guides your TypeScript but does not enforce a shape at runtime.
+All operations are async. Map and deque scans are async iterables; a `for await` loop may stop early safely. Map keys are strings. `null` and `undefined` mean absence and cannot be stored—use `clear()` or `delete()` instead.
 
-A deque `capacity` (a whole number `>= 1`) bounds the backlog. It is runtime configuration only — not persisted, not part of the collection's identity, and freely changeable across deploys. Enforcement is lazy and push-only: each push evicts from the opposite end toward the bound (no value decode, no Kafka fetch for a message deque), so a deque reconfigured smaller reports its old length until the next few pushes trim it. Describe it as "at most N slots," evicted opposite-end-first — not "the N most recent," which only holds for a push-back-only deque.
+Every definition accepts `ttlSeconds` and `readUncommitted`; maps also accept `keysetLimit`, and deques accept `capacity`. Collection names must be unique. Reuse the same definition for registration and access so TypeScript preserves the payload type.
 
-### Registration
+By default, writes from a successful handler become visible together; if the handler throws, they are discarded. `commit()` publishes one collection's pending writes immediately, even if the event later fails. `rollback()` discards that collection's writes since its last commit. Most handlers should rely on the default behavior.
 
-Put the definitions in `Configuration.stateCollections` when constructing the client, before calling `subscribe`. Each definition serializes into a collection config entry, so passing the definition object is all that is required. Collection names must be unique within a client — duplicate names are rejected. Keyed state needs Cassandra unless the client runs with `mock: true`. See the [Keyed State configuration](#keyed-state) subsection above for the client-level knobs and per-collection fields.
-
-### State Handles
-
-`context.state(definition)` vends a typed handle bound to the collection for the current event attempt. The handle — and any iterator it opens — is valid only within the handler invocation that created it; there is no post-handler read window. Binding an unregistered name throws a `PermanentStateError`; so does a definition whose `kind` or `payload` disagrees with what was durably registered under that name in the consumer group (the collection's stored schema identity, which core validates at first use — this is a schema conflict across deploys, not a JavaScript object-identity check).
-
-`ValueState<T>`:
-
-- `get(): Promise<T | null>`: reads the current value, or `null` when absent.
-- `set(value: T): Promise<void>`: buffers a write. Writing JSON `null` is rejected — call `clear()`.
-- `clear(): Promise<void>`: deletes the stored value.
-- `commit(): Promise<void>` / `rollback(): Promise<void>`: see [Commit and Rollback](#commit-and-rollback).
-
-`MapState<V>` (keys are always `string`):
-
-- `get(key: string): Promise<V | null>`: reads the value for `key`, or `null` when absent.
-- `getMany(keys: readonly string[]): Promise<(V | null)[]>`: reads several keys in one call, returning one entry per key in the same order (`result[i]` is the value for `keys[i]`); a missing key is `null`, and a repeated key is answered at each spot. The whole read happens as one step, so no other change to this event's state slips in partway through.
-- `has(key: string): Promise<boolean>`: whether `key` currently has a stored value. A presence check that skips the value decode and the resolver — for a message-backed map it answers with zero Kafka fetches and can report `true` for a message that can no longer be fetched. Not zero-I/O (a cache miss can still reach the store), but cheaper than `get` when you only need presence.
-- `set(key: string, value: V): Promise<void>`: inserts or overwrites. Writing JSON `null` is rejected — call `delete(key)`.
-- `delete(key: string): Promise<void>`: removes `key`. Deliberately returns `void`, not a boolean "was present" flag (surfacing that would force a hidden read on every delete).
-- `clear(): Promise<void>`: removes every entry.
-- `entries(direction?)` / `keys(direction?)` / `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
-- `commit(): Promise<void>` / `rollback(): Promise<void>`.
-
-`DequeState<T>`:
-
-- `push(item: T): Promise<void>`: appends at the back. Writing JSON `null` is rejected.
-- `unshift(item: T): Promise<void>`: prepends at the front. Writing JSON `null` is rejected.
-- `pop(): Promise<T | null>`: removes and returns the back element, or `null` when empty.
-- `shift(): Promise<T | null>`: removes and returns the front element, or `null` when empty.
-- `length(): Promise<number>`: number of live elements.
-- `isEmpty(): Promise<boolean>`: whether the deque holds no live elements.
-- `clear(): Promise<void>`: removes every element.
-- `at(index: number): Promise<T | null>`: reads the element at `index`, like `Array.prototype.at` — a non-negative `index` counts from the front (`0` is the front), a negative `index` counts back from the end (`-1` is the back). Any out-of-range position (including every index on an empty deque) is `null`. `index` must be a safe integer; a fractional, `NaN`, or infinite value is a caller mistake, rejected with a `TransientStateError` (it retries and stays visible rather than discarding the message). The endpoints `at(0)` and `at(-1)` ride the front/back peeks — a single read, and `at(-1)` makes no length probe; any other negative `index` is resolved against the current `length`, so it makes one extra boundary crossing that a non-negative index does not.
-- `values(direction?)` / `[Symbol.asyncIterator]`: see [Scan Iteration](#scan-iteration).
-- `commit(): Promise<void>` / `rollback(): Promise<void>`.
-
-### Scan Iteration
-
-Maps expose `entries(direction?)`, `keys(direction?)`, and `values(direction?)`; deques expose `values(direction?)`. Each returns an `AsyncIterableIterator`, so you can drive it with `for await`. `direction` is `"forward"` (default) or `"backward"`: on a map it selects ascending or descending key order, on a deque front-to-back or back-to-front. Both classes also implement `[Symbol.asyncIterator]` as forward iteration (map: `[key, value]` entries; deque: elements), so the handle itself is iterable.
-
-`keys(direction?)` is the cheap path: it skips the value decode and the resolver, so a message-backed map enumerates keys with zero Kafka fetches. It still reads presence, so it is not zero-I/O — but when you only need the keys, prefer it over `entries()` (which resolves every value). `values()` and `entries()` stay full projections over the resolving pair scan.
-
-Iterators are valid only within the attempt that opened them. Exiting a `for await` loop early closes the underlying cursor (the iterator's `return()` calls the native `close()`), so an early `break` releases the scan promptly:
-
-```typescript
-for await (const [key, total] of context.state(totals).entries("backward")) {
-  if (total > 1000) break; // early exit closes the cursor
-}
-```
-
-### Commit and Rollback
-
-Every handle exposes `commit(): Promise<void>` and `rollback(): Promise<void>`. By default a handler's writes are buffered and settle atomically when the event completes; commit and rollback are the explicit mid-handler escape hatch.
-
-- `commit()` durably flushes this collection's buffered operations mid-handler. It is at-least-once: the flush becomes visible even if the event later fails and is redelivered, and it establishes a floor that a later `rollback()` cannot cross.
-- `rollback()` discards this collection's buffered uncommitted operations back to the last commit floor. It is infallible.
-
-Both resolve with no value. The erased core seam deliberately drops the store outcome, so there is **no** `"applied"` / `"noop"` return — do not expect one.
-
-### Semantics
-
-- **Per-key single writer.** State is keyed by the message key; only one handler invocation writes a given key at a time.
-- **Transactional by default.** A handler's writes settle atomically with the event. A handler that throws leaves no partial state (unless you opted a collection into `readUncommitted`, or flushed explicitly with `commit()`).
-- **At-least-once.** Redelivery re-runs the handler; reads reflect committed prior attempts. Keep handlers idempotent.
-- **Attempt-scoped.** The context, the handles it vends, and any iterators those handles open are valid only within the handler invocation that created them. Do not retain them past the handler.
-
-### Error Handling
-
-Keyed-state failures surface as structured errors that flow through the same handler-error bridge as everything else (the transient/permanent category is carried as data, never parsed from the message):
-
-- `TransientStateError` (subclasses `TransientError`): the default. A temporary store read/write failure (for example a timeout), **and every caller mistake** — a rejected `null`/`undefined`/unrepresentable write (use `clear()` / `delete()` instead), an item-shape mismatch, a non-integer deque index (an out-of-range index instead reads as `null`), or an invalid scan direction. Caller mistakes are transient on purpose: a permanent error discards the in-flight message and can silently lose data, so a code error retries and stays visible (logs/metrics/lag) until you fix it.
-- `PermanentStateError` (subclasses `PermanentError`): reserved for failures a retry genuinely cannot resolve within the running process — an unregistered or identity-mismatched collection, or a duplicate registration. (A handler may also throw one explicitly to declare its own failure permanent.)
-
-Because they subclass the existing error hierarchy, rethrowing them from a handler classifies the event exactly like a plain `PermanentError` / `TransientError`. Use `isStateError(error)` to narrow an error to either state error class.
+State failures use `TransientStateError` or `PermanentStateError`, both recognized by `isStateError`. Temporary store failures and invalid values are transient; registration or collection-definition conflicts are permanent.
 
 ## OpenTelemetry Tracing
 
