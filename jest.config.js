@@ -1,5 +1,8 @@
 // jest.config.js
 module.exports = {
+  // Runtime tests live under __test__; generated native artifacts can be very large.
+  roots: ["<rootDir>/__test__"],
+
   // Set timeout for tests (in milliseconds)
   testTimeout: 180000,
 
