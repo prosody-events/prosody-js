@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.7"
-mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
+mimalloc = { version = "0.1", features = ["local_dynamic_tls", "v2"] }
 napi = { version = "3.8", features = [
     "async",
     "chrono_date",
