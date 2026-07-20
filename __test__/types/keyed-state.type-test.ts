@@ -86,16 +86,21 @@ export async function checks(): Promise<void> {
   for await (const [key, total] of t.entries("backward")) {
     assertTrue<Equal<typeof key, string>>();
     assertTrue<Equal<typeof total, number>>();
+    void key;
+    void total;
   }
   for await (const entry of t) {
     assertTrue<Equal<typeof entry, [string, number]>>();
+    void entry;
   }
   // keys()/values() take the same optional direction as entries().
   for await (const key of t.keys("backward")) {
     assertTrue<Equal<typeof key, string>>();
+    void key;
   }
   for await (const v of t.values("backward")) {
     assertTrue<Equal<typeof v, number>>();
+    void v;
   }
 
   // ---- deque ----
@@ -115,6 +120,7 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<Awaited<ReturnType<typeof d.at>>, string | null>>();
   for await (const item of d.values("backward")) {
     assertTrue<Equal<typeof item, string>>();
+    void item;
   }
 
   // ---- deque capacity (bounded backlog) is a deque-only option ----
