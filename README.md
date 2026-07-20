@@ -661,11 +661,11 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Keyed state is durable working memory for a stream. Each Kafka key gets its own value, map, or deque, so a handler can relate the current event to earlier events for the same key. State survives restarts and rebalances. By default, Prosody saves a handler's changes only when the event succeeds.
+Keyed state gives every Kafka key its own durable working memory. Prosody automatically uses the current message or timer key, so a handler can relate the current event to earlier events for that key. State survives restarts and rebalances. By default, changes become visible only when the event succeeds.
 
-Use keyed state for time-aware processing over each key in a stream: counters, deduplication data, rolling aggregates, pending work, and state machines. This work can be slow and expensive when it requires repeated relational database queries. Keyed state is not designed to be the source of truth for core business data or to provide relational operations such as joins. Keep that data in a relational database and use the right tool for each job.
+Use keyed state for time-aware stream processing: counters, deduplication, rolling aggregates, pending work, and per-key workflows. Keep your relational database as the source of truth for business data and for work that needs joins or ad hoc queries. Reconstructing stream state with repeated database queries can be slow and expensive; keyed state is built for that job.
 
-Give collections a TTL whenever the state does not need to live forever. Choose one comfortably longer than the configured recovery delay and the longest timer or workflow. This prevents inactive keys from accumulating state indefinitely.
+Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
 
 ### A counter for each key
 
@@ -687,11 +687,11 @@ client.subscribe({
 });
 ```
 
-The TTL keeps counters for recently active keys for 30 days. Omit it only when indefinite retention is intentional.
+Here, counters expire after 30 days without an update.
 
 ### Window activity into one notification
 
-This example sends a user's first activity immediately, saves further activity for five minutes, then sends one summary. The Kafka message key is the user ID.
+This example turns a burst of activity into two useful notifications. It sends the first event immediately, collects later events for five minutes, then sends one summary. Because the user ID is the Kafka key, every user gets an independent window.
 
 ```typescript
 const WINDOW = value<boolean>("window", { ttlSeconds: 24 * 60 * 60 });
@@ -729,18 +729,20 @@ const handler = {
 
 See the complete, type-checked example for imports, types, client setup, and `notify`: [`examples/windowing.ts`](examples/windowing.ts).
 
-A few details matter:
+Why this works:
 
 - Register both definitions in `stateCollections` before subscribing. Keyed state uses Cassandra unless `mock: true`.
 - Use `clearAndSchedule`, not `schedule`, so a retried event does not add another timer for the same key.
-- `capacity: 100` bounds each user's pending queue. Because this example only pushes at the back, overflow drops the oldest saved message.
-- A `messageDeque` keeps references to Kafka messages and fetches them when read. Keep source-topic retention longer than the window; use a plain `deque` of payloads when that is not guaranteed.
-- Prosody runs one handler at a time for a key, so that key's message and timer handlers do not overlap.
-- Notifications are external effects: retrying an event can send one again. Use an idempotency key or an outbox when duplicates matter.
+- `capacity: 100` and the one-day TTL prevent an inactive or unusually busy key from retaining an unlimited backlog. Since this example only pushes, overflow drops the oldest saved message.
+- A `messageDeque` requires the original Kafka messages to remain available for the whole window. Use a plain `deque` of payloads if topic retention or compaction cannot guarantee that.
+- Prosody runs one handler at a time for each key, so a user's message and timer handlers cannot overlap.
+- Sending a notification is outside Prosody's state transaction and may happen again after a retry. Give notifications a stable idempotency key, or send them through an outbox, when duplicates matter.
 
 ### Collections and handles
 
-Definitions describe the collection; `context.state(definition)` returns the current key's handle. Create handles inside the handler and do not retain them or their iterators afterward.
+A definition gives a collection a stable name, kind, and options. Register it once on the client, then pass the same definition to `context.state` to access the current key. Do not reuse a persisted name for a different collection kind or payload type.
+
+Create handles inside the handler and do not retain them or their iterators afterward.
 
 | Collection         | JSON payload | Kafka message     | Main operations                                                      |
 | ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
@@ -750,11 +752,15 @@ Definitions describe the collection; `context.state(definition)` returns the cur
 
 All operations are async. Map and deque scans are async iterables; a `for await` loop may stop early safely. Map keys are strings. `null` and `undefined` mean absence and cannot be stored—use `clear()` or `delete()` instead.
 
-Every definition accepts `ttlSeconds` and `readUncommitted`; maps also accept `keysetLimit`, and deques accept `capacity`. Collection names must be unique. Reuse the same definition for registration and access so TypeScript preserves the payload type.
+### When changes become visible
 
-By default, writes from a successful handler become visible together; if the handler throws, they are discarded. `commit()` publishes one collection's pending writes immediately, even if the event later fails. `rollback()` discards that collection's writes since its last commit. Most handlers should rely on the default behavior.
+Reads inside a handler see its earlier writes. The default behavior is the safest choice for most handlers: Prosody buffers those changes and publishes them together when the event succeeds. If the handler throws, none of its pending changes become visible.
 
-State failures use `TransientStateError` or `PermanentStateError`, both recognized by `isStateError`. Temporary store failures and invalid values are transient; registration or collection-definition conflicts are permanent.
+Each collection also offers explicit controls for workflows that need different behavior:
+
+- `readUncommitted: true` writes that collection's changes after the handler succeeds but before the event is recorded as complete. A crash in between can leave the changes visible even though the event is retried. Use it only for idempotent changes, where processing the same event again produces the same stored result.
+- `commit()` immediately publishes this collection's pending changes. They remain visible even if the handler later throws and the event is retried.
+- `rollback()` discards this collection's pending changes since its last `commit()`. It cannot undo changes that were already committed.
 
 ## OpenTelemetry Tracing
 
