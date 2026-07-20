@@ -257,7 +257,7 @@ pub struct Configuration {
 
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
-    /// this. Falls back to the `PROSODY_KEYED_STATE_RECOVERY_DELAY` environment
+    /// this. Falls back to the `PROSODY_STATE_RECOVERY_DELAY` environment
     /// variable (a duration string such as `30s`), then to 30 seconds. Must be
     /// a whole number of seconds >= 1 when set (fractional, negative, and
     /// non-finite values are rejected).
