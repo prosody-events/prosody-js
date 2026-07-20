@@ -1,7 +1,7 @@
 name: Release
 
 env:
-  DEBUG: 'napi:*'
+  DEBUG: "napi:*"
   APP_NAME: prosody
   MACOSX_DEPLOYMENT_TARGET: "10.13"
   CARGO_TERM_COLOR: always
@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       release_as:
-        description: 'Force release version (e.g. 2.2.0-beta.1)'
+        description: "Force release version (e.g. 2.2.0-beta.1)"
         required: false
         type: string
 
@@ -44,7 +44,7 @@ jobs:
           release-as: ${{ github.event.inputs.release_as }}
 
   build:
-    needs: [ release-please ]
+    needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
@@ -142,14 +142,14 @@ jobs:
 
   test-linux-bindings:
     name: test-${{ matrix.target }}-node@${{ matrix.node }}
-    needs: [ build ]
+    needs: [build]
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu ]
-        node: [ "20", "22" ]
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        node: ["20", "22"]
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest

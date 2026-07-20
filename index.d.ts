@@ -24,9 +24,7 @@ export type JsonPrimitive = null | boolean | number | string;
  * does not validate them against a more specific application payload type.
  */
 export type JsonValue =
-  | JsonPrimitive
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+  JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 /**
  * Maps an application type to its JSON-compatible shape. This lets APIs
