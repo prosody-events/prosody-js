@@ -2568,6 +2568,15 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/stateRecoveryDelaySeconds/);
   });
 
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid stateCacheSizeBytes %p",
+    (stateCacheSizeBytes) => {
+      expect(
+        () => new ProsodyClient(makeConfig({ stateCacheSizeBytes })),
+      ).toThrow(/stateCacheSizeBytes: must be a positive safe integer/);
+    },
+  );
+
   // Regression: stateRecoveryDelaySeconds arrives as f64, so negative and
   // fractional values reach the whole-number guard instead of wrapping or
   // truncating through a u32 coercion.

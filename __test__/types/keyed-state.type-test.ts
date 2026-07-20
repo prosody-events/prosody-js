@@ -47,6 +47,7 @@ const defaultJson = value("default-json");
 // The SAME definition objects serialize into the client configuration.
 const config: Configuration = {
   stateCollections: [cart, totals, tags, lastOrder, orderIndex, backlog],
+  stateCacheSizeBytes: 64 * 1024 * 1024,
 };
 void config;
 

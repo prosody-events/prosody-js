@@ -26,7 +26,7 @@ use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
 use std::collections::HashSet;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -242,13 +242,18 @@ pub struct Configuration {
     /// names within this set are rejected.
     pub state_collections: Option<Vec<StateCollectionConfig>>,
 
-    /// Root directory for the local keyed-state cache (the committed-value
-    /// fjall workspace).
+    /// Disk workspace for the local keyed-state cache.
     ///
-    /// Each live client needs its own directory (fjall locks it exclusively).
-    /// Falls back to the `PROSODY_FJALL_CACHE_DIR` environment variable, then a
-    /// per-client temporary directory. Must not be an empty string when set.
+    /// Each live client needs its own directory because it is locked
+    /// exclusively. Falls back to the `PROSODY_STATE_CACHE_DIR` environment
+    /// variable, then a per-client temporary directory. Must not be an
+    /// empty string when set.
     pub state_cache_dir: Option<String>,
+
+    /// Capacity of the in-memory keyed-state cache, in bytes. Falls back to
+    /// `PROSODY_STATE_CACHE_SIZE_BYTES`,
+    /// then to the storage-engine default. Must be a positive safe integer.
+    pub state_cache_size_bytes: Option<f64>,
 
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
@@ -715,6 +720,20 @@ fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32
     }
 }
 
+/// Validates a positive JS safe integer.
+fn positive_safe_integer(value: f64, field: &str) -> Result<NonZeroU64> {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+    if value.is_finite() && value.fract() == 0.0 && (1.0..=MAX_SAFE_INTEGER).contains(&value) {
+        NonZeroU64::new(value as u64)
+            .ok_or_else(|| Error::from_reason(format!("{field}: must be greater than 0")))
+    } else {
+        Err(Error::from_reason(format!(
+            "{field}: must be a positive safe integer"
+        )))
+    }
+}
+
 /// Applies the shared descriptor options (TTL, commit mode) fluently.
 ///
 /// @param descriptor The descriptor to configure.
@@ -915,7 +934,7 @@ fn register_state_collection(
 /// @returns The keyed-state configuration with every collection registered.
 /// @throws Error if a keyed-state field is invalid or a name is duplicated.
 pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConfiguration> {
-    let mut keyed = KeyedStateConfiguration::default();
+    let mut builder = KeyedStateConfiguration::builder();
 
     if let Some(dir) = &config.state_cache_dir {
         if dir.is_empty() {
@@ -923,13 +942,22 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
                 "stateCacheDir: must not be an empty string",
             ));
         }
-        keyed.cache_dir = PathBuf::from(dir);
+        builder.cache_dir(PathBuf::from(dir));
     }
 
     if let Some(seconds) = config.state_recovery_delay_seconds {
         let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 1, u32::MAX)?;
-        keyed.recovery_delay = CompactDuration::new(seconds);
+        builder.recovery_delay(CompactDuration::new(seconds));
     }
+
+    if let Some(bytes) = config.state_cache_size_bytes {
+        let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
+        builder.cache_size_bytes(Some(bytes));
+    }
+
+    let mut keyed = builder
+        .build()
+        .map_err(|error| Error::from_reason(error.to_string()))?;
 
     if let Some(collections) = &config.state_collections {
         let mut seen = HashSet::with_capacity(collections.len());
