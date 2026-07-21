@@ -1795,8 +1795,9 @@ dependencies = [
 
 [[package]]
 name = "prosody"
-version = "0.4.0"
-source = "git+https://github.com/prosody-events/prosody.git?branch=feat%2Fvalue-state-memory-foundation#454361285d1b984baee4ae9b19b91bf8e86d6356"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdbd9188c2e8982e1eff22d0ff5aa97a65dac98a02b3c6ec58c74073c8ea8c44"
 dependencies = [
  "ahash",
  "aho-corasick",
