@@ -1,8 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "a143cc108ede02dc69c399c41978d61806264bde",
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "tag-separator": "-",
   "packages": {
     ".": {
-      "release-type": "node"
+      "release-type": "node",
+      "package-name": "prosody"
     }
   }
 }
