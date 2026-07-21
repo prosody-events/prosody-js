@@ -11,6 +11,7 @@ use napi::bindgen_prelude::Function;
 use napi::bindgen_prelude::within_runtime_if_available;
 use napi_derive::napi;
 use prosody::tracing::initialize_tracing;
+use prosody::tracing::shutdown_telemetry;
 use serde_json::Value;
 use std::sync::{LazyLock, Once};
 use tracing::error;
@@ -65,6 +66,11 @@ pub fn initialize(env: Env) {
 
         // Add a cleanup hook to shutdown the logger when the environment is destroyed
         if let Err(error) = env.add_env_cleanup_hook((), |()| {
+            // Flush and shut down the OTel exporters before the logger goes
+            // away, so the final flush's own errors can still be logged.
+            if let Err(error) = shutdown_telemetry() {
+                error!("failed to shut down telemetry: {error:#}");
+            }
             LOGGER.shutdown_logger();
         }) {
             error!("failed to attach environment cleanup hook: {error:#}");

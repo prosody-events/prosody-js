@@ -1796,8 +1796,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdbd9188c2e8982e1eff22d0ff5aa97a65dac98a02b3c6ec58c74073c8ea8c44"
+source = "git+https://github.com/prosody-events/prosody?rev=e9b492fc6c75bafce4d28bbea205aebf5baaa2d3#e9b492fc6c75bafce4d28bbea205aebf5baaa2d3"
 dependencies = [
  "ahash",
  "aho-corasick",
