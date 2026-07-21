@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.3.1...prosody-v0.4.0) (2026-07-21)
+
+
+### Features
+
+* **state:** add durable keyed state ([#39](https://github.com/prosody-events/prosody-js/issues/39)) ([987b347](https://github.com/prosody-events/prosody-js/commit/987b34720c1f64aaf9f94f19827693a470d41f61))
+
 ## [0.3.1](https://github.com/prosody-events/prosody-js/compare/prosody-v0.3.0...prosody-v0.3.1) (2026-05-20)
 
 ### Bug Fixes
