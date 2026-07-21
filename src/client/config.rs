@@ -1,9 +1,12 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
+use prosody::JsonCodec;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::consumer::ConsumerConfigurationBuilder;
+use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
+use prosody::consumer::kafka_state::{message_deque_state, message_map_state, message_state};
 use prosody::consumer::middleware::deduplication::DeduplicationConfigurationBuilder;
 use prosody::consumer::middleware::defer::DeferConfigurationBuilder;
 use prosody::consumer::middleware::monopolization::MonopolizationConfigurationBuilder;
@@ -13,8 +16,18 @@ use prosody::consumer::middleware::timeout::TimeoutConfigurationBuilder;
 use prosody::consumer::middleware::topic::FailureTopicConfigurationBuilder;
 use prosody::high_level::ConsumerBuilders;
 use prosody::high_level::mode::Mode as ProsodyMode;
+use prosody::loader::KafkaLoader;
+use prosody::loader::KafkaLoaderConfiguration;
 use prosody::producer::ProducerConfigurationBuilder;
+use prosody::state::descriptor::{
+    MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
+};
+use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
+use prosody::timers::duration::CompactDuration;
+use std::collections::HashSet;
+use std::num::{NonZeroU64, NonZeroUsize};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -34,7 +47,7 @@ pub struct Configuration {
     pub group_id: Option<String>,
 
     /// Global shared cache capacity across all partitions for deduplicating
-    /// messages. Set to 0 to disable deduplication entirely.
+    /// messages. Must be greater than 0.
     pub idempotence_cache_size: Option<u32>,
 
     /// Version string for cache-busting deduplication hashes.
@@ -180,8 +193,8 @@ pub struct Configuration {
     /// Sliding window duration (in milliseconds) for failure rate tracking.
     pub defer_failure_window_ms: Option<u32>,
 
-    /// Cache size for defer middleware.
-    /// Controls capacity for store cache and loader cache.
+    /// Cache size for the deferred-retry message loader.
+    /// Controls capacity for the loader cache.
     pub defer_cache_size: Option<u32>,
 
     /// Maximum deferred store cache entries per Cassandra defer store.
@@ -221,6 +234,71 @@ pub struct Configuration {
     /// timer was scheduled. Accepted values: `"child"` (child-of relationship)
     /// or `"follows_from"`. Default: `"follows_from"`.
     pub timer_spans: Option<String>,
+
+    // Keyed-state configuration
+    /// Keyed-state collections to register before subscribe.
+    ///
+    /// Each entry declares one collection by name, kind, and payload. Duplicate
+    /// names within this set are rejected.
+    pub state_collections: Option<Vec<StateCollectionConfig>>,
+
+    /// Disk workspace for the local keyed-state cache.
+    ///
+    /// Each live client needs its own directory because it is locked
+    /// exclusively. Falls back to the `PROSODY_STATE_CACHE_DIR` environment
+    /// variable, then a per-client temporary directory. Must not be an
+    /// empty string when set.
+    pub state_cache_dir: Option<String>,
+
+    /// Capacity of the in-memory keyed-state cache, in bytes. Falls back to
+    /// `PROSODY_STATE_CACHE_SIZE_BYTES`,
+    /// then to the storage-engine default. Must be a positive safe integer.
+    pub state_cache_size_bytes: Option<f64>,
+
+    /// Delay in whole seconds between staging a provisional cell and the
+    /// keyed-state recovery sweep. Every registered TTL must strictly exceed
+    /// this. Falls back to the `PROSODY_STATE_RECOVERY_DELAY` environment
+    /// variable (a duration string such as `30s`), then to 30 seconds. Must be
+    /// a whole number of seconds >= 1 when set (fractional, negative, and
+    /// non-finite values are rejected).
+    pub state_recovery_delay_seconds: Option<f64>,
+}
+
+/// Declares one keyed-state collection to register before subscribe.
+#[napi(object)]
+pub struct StateCollectionConfig {
+    /// The collection name. Must be non-empty and unique within the client's
+    /// definition set.
+    pub name: String,
+
+    /// The collection kind: `"value"`, `"map"`, or `"deque"`.
+    pub kind: String,
+
+    /// The item payload: `"json"` (JSON values) or `"message"` (the full Kafka
+    /// message the handler received).
+    pub payload: String,
+
+    /// Optional per-write TTL in whole seconds. Must be a whole number >= 1
+    /// (fractional, negative, and non-finite values are rejected) and must
+    /// exceed the recovery delay (the latter checked at consumer build).
+    pub ttl_seconds: Option<f64>,
+
+    /// Optional opt-out of transactional staging (read-uncommitted, at-least
+    /// once). Defaults to transactional.
+    pub read_uncommitted: Option<bool>,
+
+    /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
+    /// disables ordered-scan tracking). Must be a whole number in that range
+    /// (fractional, negative, and non-finite values are rejected). Invalid on
+    /// value or deque collections.
+    pub keyset_limit: Option<f64>,
+
+    /// Optional deque-only capacity (bounded backlog). Must be a whole number
+    /// >= 1 (fractional, zero, negative, and non-finite values are rejected).
+    /// Runtime configuration only — not persisted, not part of collection
+    /// identity, and freely changeable across deploys; enforced lazily on push.
+    /// Invalid on value or map collections.
+    pub capacity: Option<f64>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -249,13 +327,9 @@ impl From<Mode> for ProsodyMode {
 
 /// Builds a `ProducerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `ProducerConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `ProducerConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBuilder {
     let mut builder = ProducerConfigurationBuilder::default();
 
@@ -280,14 +354,10 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
 
 /// Builds a `ConsumerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `Result` containing the `ConsumerConfigurationBuilder` with the specified
-/// configuration options, or an error if a configuration value is invalid.
+/// @param config The Configuration to build from.
+/// @returns A `Result` containing the `ConsumerConfigurationBuilder` with the
+/// specified configuration options, or an error if a configuration value is
+/// invalid.
 pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigurationBuilder> {
     let mut builder = ConsumerConfigurationBuilder::default();
 
@@ -354,18 +424,34 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.timer_spans(relation);
     }
 
+    if config.defer_cache_size.is_some()
+        || config.defer_seek_timeout_ms.is_some()
+        || config.defer_discard_threshold.is_some()
+    {
+        let mut loader = KafkaLoaderConfiguration::builder();
+        if let Some(cache_size) = config.defer_cache_size {
+            loader.cache_size(cache_size as usize);
+        }
+        if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
+            loader.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
+        }
+        if let Some(discard_threshold) = config.defer_discard_threshold {
+            loader.discard_threshold(i64::from(discard_threshold));
+        }
+        let loader = loader
+            .build()
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+        builder.loader(loader);
+    }
+
     Ok(builder)
 }
 
 /// Builds a `RetryConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `RetryConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `RetryConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_retry_config(config: &Configuration) -> RetryConfigurationBuilder {
     let mut builder = RetryConfigurationBuilder::default();
 
@@ -386,14 +472,9 @@ pub fn build_retry_config(config: &Configuration) -> RetryConfigurationBuilder {
 
 /// Builds a `FailureTopicConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `FailureTopicConfigurationBuilder` with the specified configuration
-/// options.
+/// @param config The Configuration to build from.
+/// @returns A `FailureTopicConfigurationBuilder` with the specified
+/// configuration options.
 pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigurationBuilder {
     let mut builder = FailureTopicConfigurationBuilder::default();
 
@@ -406,13 +487,9 @@ pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigu
 
 /// Builds a `SchedulerConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `SchedulerConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `SchedulerConfigurationBuilder` with the specified configuration
+/// options.
 fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuilder {
     let mut builder = SchedulerConfigurationBuilder::default();
 
@@ -441,14 +518,9 @@ fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuild
 
 /// Builds a `MonopolizationConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `MonopolizationConfigurationBuilder` with the specified configuration
-/// options.
+/// @param config The Configuration to build from.
+/// @returns A `MonopolizationConfigurationBuilder` with the specified
+/// configuration options.
 fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigurationBuilder {
     let mut builder = MonopolizationConfigurationBuilder::default();
 
@@ -473,13 +545,9 @@ fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigur
 
 /// Builds a `DeferConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `DeferConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `DeferConfigurationBuilder` with the specified configuration
+/// options.
 fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
     let mut builder = DeferConfigurationBuilder::default();
 
@@ -503,20 +571,8 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
         builder.failure_window(Duration::from_millis(u64::from(failure_window_ms)));
     }
 
-    if let Some(cache_size) = config.defer_cache_size {
-        builder.cache_size(cache_size as usize);
-    }
-
     if let Some(store_cache_size) = config.defer_store_cache_size {
         builder.store_cache_size(store_cache_size as usize);
-    }
-
-    if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
-        builder.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
-    }
-
-    if let Some(discard_threshold) = config.defer_discard_threshold {
-        builder.discard_threshold(i64::from(discard_threshold));
     }
 
     builder
@@ -524,13 +580,9 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
 
 /// Builds a `TimeoutConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `TimeoutConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `TimeoutConfigurationBuilder` with the specified configuration
+/// options.
 fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
     let mut builder = TimeoutConfigurationBuilder::default();
 
@@ -543,13 +595,9 @@ fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
 
 /// Builds a `TelemetryEmitterConfiguration` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `TelemetryEmitterConfiguration` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `TelemetryEmitterConfiguration` with the specified configuration
+/// options.
 fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfiguration> {
     let mut builder = TelemetryEmitterConfiguration::builder();
 
@@ -568,19 +616,16 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 
 /// Builds a `DeduplicationConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `DeduplicationConfigurationBuilder` with the specified configuration
-/// options.
-fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuilder {
+/// @param config The Configuration to build from.
+/// @returns A `DeduplicationConfigurationBuilder` with the specified
+/// configuration options.
+fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurationBuilder> {
     let mut builder = DeduplicationConfigurationBuilder::default();
 
     if let Some(cache_capacity) = config.idempotence_cache_size {
-        builder.cache_capacity(cache_capacity as usize);
+        let capacity = NonZeroUsize::new(cache_capacity as usize)
+            .ok_or_else(|| Error::from_reason("idempotence_cache_size must be greater than 0"))?;
+        builder.cache_capacity(capacity);
     }
 
     if let Some(version) = &config.idempotence_version {
@@ -591,22 +636,354 @@ fn build_dedup_config(config: &Configuration) -> DeduplicationConfigurationBuild
         builder.ttl(Duration::from_secs(u64::from(ttl_s)));
     }
 
-    builder
+    Ok(builder)
+}
+
+/// The kind of a keyed-state collection.
+#[derive(Clone, Copy)]
+enum CollectionKind {
+    /// A single-value collection.
+    Value,
+    /// A `String`-keyed ordered map.
+    Map,
+    /// A deque.
+    Deque,
+}
+
+/// The item payload of a keyed-state collection.
+enum CollectionPayload {
+    /// JSON values.
+    Json,
+    /// The full Kafka message the handler received.
+    Message,
+}
+
+/// Parses a collection-kind token.
+///
+/// @param index The collection's index in `stateCollections`.
+/// @param kind The kind token.
+/// @returns The parsed kind.
+/// @throws Error if the token is not `"value"`, `"map"`, or `"deque"`.
+fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
+    match kind {
+        "value" => Ok(CollectionKind::Value),
+        "map" => Ok(CollectionKind::Map),
+        "deque" => Ok(CollectionKind::Deque),
+        other => Err(Error::from_reason(format!(
+            "stateCollections[{index}].kind: expected \"value\", \"map\", or \"deque\", got \
+             {other:?}"
+        ))),
+    }
+}
+
+/// Parses a collection-payload token.
+///
+/// @param index The collection's index in `stateCollections`.
+/// @param payload The payload token.
+/// @returns The parsed payload.
+/// @throws Error if the token is not `"json"` or `"message"`.
+fn parse_payload(index: usize, payload: &str) -> Result<CollectionPayload> {
+    match payload {
+        "json" => Ok(CollectionPayload::Json),
+        "message" => Ok(CollectionPayload::Message),
+        other => Err(Error::from_reason(format!(
+            "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
+        ))),
+    }
+}
+
+/// Validates a JS number field as a whole number within `min..=max`.
+///
+/// The field arrives as an `f64` (the raw JS Number, un-coerced) so that
+/// fractional, negative, and non-finite values reach this guard instead of
+/// being silently truncated or wrapped by an earlier `u32` conversion. A
+/// value that is not finite, not integral, or outside the inclusive range is
+/// rejected with a permanent error naming the field.
+///
+/// @param value The raw JS number.
+/// @param field The dotted field label named in the error message.
+/// @param min The inclusive lower bound.
+/// @param max The inclusive upper bound.
+/// @returns The validated value as a `u32`.
+/// @throws Error (permanent) if the value is not a whole number in range.
+fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32> {
+    if value.is_finite()
+        && value.fract() == 0.0
+        && value >= f64::from(min)
+        && value <= f64::from(max)
+    {
+        Ok(value as u32)
+    } else {
+        Err(Error::from_reason(format!(
+            "{field}: must be a whole number in {min}..={max}"
+        )))
+    }
+}
+
+/// Validates a positive JS safe integer.
+fn positive_safe_integer(value: f64, field: &str) -> Result<NonZeroU64> {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+    if value.is_finite() && value.fract() == 0.0 && (1.0..=MAX_SAFE_INTEGER).contains(&value) {
+        NonZeroU64::new(value as u64)
+            .ok_or_else(|| Error::from_reason(format!("{field}: must be greater than 0")))
+    } else {
+        Err(Error::from_reason(format!(
+            "{field}: must be a positive safe integer"
+        )))
+    }
+}
+
+/// Applies the shared descriptor options (TTL, commit mode) fluently.
+///
+/// @param descriptor The descriptor to configure.
+/// @param `ttl_seconds` The validated per-write TTL in whole seconds, if any.
+/// @param `read_uncommitted` Whether the collection opts out of staging.
+/// @returns The configured descriptor.
+fn with_def<D: StateDescriptor>(
+    descriptor: D,
+    ttl_seconds: Option<u32>,
+    read_uncommitted: Option<bool>,
+) -> D {
+    let mut descriptor = descriptor;
+    if let Some(ttl) = ttl_seconds {
+        descriptor = descriptor.ttl(CompactDuration::new(ttl));
+    }
+    if read_uncommitted == Some(true) {
+        descriptor = descriptor.read_uncommitted();
+    }
+    descriptor
+}
+
+/// Applies the map-only keyset bound when configured.
+///
+/// @param descriptor The map descriptor to configure.
+/// @param `keyset_limit` The validated keyset bound, if any.
+/// @returns The configured map descriptor.
+fn with_keyset<KC, V>(
+    descriptor: MapDescriptor<KC, V>,
+    keyset_limit: Option<u32>,
+) -> MapDescriptor<KC, V> {
+    match keyset_limit {
+        Some(limit) => descriptor.keyset_limit(limit as usize),
+        None => descriptor,
+    }
+}
+
+/// Parses the deque-only capacity bound when configured.
+///
+/// @param index The collection's index (for error messages).
+/// @param collection The collection configuration.
+/// @param kind The parsed collection kind; capacity is deque-only.
+/// @returns The validated capacity bound, if any.
+/// @throws Error (permanent) if capacity is set on a non-deque collection or is
+///   not a positive whole number.
+fn parse_capacity(
+    index: usize,
+    collection: &StateCollectionConfig,
+    kind: CollectionKind,
+) -> Result<Option<NonZeroUsize>> {
+    let Some(value) = collection.capacity else {
+        return Ok(None);
+    };
+    if !matches!(kind, CollectionKind::Deque) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].capacity: only valid for deque collections"
+        )));
+    }
+    let bound = whole_number_field(
+        value,
+        &format!("stateCollections[{index}].capacity"),
+        1,
+        u32::MAX,
+    )?;
+    // `whole_number_field` with min 1 already rejects zero, so the `NonZeroUsize`
+    // conversion cannot fail; `ok_or_else` keeps it lint-clean (no unwrap).
+    Ok(Some(NonZeroUsize::new(bound as usize).ok_or_else(
+        || {
+            Error::from_reason(format!(
+                "stateCollections[{index}].capacity: must be positive"
+            ))
+        },
+    )?))
+}
+
+/// Validates one collection and registers its descriptor.
+///
+/// Message collections monomorphize over `KafkaLoader<JsonCodec>`. Their stored
+/// identity is loader-independent (the message ref codec and resolver carry
+/// fixed `"message-ref"` identifiers), so this matches the identity the erased
+/// vend path asserts using the session's own loader.
+///
+/// @param keyed The keyed-state configuration to register into.
+/// @param index The collection's index in `stateCollections`.
+/// @param collection The collection configuration.
+/// @throws Error (permanent) if a field is invalid (the field name is named in
+///   the message).
+fn register_state_collection(
+    keyed: &mut KeyedStateConfiguration,
+    index: usize,
+    collection: &StateCollectionConfig,
+) -> Result<()> {
+    if collection.name.is_empty() {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].name: must not be empty"
+        )));
+    }
+
+    let kind = parse_kind(index, &collection.kind)?;
+    let payload = parse_payload(index, &collection.payload)?;
+
+    let ttl_seconds = match collection.ttl_seconds {
+        Some(value) => Some(whole_number_field(
+            value,
+            &format!("stateCollections[{index}].ttlSeconds"),
+            1,
+            u32::MAX,
+        )?),
+        None => None,
+    };
+
+    let keyset_limit = match collection.keyset_limit {
+        Some(value) => {
+            if !matches!(kind, CollectionKind::Map) {
+                return Err(Error::from_reason(format!(
+                    "stateCollections[{index}].keysetLimit: only valid for map collections"
+                )));
+            }
+            Some(whole_number_field(
+                value,
+                &format!("stateCollections[{index}].keysetLimit"),
+                0,
+                4096,
+            )?)
+        }
+        None => None,
+    };
+
+    let capacity = parse_capacity(index, collection, kind)?;
+
+    let read_uncommitted = collection.read_uncommitted;
+    let name = collection.name.as_str();
+    match (kind, payload) {
+        (CollectionKind::Value, CollectionPayload::Json) => {
+            let _ = keyed.register(with_def(
+                value_state::<JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            ));
+        }
+        (CollectionKind::Map, CollectionPayload::Json) => {
+            let descriptor = with_def(
+                map_state::<Utf8KeyCodec, JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            );
+            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
+        }
+        (CollectionKind::Deque, CollectionPayload::Json) => {
+            let mut descriptor = with_def(
+                deque_state::<JsonCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+            );
+            if let Some(bound) = capacity {
+                descriptor = descriptor.capacity(bound);
+            }
+            let _ = keyed.register(descriptor);
+        }
+        (CollectionKind::Value, CollectionPayload::Message) => {
+            let _ = keyed.register(with_def(
+                message_state::<KafkaLoader<JsonCodec>>(name),
+                ttl_seconds,
+                read_uncommitted,
+            ));
+        }
+        (CollectionKind::Map, CollectionPayload::Message) => {
+            let descriptor = with_def(
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
+                ttl_seconds,
+                read_uncommitted,
+            );
+            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
+        }
+        (CollectionKind::Deque, CollectionPayload::Message) => {
+            let mut descriptor = with_def(
+                message_deque_state::<KafkaLoader<JsonCodec>>(name),
+                ttl_seconds,
+                read_uncommitted,
+            );
+            if let Some(bound) = capacity {
+                descriptor = descriptor.capacity(bound);
+            }
+            let _ = keyed.register(descriptor);
+        }
+    }
+
+    Ok(())
+}
+
+/// Builds the real `KeyedStateConfiguration` from the given Configuration.
+///
+/// Registers each declared collection synchronously (before subscribe, hence
+/// resubscribe-safe), rejecting duplicate names. Field-level validation names
+/// the offending JS field; core validates the remaining rules (TTL ceiling,
+/// TTL exceeding the recovery delay, identity conflicts) at consumer build.
+///
+/// @param config The Configuration to build from.
+/// @returns The keyed-state configuration with every collection registered.
+/// @throws Error if a keyed-state field is invalid or a name is duplicated.
+pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConfiguration> {
+    let mut builder = KeyedStateConfiguration::builder();
+
+    if let Some(dir) = &config.state_cache_dir {
+        if dir.is_empty() {
+            return Err(Error::from_reason(
+                "stateCacheDir: must not be an empty string",
+            ));
+        }
+        builder.cache_dir(PathBuf::from(dir));
+    }
+
+    if let Some(seconds) = config.state_recovery_delay_seconds {
+        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 1, u32::MAX)?;
+        builder.recovery_delay(CompactDuration::new(seconds));
+    }
+
+    if let Some(bytes) = config.state_cache_size_bytes {
+        let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
+        builder.cache_size_bytes(Some(bytes));
+    }
+
+    let mut keyed = builder
+        .build()
+        .map_err(|error| Error::from_reason(error.to_string()))?;
+
+    if let Some(collections) = &config.state_collections {
+        let mut seen = HashSet::with_capacity(collections.len());
+        for (index, collection) in collections.iter().enumerate() {
+            if !seen.insert(collection.name.as_str()) {
+                return Err(Error::from_reason(format!(
+                    "stateCollections[{index}].name: duplicate collection name {:?}",
+                    collection.name
+                )));
+            }
+            register_state_collection(&mut keyed, index, collection)?;
+        }
+    }
+
+    Ok(keyed)
 }
 
 /// Builds `ConsumerBuilders` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `ConsumerBuilders` containing all consumer-related configuration builders.
+/// @param config The Configuration to build from.
+/// @returns A `ConsumerBuilders` containing all consumer-related configuration
+/// builders.
 pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilders> {
     Ok(ConsumerBuilders {
         consumer: build_consumer_config(config)?,
-        dedup: build_dedup_config(config),
+        dedup: build_dedup_config(config)?,
         retry: build_retry_config(config),
         failure_topic: build_failure_topic_config(config),
         scheduler: build_scheduler_config(config),
@@ -614,18 +991,15 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
         defer: build_defer_config(config),
         timeout: build_timeout_config(config),
         emitter: build_emitter_config(config)?,
+        keyed_state: build_keyed_state_config(config)?,
     })
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.
 ///
-/// # Arguments
-///
-/// * `config` - The Configuration to build from.
-///
-/// # Returns
-///
-/// A `CassandraConfigurationBuilder` with the specified configuration options.
+/// @param config The Configuration to build from.
+/// @returns A `CassandraConfigurationBuilder` with the specified configuration
+/// options.
 pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationBuilder {
     let mut builder = CassandraConfigurationBuilder::default();
 
@@ -662,13 +1036,8 @@ pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationB
 
 /// Parses a string or vector of strings into a vector of strings.
 ///
-/// # Arguments
-///
-/// * `value` - The Either<String, Vec<String>> to parse.
-///
-/// # Returns
-///
-/// A Vec<String> containing the parsed values.
+/// @param value The Either<String, Vec<String>> to parse.
+/// @returns A Vec<String> containing the parsed values.
 fn parse_string_or_vec(value: &Either<String, Vec<String>>) -> Vec<String> {
     match value {
         Either::A(s) => vec![s.clone()],

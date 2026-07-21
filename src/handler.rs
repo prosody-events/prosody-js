@@ -15,10 +15,10 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use prosody::consumer::DemandType;
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::message::ConsumerMessage;
 use prosody::consumer::middleware::FallibleHandler;
-use prosody::consumer::{DemandType, Keyed};
 use prosody::error::{ClassifyError, ErrorCategory};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
@@ -141,14 +141,9 @@ impl JsHandler {
     /// Builds thread-safe functions from the provided JavaScript callbacks
     /// and initializes an OpenTelemetry propagator for distributed tracing.
     ///
-    /// # Arguments
-    ///
-    /// * `event_handler` - A reference to a `NativeHandler` containing the
+    /// @param `event_handler` A reference to a `NativeHandler` containing the
     ///   JavaScript callbacks.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `napi::Error` if thread-safe function creation fails.
+    /// @throws Returns a `napi::Error` if thread-safe function creation fails.
     pub fn new(event_handler: &NativeHandler) -> napi::Result<Self> {
         let on_message = event_handler
             .on_message
@@ -187,19 +182,11 @@ impl JsHandler {
     /// trigger retries (transient) or be treated as unrecoverable
     /// (permanent).
     ///
-    /// # Arguments
-    ///
-    /// * `error` - The error to categorize.
-    ///
-    /// # Returns
-    ///
-    /// A `JsHandlerError` indicating whether the error is permanent or
+    /// @param error The error to categorize.
+    /// @returns A `JsHandlerError` indicating whether the error is permanent or
     /// transient.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `napi::Result<JsHandlerError>` if the JavaScript function call
-    /// fails.
+    /// @throws Returns a `napi::Result<JsHandlerError>` if the JavaScript
+    /// function call fails.
     async fn categorize_error(&self, error: Error) -> napi::Result<JsHandlerError> {
         let message = error
             .cause
@@ -267,17 +254,12 @@ impl FallibleHandler for JsHandler {
     /// injects OpenTelemetry context for distributed tracing, and calls
     /// the JavaScript `onMessage` function asynchronously.
     ///
-    /// # Arguments
-    ///
-    /// * `context` - The event context providing shutdown signaling and other
+    /// @param context The event context providing shutdown signaling and other
     ///   utilities.
-    /// * `message` - The consumer message to process.
-    /// * `_demand_type` - Whether this is normal processing or failure retry.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `JsHandlerError` if the JavaScript callback execution fails
-    /// or if error categorization fails.
+    /// @param message The consumer message to process.
+    /// @param `_demand_type` Whether this is normal processing or failure
+    /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
+    /// execution fails or if error categorization fails.
     async fn on_message<C>(
         &self,
         context: C,
@@ -285,7 +267,7 @@ impl FallibleHandler for JsHandler {
         _demand_type: DemandType,
     ) -> Result<(), Self::Error>
     where
-        C: EventContext,
+        C: EventContext<Payload = Self::Payload>,
     {
         let span = message.span();
         let native_context =
@@ -296,14 +278,7 @@ impl FallibleHandler for JsHandler {
             .propagator
             .inject_context(&span.context(), &mut carrier);
 
-        let message = Message {
-            topic: message.topic().to_string(),
-            partition: message.partition(),
-            offset: message.offset().into(),
-            timestamp: *message.timestamp(),
-            key: message.key().to_string(),
-            payload: message.payload().clone(),
-        };
+        let message = Message::from(&message);
 
         debug!("processing message");
 
@@ -333,17 +308,12 @@ impl FallibleHandler for JsHandler {
     /// injects OpenTelemetry context for distributed tracing, and calls
     /// the JavaScript `onTimer` function asynchronously.
     ///
-    /// # Arguments
-    ///
-    /// * `context` - The event context providing shutdown signaling and other
+    /// @param context The event context providing shutdown signaling and other
     ///   utilities.
-    /// * `trigger` - The timer trigger to process.
-    /// * `_demand_type` - Whether this is normal processing or failure retry.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `JsHandlerError` if the JavaScript callback execution fails
-    /// or if error categorization fails.
+    /// @param trigger The timer trigger to process.
+    /// @param `_demand_type` Whether this is normal processing or failure
+    /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
+    /// execution fails or if error categorization fails.
     async fn on_timer<C>(
         &self,
         context: C,
@@ -351,7 +321,7 @@ impl FallibleHandler for JsHandler {
         _demand_type: DemandType,
     ) -> Result<(), Self::Error>
     where
-        C: EventContext,
+        C: EventContext<Payload = Self::Payload>,
     {
         // Only process application timers; internal timers are handled by middleware
         if trigger.timer_type != TimerType::Application {

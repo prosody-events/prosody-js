@@ -33,7 +33,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     healthcheck:
-      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list",
+        ]
       interval: 15s
       timeout: 10s
       retries: 15
@@ -44,7 +48,7 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
     healthcheck:
-      test: [ "CMD-SHELL", "cqlsh -e 'SELECT cluster_name FROM system.local;'" ]
+      test: ["CMD-SHELL", "cqlsh -e 'SELECT cluster_name FROM system.local;'"]
       interval: 15s
       timeout: 10s
       retries: 15

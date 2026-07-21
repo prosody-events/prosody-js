@@ -4,22 +4,25 @@
 //! `MessageContext` from the `prosody` crate and exposes its functionality to
 //! Node.js through NAPI.
 
+use crate::state::{
+    DequeStateVariant, MapStateVariant, NativeDequeState, NativeMapState, NativeValueState,
+    ValueStateVariant, state_error,
+};
 use chrono::{DateTime, Utc};
 use napi::Error;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use opentelemetry::trace::FutureExt;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Instrument, debug, info_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
 pub struct NativeContext {
-    context: BoxEventContext,
+    context: BoxEventContext<serde_json::Value>,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -27,12 +30,13 @@ pub struct NativeContext {
 impl NativeContext {
     /// Creates a new `NativeContext` instance.
     ///
-    /// # Arguments
-    ///
-    /// * `context` - The `BoxEventContext` to wrap.
-    /// * `propagator` - The OpenTelemetry propagator to use for context
+    /// @param context The `BoxEventContext` to wrap.
+    /// @param propagator The OpenTelemetry propagator to use for context
     ///   extraction.
-    pub fn new(context: BoxEventContext, propagator: Arc<TextMapCompositePropagator>) -> Self {
+    pub fn new(
+        context: BoxEventContext<serde_json::Value>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
         Self {
             context,
             propagator,
@@ -79,14 +83,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("schedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .schedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -107,14 +106,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("clearAndSchedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .clear_and_schedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -134,14 +128,9 @@ impl NativeContext {
         let time = CompactDateTime::try_from(time)
             .map_err(|error| Error::from_reason(error.to_string()))?;
 
-        let span = info_span!("unschedule", %time);
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
-
         self.context
             .unschedule(time, TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -152,14 +141,10 @@ impl NativeContext {
     #[napi(writable = false)]
     pub async fn clear_scheduled(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         let context = self.propagator.extract(&otel_context);
-        let span = info_span!("clearScheduled");
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
 
         self.context
             .clear_scheduled(TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))
     }
@@ -174,16 +159,144 @@ impl NativeContext {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<DateTime<Utc>>> {
         let context = self.propagator.extract(&otel_context);
-        let span = info_span!("scheduled");
-        if let Err(err) = span.set_parent(context) {
-            debug!("failed to set parent span: {err:#}");
-        }
 
         self.context
             .scheduled(TimerType::Application)
-            .instrument(span)
+            .with_context(context)
             .await
             .map(|times| times.into_iter().map(DateTime::<Utc>::from).collect())
             .map_err(|error| Error::from_reason(error.to_string()))
+    }
+
+    /// Vends the state handle for the named JSON value collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The value-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn value_state(&self, name: String) -> napi::Result<NativeValueState> {
+        let handle = self
+            .context
+            .value_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeValueState {
+            state: ValueStateVariant::Json(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named JSON map collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The map-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn map_state(&self, name: String) -> napi::Result<NativeMapState> {
+        let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
+        Ok(NativeMapState {
+            state: MapStateVariant::Json(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named JSON deque collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here — vended handles outlive the call, and every operation opens
+    /// its own span.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The deque-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+        let handle = self
+            .context
+            .deque_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeDequeState {
+            state: DequeStateVariant::Json(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message value collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message value-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn message_value_state(&self, name: String) -> napi::Result<NativeValueState> {
+        let handle = self
+            .context
+            .message_value_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeValueState {
+            state: ValueStateVariant::Message(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message map collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message map-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn message_map_state(&self, name: String) -> napi::Result<NativeMapState> {
+        let handle = self
+            .context
+            .message_map_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeMapState {
+            state: MapStateVariant::Message(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named Kafka-message deque collection.
+    ///
+    /// Items are the full `Message` the handler received, loader-resolved on
+    /// read. Vending verifies registration (core-side); no span is opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The message deque-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn message_deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+        let handle = self
+            .context
+            .message_deque_state(&name)
+            .map_err(|e| state_error(&e))?;
+        Ok(NativeDequeState {
+            state: DequeStateVariant::Message(handle),
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 }
