@@ -998,11 +998,10 @@ function encodeJson(value) {
 /**
  * Reads the event metadata a payload carries.
  *
- * A payload is any JSON value. When it is an object with a string `id` or
- * `type`, prosody uses them — `id` for producer idempotence dedup, `type` for
- * consumer `allowed_events` filtering. Anything else simply carries no
- * metadata. Each field is read once, so a getter that answers differently on a
- * second read cannot make the metadata disagree with itself.
+ * When the payload is an object with a string `id` or `type`, prosody uses
+ * them. Anything else carries no metadata. Each field is read once, so a getter
+ * that answers differently on a second read cannot make the metadata disagree
+ * with itself.
  * @param {*} payload - The payload about to be sent.
  * @returns {{eventId?: string, eventType?: string}} The metadata.
  * @private

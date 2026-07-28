@@ -1,9 +1,8 @@
-use crate::codec::MessageCodec;
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
-use prosody::codec::JsonPassthroughStateCodec;
+use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
@@ -811,7 +810,7 @@ fn parse_capacity(
 
 /// Validates one collection and registers its descriptor.
 ///
-/// Message collections monomorphize over `KafkaLoader<MessageCodec>`. Their
+/// Message collections monomorphize over `KafkaLoader<JsonBinaryCodec>`. Their
 /// stored identity is loader-independent (the message ref codec and resolver
 /// carry fixed `"message-ref"` identifiers), so this matches the identity the
 /// erased vend path asserts using the session's own loader.
@@ -895,14 +894,14 @@ fn register_state_collection(
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
-                message_state::<KafkaLoader<MessageCodec>>(name),
+                message_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
-                message_map_state::<Utf8KeyCodec, KafkaLoader<MessageCodec>>(name),
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
             );
@@ -910,7 +909,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let mut descriptor = with_def(
-                message_deque_state::<KafkaLoader<MessageCodec>>(name),
+                message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
             );

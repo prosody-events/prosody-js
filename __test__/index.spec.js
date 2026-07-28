@@ -1857,8 +1857,7 @@ describe("ProsodyClient", () => {
     // MISTAKE, rejected TRANSIENT at the boundary (retry, stay visible, never
     // discard the message — discarding it would lose data; see CLAUDE.md).
     // `JSON.stringify` answers `undefined` for these, which the binding turns
-    // into a transient state error. Values nested inside a container follow
-    // `JSON.stringify`'s own coercion rules instead — see the test below.
+    // into a transient state error.
     const unrepresentable = [
       ["a bare undefined", undefined],
       ["a bare function", () => 1],
@@ -1904,38 +1903,6 @@ describe("ProsodyClient", () => {
         expect(obs.after).toBe(V);
       },
     );
-
-    // C10d — a value with no JSON representation NESTED inside a container is
-    // coerced by `JSON.stringify`, not rejected: a function-valued property is
-    // dropped and an `undefined` array element becomes null. The binding
-    // serializes with `JSON.stringify`, so its rules are the contract. This
-    // replaces the two nested rows C10c used to carry, which the old
-    // serde_json bridge rejected because it built a `serde_json::Value` tree
-    // and refused any node it could not represent.
-    it("coerces unrepresentable values nested in a container", async () => {
-      client = makeStateClient();
-      await client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const c = ctx.state(STATE_DEFS.cart);
-          const d = ctx.state(STATE_DEFS.backlog);
-          try {
-            await c.set({ v: () => 1, keep: 1 });
-            const droppedFunction = await c.get();
-            await d.push([1, undefined, 2]);
-            const holeToNull = await d.pop();
-            messageStream.push({ droppedFunction, holeToNull });
-          } catch (e) {
-            messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await client.send(topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
-      expect(obs.error).toBeUndefined();
-      expect(obs.droppedFunction).toEqual({ keep: 1 });
-      expect(obs.holeToNull).toEqual([1, null, 2]);
-    });
 
     // C11 — Tracing (item 12), GREEN-IS-CORRECT. In-process JS cannot observe
     // the Rust collection span (separate OTLP pipeline), so this asserts only

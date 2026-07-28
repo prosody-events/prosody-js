@@ -1,14 +1,13 @@
 use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
-use crate::codec::MessageCodec;
 use crate::handler::JsHandler;
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
 use prosody::Codec;
-use prosody::codec::BinaryPayload;
+use prosody::codec::{BinaryPayload, JsonBinaryCodec};
 use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
 use std::collections::HashMap;
@@ -25,7 +24,7 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: HighLevelClient<JsHandler, MessageCodec>,
+    client: HighLevelClient<JsHandler, JsonBinaryCodec>,
 }
 
 #[napi]
@@ -75,9 +74,7 @@ impl NativeClient {
     /// The payload crosses as its JSON text and is forwarded to Kafka verbatim;
     /// Rust never parses it. The caller supplies the event metadata, read off
     /// the payload object before it was serialized, so the boundary costs no
-    /// JSON re-parse. `eventId` participates in producer idempotence dedup when
-    /// present; `eventType` is carried for consumers filtering on
-    /// `allowed_events`.
+    /// JSON re-parse.
     ///
     /// @param topic - The topic to send the message to
     /// @param key - The key of the message
@@ -201,10 +198,10 @@ impl NativeClient {
 /// fields.
 #[napi(object)]
 pub struct EventMetadata {
-    /// The payload's `id` field, used by producer idempotence dedup.
+    /// The payload's `id` field.
     pub event_id: Option<String>,
 
-    /// The payload's `type` field, used by consumer `allowed_events` filtering.
+    /// The payload's `type` field.
     pub event_type: Option<String>,
 }
 
