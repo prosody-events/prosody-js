@@ -44,7 +44,31 @@ use std::sync::Arc;
 /// reference-count bumps, no byte copies. Owned and `'static`, so it survives
 /// the awaits inside the async write methods — a borrowed class reference
 /// cannot.
-pub struct MessageItem(ConsumerMessage<BinaryPayload>);
+///
+/// Empty when the message came from keyed state rather than from a handler; see
+/// [`MessageItem::into_message`].
+pub struct MessageItem(Option<ConsumerMessage<BinaryPayload>>);
+
+impl MessageItem {
+    /// The consumer message to store.
+    ///
+    /// # Errors
+    ///
+    /// Transient when the message was read out of keyed state. Such a message
+    /// is a copy holding no consumer message, so there is nothing to store.
+    /// Storing the wrong message is a caller mistake, and caller mistakes
+    /// reject transient so the event stays visible instead of being
+    /// discarded.
+    fn into_message(self) -> napi::Result<ConsumerMessage<BinaryPayload>> {
+        self.0.ok_or_else(|| {
+            transient_error(
+                "a message read out of keyed state cannot be stored; store the message the \
+                 handler received"
+                    .to_owned(),
+            )
+        })
+    }
+}
 
 impl TypeName for MessageItem {
     fn type_name() -> &'static str {
@@ -239,17 +263,13 @@ fn json_item(item: Option<BinaryPayload>) -> napi::Result<Option<Either<String, 
 
 /// Converts one resolved Kafka message into the value handed to JavaScript.
 ///
-/// Detaches it from the loader permit it was resolved under — see
-/// [`Message::detached`].
+/// Copies it so the loader permit it was resolved under goes back when this
+/// read returns — see [`Message::stored`].
 ///
 /// @param item The message read, or `None` when the cell is absent.
 /// @returns The `Message` object, or `None` when the cell is absent.
-/// @throws Error if the detached message's permit cannot be acquired.
-fn message_item(
-    item: Option<ConsumerMessage<BinaryPayload>>,
-) -> napi::Result<Option<Either<String, Message>>> {
-    item.map(|message| Message::detached(&message).map(Either::B))
-        .transpose()
+fn message_item(item: Option<ConsumerMessage<BinaryPayload>>) -> Option<Either<String, Message>> {
+    item.map(|message| Either::B(Message::stored(&message)))
 }
 
 /// The two payload flavours a value handle wraps: owned JSON values or
@@ -338,7 +358,7 @@ impl NativeValueState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -393,7 +413,7 @@ impl NativeValueState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             ValueStateVariant::Message(handle) => handle
-                .set(message.0)
+                .set(message.into_message()?)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -480,7 +500,7 @@ impl NativeMapState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -515,7 +535,7 @@ impl NativeMapState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(|items| items.into_iter().map(message_item).collect()),
+                .map(|items| items.into_iter().map(message_item).collect()),
         }
     }
 
@@ -603,7 +623,7 @@ impl NativeMapState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Message(handle) => handle
-                .set(key, message.0)
+                .set(key, message.into_message()?)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -804,7 +824,7 @@ impl NativeDequeState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -836,7 +856,7 @@ impl NativeDequeState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -868,7 +888,7 @@ impl NativeDequeState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -923,7 +943,7 @@ impl NativeDequeState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Message(handle) => handle
-                .push_back(message.0)
+                .push_back(message.into_message()?)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -982,7 +1002,7 @@ impl NativeDequeState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Message(handle) => handle
-                .push_front(message.0)
+                .push_front(message.into_message()?)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -1013,7 +1033,7 @@ impl NativeDequeState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -1040,7 +1060,7 @@ impl NativeDequeState {
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e))
-                .and_then(message_item),
+                .map(message_item),
         }
     }
 
@@ -1167,13 +1187,13 @@ impl NativeStateCursor {
             }
             CursorVariant::DequeMessage(cursor) => {
                 pull(cursor, context, |message| {
-                    Message::detached(&message).map(Either4::C)
+                    Ok(Either4::C(Message::stored(&message)))
                 })
                 .await
             }
             CursorVariant::MapMessage(cursor) => {
                 pull(cursor, context, |(key, message)| {
-                    Ok(Either4::D((key, Message::detached(&message)?)))
+                    Ok(Either4::D((key, Message::stored(&message))))
                 })
                 .await
             }
