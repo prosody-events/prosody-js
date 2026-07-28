@@ -15,7 +15,8 @@ use napi::{Error, Status};
 use napi_derive::napi;
 use prosody::codec::BinaryPayload;
 use prosody::consumer::Keyed;
-use prosody::consumer::message::{ConsumerMessage, ConsumerMessageValue};
+use prosody::consumer::message::ConsumerMessage;
+use prosody::{Key, Offset, Partition, Topic};
 use std::sync::Arc;
 
 /// A Kafka message received from a consumer.
@@ -45,7 +46,22 @@ enum Source {
     /// semaphore would stall the loader on permits it is itself holding.
     ///
     /// [`KafkaLoader`]: prosody::loader::KafkaLoader
-    Stored(ConsumerMessageValue<BinaryPayload>),
+    Stored(StoredMessage),
+}
+
+/// What JavaScript can see of a message read back out of keyed state.
+///
+/// Exactly the fields the getters expose, and nothing else. This is a snapshot,
+/// not a core message value: it cannot become a [`ConsumerMessage`] again, and
+/// copying the event id and type or the producing system alongside it would
+/// suggest otherwise.
+struct StoredMessage {
+    topic: Topic,
+    partition: Partition,
+    offset: Offset,
+    key: Key,
+    timestamp: DateTime<Utc>,
+    payload: Vec<u8>,
 }
 
 #[expect(
@@ -66,14 +82,13 @@ impl Message {
     /// @returns The copied message, holding no processing resources.
     pub(crate) fn stored(resolved: &ConsumerMessage<BinaryPayload>) -> Self {
         Self {
-            source: Source::Stored(ConsumerMessageValue {
-                source_system: resolved.source_system().cloned(),
+            source: Source::Stored(StoredMessage {
                 topic: resolved.topic(),
                 partition: resolved.partition(),
                 offset: resolved.offset(),
                 key: Arc::clone(resolved.key()),
                 timestamp: *resolved.timestamp(),
-                payload: resolved.payload().clone(),
+                payload: resolved.payload().bytes.clone(),
             }),
         }
     }
@@ -98,7 +113,7 @@ impl Message {
     pub fn topic(&self) -> &'static str {
         match &self.source {
             Source::Live(message) => message.topic().as_ref(),
-            Source::Stored(value) => value.topic.as_ref(),
+            Source::Stored(stored) => stored.topic.as_ref(),
         }
     }
 
@@ -107,7 +122,7 @@ impl Message {
     pub fn partition(&self) -> i32 {
         match &self.source {
             Source::Live(message) => message.partition(),
-            Source::Stored(value) => value.partition,
+            Source::Stored(stored) => stored.partition,
         }
     }
 
@@ -116,7 +131,7 @@ impl Message {
     pub fn offset(&self) -> BigInt {
         match &self.source {
             Source::Live(message) => message.offset(),
-            Source::Stored(value) => value.offset,
+            Source::Stored(stored) => stored.offset,
         }
         .into()
     }
@@ -126,7 +141,7 @@ impl Message {
     pub fn timestamp(&self) -> DateTime<Utc> {
         match &self.source {
             Source::Live(message) => *message.timestamp(),
-            Source::Stored(value) => value.timestamp,
+            Source::Stored(stored) => stored.timestamp,
         }
     }
 
@@ -135,7 +150,7 @@ impl Message {
     pub fn key(&self) -> &str {
         match &self.source {
             Source::Live(message) => message.key(),
-            Source::Stored(value) => &value.key,
+            Source::Stored(stored) => &stored.key,
         }
     }
 
@@ -151,7 +166,7 @@ impl Message {
     pub fn payload(&self) -> napi::Result<&str> {
         let bytes = match &self.source {
             Source::Live(message) => &message.payload().bytes,
-            Source::Stored(value) => &value.payload.bytes,
+            Source::Stored(stored) => &stored.payload,
         };
         str::from_utf8(bytes).map_err(|error| {
             Error::new(
