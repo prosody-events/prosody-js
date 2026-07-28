@@ -48,6 +48,11 @@ export type JsonCompatible<T> = T extends JsonPrimitive
  * payload is unchanged. An unparameterized `Message` uses {@link JsonValue};
  * provide an application payload type for precise field-level checking.
  * Message-backed keyed-state collections vend their items as `Message<P>`.
+ *
+ * Only a message a handler received can be stored in a message collection. A
+ * message collection stores where a message sits in Kafka, and only a delivered
+ * message knows that. Storing an object shaped like a message, or a message read
+ * back out of a collection, rejects with a `TransientStateError`.
  */
 export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */
@@ -321,6 +326,8 @@ export function deque<T = JsonValue>(
  * Declares a single-value message collection: each stored item is the full
  * Kafka `Message<P>` the handler received. The type parameter annotates the
  * message payload (compile-time only).
+ *
+ * Only a message a handler received can be stored; see {@link Message}.
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
  */
@@ -333,6 +340,8 @@ export function messageValue<P = JsonValue>(
  * Declares an ordered-map message collection (string keys; values are the full
  * Kafka `Message<P>`). The type parameter annotates the message payload
  * (compile-time only).
+ *
+ * Only a message a handler received can be stored; see {@link Message}.
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
  */
@@ -345,6 +354,8 @@ export function messageMap<P = JsonValue>(
  * Declares a double-ended-queue message collection: each stored element is the
  * full Kafka `Message<P>`. The type parameter annotates the message payload
  * (compile-time only).
+ *
+ * Only a message a handler received can be stored; see {@link Message}.
  * @param name - The collection name (unique per client).
  * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
  *   `capacity` (bounded backlog; enforced lazily on push).
