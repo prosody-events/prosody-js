@@ -907,13 +907,15 @@ const rawPayload = Object.getOwnPropertyDescriptor(
  *
  * A payload that is not JSON raises a permanent error: no retry makes bytes
  * parse. Reading `payload` is where that surfaces, since nothing before it
- * looks at the document.
+ * looks at the document. That outcome is kept too, so a handler reading a bad
+ * payload twice re-raises rather than re-parsing.
  * @param {object} message - The native message.
  * @returns {object} The same message, with `payload` parsed on demand.
  * @private
  */
 function withParsedPayload(message) {
   let document;
+  let failure;
   let parsed = false;
   Object.defineProperty(message, "payload", {
     configurable: true,
@@ -923,12 +925,13 @@ function withParsedPayload(message) {
         try {
           document = JSON.parse(rawPayload.call(this));
         } catch (error) {
-          throw new PermanentError(
+          failure = new PermanentError(
             `message payload is not JSON: ${error.message}`,
           );
         }
         parsed = true;
       }
+      if (failure !== undefined) throw failure;
       return document;
     },
   });

@@ -161,6 +161,58 @@ pub fn outbound_binary(payload: Buffer) -> napi::Result<u32> {
     Ok(owned.len() as u32)
 }
 
+/// Receives a trace carrier as the object shape the bindings use today.
+///
+/// Every keyed-state and timer operation passes one of these, so this measures
+/// what a single operation pays before it does any work.
+#[napi]
+pub fn carrier_map(otel_context: std::collections::HashMap<String, String>) -> u32 {
+    otel_context.len() as u32
+}
+
+/// Receives the same trace context as a bare `traceparent` string.
+#[napi]
+pub fn carrier_text(traceparent: String) -> u32 {
+    traceparent.len() as u32
+}
+
+/// Builds a trace carrier the way the handler hands one to JavaScript.
+///
+/// Mirrors `JsHandler::on_message`, which allocates a map and injects the
+/// span context into it once per message and once per timer fire.
+#[napi]
+pub fn carrier_out_map() -> std::collections::HashMap<String, String> {
+    let mut carrier = std::collections::HashMap::with_capacity(2);
+    carrier.insert(
+        "traceparent".to_owned(),
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_owned(),
+    );
+    carrier
+}
+
+/// Hands the same trace context out as a bare `traceparent` string.
+#[napi]
+pub fn carrier_out_text() -> String {
+    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_owned()
+}
+
+/// The three headers prosody's composite propagator actually emits.
+///
+/// Baggage plus W3C trace context, named rather than enumerated, so the
+/// conversion reads three known properties instead of walking the object.
+#[napi(object)]
+pub struct Carrier {
+    pub traceparent: Option<String>,
+    pub tracestate: Option<String>,
+    pub baggage: Option<String>,
+}
+
+/// Receives the trace carrier as a fixed three-field struct.
+#[napi]
+pub fn carrier_struct(carrier: Carrier) -> u32 {
+    carrier.traceparent.map_or(0, |t| t.len() as u32)
+}
+
 /// Zeroes the allocation counters.
 #[napi]
 pub fn alloc_reset() {
