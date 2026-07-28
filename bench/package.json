@@ -1,0 +1,17 @@
+{
+  "name": "prosody-codec-bench",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "napi": {
+    "binaryName": "codecbench"
+  },
+  "scripts": {
+    "build": "napi build --release --platform",
+    "bench": "node --expose-gc run.mjs"
+  },
+  "dependencies": {
+    "@mitata/counters": "^0.0.8",
+    "mitata": "^1.0.34"
+  }
+}
