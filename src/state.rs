@@ -2,9 +2,10 @@
 //!
 //! Wraps the boxed erased handles from
 //! [`prosody::consumer::event_context`] as `#[napi]` classes. Collections are
-//! addressed by name; JSON payloads cross as `serde_json::Value` (the napi
-//! `serde-json` bridge, exactly like message payloads) and Kafka-message items
-//! cross as the same `Message` object shape handlers already receive.
+//! addressed by name; JSON documents cross as their raw text (the passthrough
+//! codec — Rust never parses the JSON, exactly like the message-payload path)
+//! and Kafka-message items cross as the same `Message` object handlers already
+//! receive.
 //!
 //! Every operation extracts the JS-side carrier and activates it while polling
 //! the erased future, allowing core's semantic collection span to join the
@@ -22,109 +23,48 @@
 //! rather than discarding the message (see CLAUDE.md error-classification).
 
 use crate::message::Message;
-use napi::bindgen_prelude::{
-    Either, Either4, FromNapiValue, TypeName, ValidateNapiValue, ValueType, sys,
-};
+use napi::bindgen_prelude::{Either, Either4, FromNapiValue, TypeName, ValueType, sys};
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
+use prosody::codec::{BinaryPayload, ErasedStateCodec};
 use prosody::consumer::event_context::{
     BoxDequeState, BoxMapState, BoxStateCursor, BoxValueState, ErasedCategory, ErasedStateError,
 };
-use prosody::consumer::message::{ConsumerMessage, ConsumerMessageValue};
+use prosody::consumer::message::ConsumerMessage;
 use prosody::state::Direction;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::ptr;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tracing::Span;
 
-/// Item shape crossing INTO a state handle. `Message` is tried first so a
-/// genuine message object routes to the message arm; a plain JSON value fails
-/// `Message` conversion and falls through to [`JsonItem`] (napi `Either`
-/// else-chain), which is how JSON writes land. The generated TypeScript for
-/// these arguments is overridden with `ts_args_type` (the erased `JsonItem`
-/// arm has no standalone TS type); the typed layer restores the generics.
-type ItemIn = Either<Message, JsonItem>;
+/// A Kafka message crossing INTO a state handle.
+///
+/// Unwraps the JavaScript `Message` to the [`ConsumerMessage`] it shares: two
+/// reference-count bumps, no byte copies. Owned and `'static`, so it survives
+/// the awaits inside the async write methods — a borrowed class reference
+/// cannot.
+pub struct MessageItem(ConsumerMessage<BinaryPayload>);
 
-/// A JSON value in a napi `Either` input arm.
-///
-/// `serde_json::Value` implements `FromNapiValue` but neither `TypeName` nor
-/// `ValidateNapiValue`, so it cannot occupy an `Either` input arm directly.
-/// This newtype supplies both. Its validation accepts any JS value (returning
-/// the null "valid" sentinel), so a value that is not a `Message` falls through
-/// to here and is decoded as JSON — a bare string, number, boolean, array,
-/// object, or the JSON `null` sentinel that core then rejects at write.
-///
-/// The conversion OUTCOME is captured as a `Result` rather than surfaced as a
-/// `from_napi_value` error: a JS value with no JSON representation (a function,
-/// symbol, `undefined`, or external — whether bare or nested inside a
-/// container) is a CALLER MISTAKE, so it must reject TRANSIENT — it retries and
-/// stays visible rather than discarding the message and losing data (see
-/// CLAUDE.md error-classification). An `Err` returned during argument
-/// conversion is thrown synchronously by napi with the `cause` category tag
-/// STRIPPED, so the category would be implicit; capturing the `Err` and
-/// re-raising a `transient`-tagged error inside the async method body — on the
-/// promise-rejection path where `cause` survives — makes the category explicit
-/// and carries a clean message.
-///
-/// One nested case does NOT reach here: an `undefined` OBJECT property is
-/// dropped by the serde bridge (as `JSON.stringify` does) rather than failing,
-/// so it is silently omitted. A nested function/symbol, and `undefined` as an
-/// array ELEMENT, do fail and are captured. A value whose getter or proxy trap
-/// THROWS is a separate, pre-existing case: napi leaves that JS exception
-/// pending and surfaces it untagged before this method body runs, so it is not
-/// re-tagged here.
-pub struct JsonItem(Result<Value, String>);
-
-impl TypeName for JsonItem {
+impl TypeName for MessageItem {
     fn type_name() -> &'static str {
-        "any"
+        "Message"
     }
 
     fn value_type() -> ValueType {
-        ValueType::Unknown
+        ValueType::Object
     }
 }
 
-impl ValidateNapiValue for JsonItem {
-    // SAFETY: this override inspects nothing — it unconditionally reports the
-    // value as valid by returning the null "no rejected promise" sentinel, so
-    // `env`/`napi_val` are never dereferenced. The actual type filtering is
-    // deferred to `Value::from_napi_value`, which rejects the JS kinds that
-    // have no `serde_json::Value` representation.
-    #[allow(unsafe_code)]
-    unsafe fn validate(
-        _env: sys::napi_env,
-        _napi_val: sys::napi_value,
-    ) -> napi::Result<sys::napi_value> {
-        Ok(ptr::null_mut())
-    }
-}
-
-impl FromNapiValue for JsonItem {
+impl FromNapiValue for MessageItem {
     // SAFETY: `env` and `napi_val` are guaranteed valid by the NAPI-RS runtime
     // when this is invoked through the framework, and the call is forwarded
-    // unchanged to `Value::from_napi_value`, which performs its own validated
-    // conversion via safe NAPI-RS accessors.
-    //
-    // This never returns `Err`: a failed conversion is captured in the newtype
-    // (see the type docs) so the method body can raise a `transient`-tagged
-    // error where the `cause` tag survives, rather than losing it to napi's
-    // synchronous argument-conversion throw.
+    // unchanged to the generated `&Message` conversion, which checks that the
+    // value is a wrapped `Message` before dereferencing it.
     #[allow(unsafe_code)]
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
-        Ok(Self(
-            unsafe { Value::from_napi_value(env, napi_val) }.map_err(|error| {
-                format!(
-                    "value is not representable as JSON (functions, symbols, `undefined`, and \
-                     externals cannot be stored): {error}"
-                )
-            }),
-        ))
+        let message = unsafe { <&Message>::from_napi_value(env, napi_val) }?;
+        Ok(Self(message.consumer_message()))
     }
 }
 
@@ -183,23 +123,18 @@ fn transient_error(message: String) -> Error {
     tagged_error("transient", message)
 }
 
-/// Rejects a JSON `null` write as a transient caller error.
+/// Builds a permanent-category napi error for a stored cell that cannot be
+/// decoded.
 ///
-/// `null` is not a storable value (it is indistinguishable from absence). Like
-/// every caller mistake it is TRANSIENT, not permanent — it retries and stays
-/// visible rather than discarding the message. `advice` names the deletion verb
-/// for the collection kind (a deque has none).
+/// Corruption is not a caller mistake and no retry resolves it, so it is the
+/// one condition this layer raises permanent. It surfaces on the read that
+/// touched the cell rather than being swallowed, which is the only place a
+/// caller can see which collection and key went bad.
 ///
-/// @param value The converted JSON value to check.
-/// @param advice A trailing clause naming how to delete instead.
-/// @returns `Ok` unless `value` is JSON `null`.
-fn reject_null(value: &Value, advice: &str) -> napi::Result<()> {
-    if value.is_null() {
-        return Err(transient_error(format!(
-            "JSON null is not a storable value{advice}"
-        )));
-    }
-    Ok(())
+/// @param message The human-readable error message.
+/// @returns The structured napi error tagged permanent.
+fn permanent_error(message: String) -> Error {
+    tagged_error("permanent", message)
 }
 
 /// Parses a scan-direction token into the core `Direction`.
@@ -230,63 +165,116 @@ fn op_context(
     propagator.extract(otel_context)
 }
 
-/// Rebuilds a `ConsumerMessage` from the JavaScript `Message` for a
-/// message-collection write.
+/// Prepares JSON text for a write.
 ///
-/// Only topic/partition/offset feed the stored message reference; the rest
-/// rides along. The offset is read losslessly from the `BigInt`, and a fresh
-/// single-permit semaphore supplies the processing permit (never contended —
-/// the message is not being scheduled).
+/// Takes the string's buffer, so the document is stored verbatim with no copy.
+/// Rejects the `null` document: `null` is the erased seam's name for absence,
+/// so it is not a storable value. Like every caller mistake it rejects
+/// TRANSIENT — it retries and stays visible rather than discarding the
+/// message. `advice` names the deletion verb for the collection kind (a deque
+/// has none).
 ///
-/// @param message The JavaScript message to rebuild.
-/// @returns The reconstructed `ConsumerMessage`.
-/// @throws Error (transient) if the offset exceeds the lossless `i64` range,
-///   or if the processing permit cannot be acquired.
-fn consumer_message(message: Message) -> napi::Result<ConsumerMessage<Value>> {
-    let (offset, lossless) = message.offset.get_i64();
-    if !lossless {
-        return Err(transient_error(
-            "message.offset: exceeds the i64 range Kafka offsets occupy".to_owned(),
-        ));
+/// @param json The document's JSON text.
+/// @param advice A trailing clause naming how to delete instead.
+/// @returns The payload to hand core.
+/// @throws Error (transient) if the document is JSON `null`.
+fn json_payload(json: String, advice: &str) -> napi::Result<BinaryPayload> {
+    let payload = BinaryPayload::new(json.into_bytes(), None::<String>, None::<String>);
+    if payload.is_absent_sentinel() {
+        return Err(transient_error(format!(
+            "JSON null is not a storable value{advice}"
+        )));
     }
-    let permit = Arc::new(Semaphore::new(1))
-        .try_acquire_owned()
-        .map_err(|e| transient_error(format!("failed to acquire message permit: {e}")))?;
-    let value = ConsumerMessageValue {
-        source_system: None,
-        topic: message.topic.as_str().into(),
-        partition: message.partition,
-        offset,
-        key: message.key.into(),
-        timestamp: message.timestamp,
-        payload: message.payload,
-    };
-    Ok(ConsumerMessage::new(value, Span::current(), permit))
+    Ok(payload)
+}
+
+/// Rejects a Kafka message handed to a JSON collection.
+///
+/// A collection stores one item flavour, fixed at registration. Handing it the
+/// other is a caller mistake, so it rejects TRANSIENT like the rest.
+///
+/// @param kind The collection kind, named in the message.
+/// @returns The structured napi error tagged transient.
+fn expected_json(kind: &str) -> Error {
+    transient_error(format!(
+        "a Kafka message cannot be stored in a JSON {kind} collection"
+    ))
+}
+
+/// Rejects a JSON document handed to a Kafka-message collection.
+///
+/// @param kind The collection kind, named in the message.
+/// @returns The structured napi error tagged transient.
+fn expected_message(kind: &str) -> Error {
+    transient_error(format!(
+        "expected a Kafka message; a JSON document cannot be stored in a message {kind} collection"
+    ))
+}
+
+/// Hands a stored JSON document to JavaScript as its raw text.
+///
+/// Takes the payload's bytes; UTF-8 validation is a scan, not a copy. Every
+/// document this layer stores came from `JSON.stringify`, so invalid UTF-8
+/// means a corrupt cell — see [`permanent_error`] for why that is the one
+/// permanent condition here.
+///
+/// @param payload The stored document.
+/// @returns The document's JSON text.
+/// @throws Error (permanent) if the stored bytes are not valid UTF-8.
+fn json_text(payload: BinaryPayload) -> napi::Result<String> {
+    String::from_utf8(payload.bytes).map_err(|error| {
+        permanent_error(format!("stored JSON document is not valid UTF-8: {error}"))
+    })
+}
+
+/// Converts one read JSON document into the value handed to JavaScript.
+///
+/// @param item The document read, or `None` when the cell is absent.
+/// @returns The JSON text, or `None` when the cell is absent.
+/// @throws Error (transient) if the stored bytes are not valid UTF-8.
+fn json_item(item: Option<BinaryPayload>) -> napi::Result<Option<Either<String, Message>>> {
+    item.map(|payload| json_text(payload).map(Either::A))
+        .transpose()
+}
+
+/// Converts one resolved Kafka message into the value handed to JavaScript.
+///
+/// Detaches it from the loader permit it was resolved under — see
+/// [`Message::detached`].
+///
+/// @param item The message read, or `None` when the cell is absent.
+/// @returns The `Message` object, or `None` when the cell is absent.
+/// @throws Error if the detached message's permit cannot be acquired.
+fn message_item(
+    item: Option<ConsumerMessage<BinaryPayload>>,
+) -> napi::Result<Option<Either<String, Message>>> {
+    item.map(|message| Message::detached(&message).map(Either::B))
+        .transpose()
 }
 
 /// The two payload flavours a value handle wraps: owned JSON values or
 /// loader-resolved Kafka messages.
 pub(crate) enum ValueStateVariant {
     /// A JSON value collection.
-    Json(BoxValueState<Value>),
+    Json(BoxValueState<BinaryPayload>),
     /// A Kafka-message collection.
-    Message(BoxValueState<ConsumerMessage<Value>>),
+    Message(BoxValueState<ConsumerMessage<BinaryPayload>>),
 }
 
 /// The two payload flavours a map handle wraps.
 pub(crate) enum MapStateVariant {
     /// A JSON value collection.
-    Json(BoxMapState<Value>),
+    Json(BoxMapState<BinaryPayload>),
     /// A Kafka-message collection.
-    Message(BoxMapState<ConsumerMessage<Value>>),
+    Message(BoxMapState<ConsumerMessage<BinaryPayload>>),
 }
 
 /// The two payload flavours a deque handle wraps.
 pub(crate) enum DequeStateVariant {
     /// A JSON value collection.
-    Json(BoxDequeState<Value>),
+    Json(BoxDequeState<BinaryPayload>),
     /// A Kafka-message collection.
-    Message(BoxDequeState<ConsumerMessage<Value>>),
+    Message(BoxDequeState<ConsumerMessage<BinaryPayload>>),
 }
 
 /// The cursor flavours a scan or key-scan yields.
@@ -296,13 +284,13 @@ pub(crate) enum DequeStateVariant {
 /// maps, since core's key scan skips the value and never varies by payload.
 enum CursorVariant {
     /// A deque JSON scan yielding values.
-    DequeJson(BoxStateCursor<Value>),
+    DequeJson(BoxStateCursor<BinaryPayload>),
     /// A map JSON scan yielding `(key, value)` entries.
-    MapJson(BoxStateCursor<(String, Value)>),
+    MapJson(BoxStateCursor<(String, BinaryPayload)>),
     /// A deque message scan yielding messages.
-    DequeMessage(BoxStateCursor<ConsumerMessage<Value>>),
+    DequeMessage(BoxStateCursor<ConsumerMessage<BinaryPayload>>),
     /// A map message scan yielding `(key, message)` entries.
-    MapMessage(BoxStateCursor<(String, ConsumerMessage<Value>)>),
+    MapMessage(BoxStateCursor<(String, ConsumerMessage<BinaryPayload>)>),
     /// A map key-only scan yielding bare keys (no value decode, no resolver).
     MapKey(BoxStateCursor<String>),
 }
@@ -336,69 +324,80 @@ impl NativeValueState {
     pub async fn get(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             ValueStateVariant::Json(handle) => handle
                 .get()
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             ValueStateVariant::Message(handle) => handle
                 .get()
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
-    /// Buffers a write of the value.
+    /// Buffers a write of a JSON document.
     ///
     /// JSON null is rejected with a transient error naming `clear` as the way
-    /// to delete. A message-shaped payload cannot be stored in a JSON
-    /// collection (and vice versa); such a mismatch is a caller mistake and is
-    /// likewise transient (it retries and stays visible, never discarded).
+    /// to delete. Writing a document to a Kafka-message collection is a caller
+    /// mistake and is likewise transient (it retries and stays visible, never
+    /// discarded).
     ///
-    /// @param item The value (JSON) or message to write.
+    /// @param json The document's JSON text.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @throws Error carrying the category on `cause` if the write fails.
+    #[napi(writable = false)]
+    pub async fn set_json(
+        &self,
+        json: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<()> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            ValueStateVariant::Json(handle) => {
+                let payload = json_payload(json, "; use clear() to remove the value")?;
+                handle
+                    .set(payload)
+                    .with_context(context)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
+            ValueStateVariant::Message(_) => Err(expected_message("value")),
+        }
+    }
+
+    /// Buffers a write of a Kafka message.
+    ///
+    /// The message is stored with its wire bytes unchanged. Writing one to a
+    /// JSON collection is a caller mistake and is transient (it retries and
+    /// stays visible, never discarded).
+    ///
+    /// @param message The message to write.
     /// @param otelContext The OpenTelemetry context for tracing.
     /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(
         writable = false,
-        ts_args_type = "item: any, otelContext: Record<string, string>"
+        ts_args_type = "message: Message, otelContext: Record<string, string>"
     )]
-    pub async fn set(
+    pub async fn set_message(
         &self,
-        item: ItemIn,
+        message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        match (&self.state, item) {
-            (ValueStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(transient_error)?;
-                reject_null(&value, "; use clear() to remove the value")?;
-                handle
-                    .set(value)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (ValueStateVariant::Message(handle), Either::A(message)) => {
-                let message = consumer_message(message)?;
-                handle
-                    .set(message)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (ValueStateVariant::Json(_), Either::A(_)) => Err(transient_error(
-                "a Kafka-message payload cannot be stored in a JSON value collection".to_owned(),
-            )),
-            (ValueStateVariant::Message(_), Either::B(_)) => Err(transient_error(
-                "expected a Kafka message; use clear() to delete a message value collection"
-                    .to_owned(),
-            )),
+        match &self.state {
+            ValueStateVariant::Message(handle) => handle
+                .set(message.0)
+                .with_context(context)
+                .await
+                .map_err(|e| state_error(&e)),
+            ValueStateVariant::Json(_) => Err(expected_json("value")),
         }
     }
 
@@ -467,21 +466,21 @@ impl NativeMapState {
         &self,
         key: String,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Json(handle) => handle
                 .get(key)
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             MapStateVariant::Message(handle) => handle
                 .get(key)
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
@@ -502,26 +501,21 @@ impl NativeMapState {
         &self,
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Vec<Option<Either<Value, Message>>>> {
+    ) -> napi::Result<Vec<Option<Either<String, Message>>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Json(handle) => handle
                 .get_many(keys)
                 .with_context(context)
                 .await
-                .map(|items| items.into_iter().map(|item| item.map(Either::A)).collect())
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(|items| items.into_iter().map(json_item).collect()),
             MapStateVariant::Message(handle) => handle
                 .get_many(keys)
                 .with_context(context)
                 .await
-                .map(|items| {
-                    items
-                        .into_iter()
-                        .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                        .collect()
-                })
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(|items| items.into_iter().map(message_item).collect()),
         }
     }
 
@@ -554,52 +548,66 @@ impl NativeMapState {
         .map_err(|e| state_error(&e))
     }
 
-    /// Inserts or overwrites `key`.
+    /// Inserts or overwrites `key` with a JSON document.
     ///
     /// JSON null is rejected with a transient error naming `delete` as the way
-    /// to remove an entry. An item-shape mismatch is a caller mistake and is
-    /// likewise transient (it retries and stays visible, never discarded).
+    /// to remove an entry. Writing a document to a Kafka-message collection is
+    /// a caller mistake and is likewise transient (it retries and stays
+    /// visible, never discarded).
     ///
     /// @param key The map key.
-    /// @param item The value (JSON) or message to store.
+    /// @param json The document's JSON text.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @throws Error carrying the category on `cause` if the write fails.
+    #[napi(writable = false)]
+    pub async fn set_json(
+        &self,
+        key: String,
+        json: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<()> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            MapStateVariant::Json(handle) => {
+                let payload = json_payload(json, "; use delete(key) to remove the entry")?;
+                handle
+                    .set(key, payload)
+                    .with_context(context)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
+            MapStateVariant::Message(_) => Err(expected_message("map")),
+        }
+    }
+
+    /// Inserts or overwrites `key` with a Kafka message.
+    ///
+    /// The message is stored with its wire bytes unchanged. Writing one to a
+    /// JSON collection is a caller mistake and is transient (it retries and
+    /// stays visible, never discarded).
+    ///
+    /// @param key The map key.
+    /// @param message The message to store.
     /// @param otelContext The OpenTelemetry context for tracing.
     /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(
         writable = false,
-        ts_args_type = "key: string, item: any, otelContext: Record<string, string>"
+        ts_args_type = "key: string, message: Message, otelContext: Record<string, string>"
     )]
-    pub async fn set(
+    pub async fn set_message(
         &self,
         key: String,
-        item: ItemIn,
+        message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        match (&self.state, item) {
-            (MapStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(transient_error)?;
-                reject_null(&value, "; use delete(key) to remove the entry")?;
-                handle
-                    .set(key, value)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (MapStateVariant::Message(handle), Either::A(message)) => {
-                let message = consumer_message(message)?;
-                handle
-                    .set(key, message)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (MapStateVariant::Json(_), Either::A(_)) => Err(transient_error(
-                "a Kafka-message payload cannot be stored in a JSON map collection".to_owned(),
-            )),
-            (MapStateVariant::Message(_), Either::B(_)) => Err(transient_error(
-                "expected a Kafka message; use remove(key) to delete a message map entry"
-                    .to_owned(),
-            )),
+        match &self.state {
+            MapStateVariant::Message(handle) => handle
+                .set(key, message.0)
+                .with_context(context)
+                .await
+                .map_err(|e| state_error(&e)),
+            MapStateVariant::Json(_) => Err(expected_json("map")),
         }
     }
 
@@ -781,7 +789,7 @@ impl NativeDequeState {
         &self,
         index: u32,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         let index = index as usize;
         match &self.state {
@@ -789,14 +797,14 @@ impl NativeDequeState {
                 .get(index)
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             DequeStateVariant::Message(handle) => handle
                 .get(index)
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
@@ -814,21 +822,21 @@ impl NativeDequeState {
     pub async fn peek_front(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .peek_front()
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             DequeStateVariant::Message(handle) => handle
                 .peek_front()
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
@@ -846,113 +854,139 @@ impl NativeDequeState {
     pub async fn peek_back(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .peek_back()
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             DequeStateVariant::Message(handle) => handle
                 .peek_back()
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
+        }
+    }
+
+    /// Appends a JSON document at the back.
+    ///
+    /// JSON null is not a storable element and is rejected with a transient
+    /// error. Writing a document to a Kafka-message collection is a caller
+    /// mistake and is likewise transient (it retries and stays visible, never
+    /// discarded).
+    ///
+    /// @param json The document's JSON text.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @throws Error carrying the category on `cause` if the write fails.
+    #[napi(writable = false)]
+    pub async fn push_back_json(
+        &self,
+        json: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<()> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            DequeStateVariant::Json(handle) => {
+                let payload = json_payload(json, " in a deque")?;
+                handle
+                    .push_back(payload)
+                    .with_context(context)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
+            DequeStateVariant::Message(_) => Err(expected_message("deque")),
+        }
+    }
+
+    /// Appends a Kafka message at the back.
+    ///
+    /// The message is stored with its wire bytes unchanged. Writing one to a
+    /// JSON collection is a caller mistake and is transient (it retries and
+    /// stays visible, never discarded).
+    ///
+    /// @param message The message to store.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @throws Error carrying the category on `cause` if the write fails.
+    #[napi(
+        writable = false,
+        ts_args_type = "message: Message, otelContext: Record<string, string>"
+    )]
+    pub async fn push_back_message(
+        &self,
+        message: MessageItem,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<()> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            DequeStateVariant::Message(handle) => handle
+                .push_back(message.0)
+                .with_context(context)
+                .await
                 .map_err(|e| state_error(&e)),
+            DequeStateVariant::Json(_) => Err(expected_json("deque")),
         }
     }
 
-    /// Appends an element at the back.
+    /// Prepends a JSON document at the front.
     ///
     /// JSON null is not a storable element and is rejected with a transient
-    /// error. An item-shape mismatch is a caller mistake and is likewise
-    /// transient (it retries and stays visible, never discarded).
+    /// error. Writing a document to a Kafka-message collection is a caller
+    /// mistake and is likewise transient (it retries and stays visible, never
+    /// discarded).
     ///
-    /// @param item The value (JSON) or message to append.
+    /// @param json The document's JSON text.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @throws Error carrying the category on `cause` if the write fails.
+    #[napi(writable = false)]
+    pub async fn push_front_json(
+        &self,
+        json: String,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<()> {
+        let context = op_context(&self.propagator, &otel_context);
+        match &self.state {
+            DequeStateVariant::Json(handle) => {
+                let payload = json_payload(json, " in a deque")?;
+                handle
+                    .push_front(payload)
+                    .with_context(context)
+                    .await
+                    .map_err(|e| state_error(&e))
+            }
+            DequeStateVariant::Message(_) => Err(expected_message("deque")),
+        }
+    }
+
+    /// Prepends a Kafka message at the front.
+    ///
+    /// The message is stored with its wire bytes unchanged. Writing one to a
+    /// JSON collection is a caller mistake and is transient (it retries and
+    /// stays visible, never discarded).
+    ///
+    /// @param message The message to store.
     /// @param otelContext The OpenTelemetry context for tracing.
     /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(
         writable = false,
-        ts_args_type = "item: any, otelContext: Record<string, string>"
+        ts_args_type = "message: Message, otelContext: Record<string, string>"
     )]
-    pub async fn push_back(
+    pub async fn push_front_message(
         &self,
-        item: ItemIn,
+        message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        match (&self.state, item) {
-            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(transient_error)?;
-                reject_null(&value, " in a deque")?;
-                handle
-                    .push_back(value)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (DequeStateVariant::Message(handle), Either::A(message)) => {
-                let message = consumer_message(message)?;
-                handle
-                    .push_back(message)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (DequeStateVariant::Json(_), Either::A(_)) => Err(transient_error(
-                "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
-            )),
-            (DequeStateVariant::Message(_), Either::B(_)) => Err(transient_error(
-                "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
-            )),
-        }
-    }
-
-    /// Prepends an element at the front.
-    ///
-    /// JSON null is not a storable element and is rejected with a transient
-    /// error. An item-shape mismatch is a caller mistake and is likewise
-    /// transient (it retries and stays visible, never discarded).
-    ///
-    /// @param item The value (JSON) or message to prepend.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
-    #[napi(
-        writable = false,
-        ts_args_type = "item: any, otelContext: Record<string, string>"
-    )]
-    pub async fn push_front(
-        &self,
-        item: ItemIn,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        match (&self.state, item) {
-            (DequeStateVariant::Json(handle), Either::B(JsonItem(value))) => {
-                let value = value.map_err(transient_error)?;
-                reject_null(&value, " in a deque")?;
-                handle
-                    .push_front(value)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (DequeStateVariant::Message(handle), Either::A(message)) => {
-                let message = consumer_message(message)?;
-                handle
-                    .push_front(message)
-                    .with_context(context)
-                    .await
-                    .map_err(|e| state_error(&e))
-            }
-            (DequeStateVariant::Json(_), Either::A(_)) => Err(transient_error(
-                "a Kafka-message payload cannot be stored in a JSON deque collection".to_owned(),
-            )),
-            (DequeStateVariant::Message(_), Either::B(_)) => Err(transient_error(
-                "a JSON payload cannot be stored in a Kafka-message deque collection".to_owned(),
-            )),
+        match &self.state {
+            DequeStateVariant::Message(handle) => handle
+                .push_front(message.0)
+                .with_context(context)
+                .await
+                .map_err(|e| state_error(&e)),
+            DequeStateVariant::Json(_) => Err(expected_json("deque")),
         }
     }
 
@@ -965,21 +999,21 @@ impl NativeDequeState {
     pub async fn pop_front(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .pop_front()
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             DequeStateVariant::Message(handle) => handle
                 .pop_front()
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
@@ -992,21 +1026,21 @@ impl NativeDequeState {
     pub async fn pop_back(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Either<Value, Message>>> {
+    ) -> napi::Result<Option<Either<String, Message>>> {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Json(handle) => handle
                 .pop_back()
                 .with_context(context)
                 .await
-                .map(|item| item.map(Either::A))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(json_item),
             DequeStateVariant::Message(handle) => handle
                 .pop_back()
                 .with_context(context)
                 .await
-                .map(|item| item.map(|message| Either::B(Message::from(&message))))
-                .map_err(|e| state_error(&e)),
+                .map_err(|e| state_error(&e))
+                .and_then(message_item),
         }
     }
 
@@ -1103,6 +1137,10 @@ impl NativeStateCursor {
     /// are immediately ready. This amortizes N-API overhead without waiting to
     /// fill a chunk.
     ///
+    /// Map keys ride the JSON-text arm: they are already strings, and no value
+    /// was decoded to produce them. The typed layer knows which cursor it
+    /// opened, so the arms never need telling apart at runtime.
+    ///
     /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns The next non-empty vector of items, or null when exhausted.
     /// @throws Error carrying the category on `cause` if the pull fails or the
@@ -1111,61 +1149,36 @@ impl NativeStateCursor {
     pub async fn next_chunk(
         &self,
         otel_context: HashMap<String, String>,
-    ) -> napi::Result<Option<Vec<Either4<Value, (String, Value), Message, (String, Message)>>>>
+    ) -> napi::Result<Option<Vec<Either4<String, (String, String), Message, (String, Message)>>>>
     {
         let context = op_context(&self.propagator, &otel_context);
         match &self.cursor {
-            CursorVariant::DequeJson(cursor) => cursor
-                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .with_context(context)
+            CursorVariant::DequeJson(cursor) => {
+                pull(cursor, context, |payload| {
+                    json_text(payload).map(Either4::A)
+                })
                 .await
-                .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::A).collect())),
-            CursorVariant::MapJson(cursor) => cursor
-                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .with_context(context)
+            }
+            CursorVariant::MapJson(cursor) => {
+                pull(cursor, context, |(key, payload)| {
+                    Ok(Either4::B((key, json_text(payload)?)))
+                })
                 .await
-                .map(|chunk| chunk.map(|items| items.into_iter().map(Either4::B).collect())),
-            CursorVariant::DequeMessage(cursor) => cursor
-                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .with_context(context)
+            }
+            CursorVariant::DequeMessage(cursor) => {
+                pull(cursor, context, |message| {
+                    Message::detached(&message).map(Either4::C)
+                })
                 .await
-                .map(|chunk| {
-                    chunk.map(|items| {
-                        items
-                            .into_iter()
-                            .map(|message| Either4::C(Message::from(&message)))
-                            .collect()
-                    })
-                }),
-            CursorVariant::MapMessage(cursor) => cursor
-                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .with_context(context)
+            }
+            CursorVariant::MapMessage(cursor) => {
+                pull(cursor, context, |(key, message)| {
+                    Ok(Either4::D((key, Message::detached(&message)?)))
+                })
                 .await
-                .map(|chunk| {
-                    chunk.map(|items| {
-                        items
-                            .into_iter()
-                            .map(|(key, message)| Either4::D((key, Message::from(&message))))
-                            .collect()
-                    })
-                }),
-            CursorVariant::MapKey(cursor) => cursor
-                .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
-                .with_context(context)
-                .await
-                // Keys are strings; carry them through the existing value arm
-                // rather than widening the cursor union — napi materializes a
-                // `Value::String` straight to a JS string, and no value was
-                // decoded to produce it.
-                .map(|chunk| {
-                    chunk.map(|keys| {
-                        keys.into_iter()
-                            .map(|k| Either4::A(Value::String(k)))
-                            .collect()
-                    })
-                }),
+            }
+            CursorVariant::MapKey(cursor) => pull(cursor, context, |key| Ok(Either4::A(key))).await,
         }
-        .map_err(|error| state_error(&error))
     }
 
     /// Closes the cursor, releasing the underlying stream.
@@ -1183,4 +1196,28 @@ impl NativeStateCursor {
             CursorVariant::MapKey(cursor) => cursor.close().await,
         }
     }
+}
+
+/// Pulls one ready chunk from a cursor and converts its items.
+///
+/// Preserves the exhausted sentinel: `None` in, `None` out. A store failure
+/// becomes a category-tagged error before any item is converted.
+///
+/// @param cursor The erased cursor to pull from.
+/// @param context The OpenTelemetry context to activate for the pull.
+/// @param convert Maps one scanned item to the value handed to JavaScript.
+/// @returns The converted chunk, or `None` when the scan is exhausted.
+/// @throws Error carrying the category on `cause` if the pull fails.
+async fn pull<T, U>(
+    cursor: &BoxStateCursor<T>,
+    context: opentelemetry::Context,
+    convert: impl Fn(T) -> napi::Result<U>,
+) -> napi::Result<Option<Vec<U>>> {
+    cursor
+        .next_ready_chunk(SCAN_READY_CHUNK_SIZE)
+        .with_context(context)
+        .await
+        .map_err(|error| state_error(&error))?
+        .map(|items| items.into_iter().map(convert).collect())
+        .transpose()
 }

@@ -1,15 +1,16 @@
 use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
+use crate::codec::MessageCodec;
 use crate::handler::JsHandler;
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
 use prosody::Codec;
+use prosody::codec::BinaryPayload;
 use prosody::high_level::HighLevelClient;
 use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
-use serde_json::Value;
 use std::collections::HashMap;
 use tokio::select;
 use tracing::debug;
@@ -24,7 +25,7 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: HighLevelClient<JsHandler>,
+    client: HighLevelClient<JsHandler, MessageCodec>,
 }
 
 #[napi]
@@ -71,9 +72,17 @@ impl NativeClient {
 
     /// Sends a message to a specified topic.
     ///
+    /// The payload crosses as its JSON text and is forwarded to Kafka verbatim;
+    /// Rust never parses it. The caller supplies the event metadata, read off
+    /// the payload object before it was serialized, so the boundary costs no
+    /// JSON re-parse. `eventId` participates in producer idempotence dedup when
+    /// present; `eventType` is carried for consumers filtering on
+    /// `allowed_events`.
+    ///
     /// @param topic - The topic to send the message to
     /// @param key - The key of the message
-    /// @param payload - The payload of the message (must be JSON-serializable)
+    /// @param payload - The payload as JSON text
+    /// @param metadata - The event metadata read off the payload object
     /// @param otelContext - The OpenTelemetry context for tracing
     /// @param maybeAbort - Optional promise that resolves when the operation
     /// should be aborted @returns A promise that resolves when the message
@@ -84,7 +93,8 @@ impl NativeClient {
         &self,
         topic: String,
         key: String,
-        payload: Value,
+        payload: String,
+        metadata: EventMetadata,
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
     ) -> Result<()> {
@@ -93,6 +103,9 @@ impl NativeClient {
         if let Err(err) = span.set_parent(context) {
             debug!("failed to set parent span: {err:#}");
         }
+
+        let payload =
+            BinaryPayload::new(payload.into_bytes(), metadata.event_id, metadata.event_type);
 
         let send_future = async {
             self.client
@@ -128,10 +141,10 @@ impl NativeClient {
     /// established @throws Error if the subscription fails
     #[napi(
         writable = false,
-        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, Message, \
-                        Record<string, string>]) => Promise<void>; onTimer: (err: null | Error, \
-                        args: [NativeContext, Timer, Record<string, string>]) => Promise<void>; \
-                        isPermanent: (args: [Error]) => boolean }"
+        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
+                        Message, Record<string, string>]) => Promise<void>; onTimer: (err: null | \
+                        Error, args: [NativeContext, Timer, Record<string, string>]) => \
+                        Promise<void>; isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -179,6 +192,20 @@ impl NativeClient {
     pub fn source_system(&self) -> &str {
         self.client.source_system()
     }
+}
+
+/// Event metadata read off a payload before it was serialized.
+///
+/// Carrying it alongside the JSON text is what lets the send path forward the
+/// payload verbatim: neither side re-parses the document to recover these two
+/// fields.
+#[napi(object)]
+pub struct EventMetadata {
+    /// The payload's `id` field, used by producer idempotence dedup.
+    pub event_id: Option<String>,
+
+    /// The payload's `type` field, used by consumer `allowed_events` filtering.
+    pub event_type: Option<String>,
 }
 
 /// Current state of the consumer.

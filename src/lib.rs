@@ -18,6 +18,9 @@ mod admin;
 /// broker.
 mod client;
 
+/// Module defining the codec that carries payload bytes across the boundary.
+mod codec;
+
 /// Module for providing context-related functionality for message processing.
 mod context;
 
