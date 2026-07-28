@@ -917,9 +917,13 @@ function withParsedPayload(message) {
   let document;
   let failure;
   let parsed = false;
+  // Not enumerable, matching the five native getters: none of a message's
+  // fields are own properties, so spread, `Object.keys`, and `JSON.stringify`
+  // see none of them. An enumerable own `payload` would make `JSON.stringify`
+  // of a message serialize the whole parsed document.
   Object.defineProperty(message, "payload", {
     configurable: true,
-    enumerable: true,
+    enumerable: false,
     get() {
       if (!parsed) {
         try {
