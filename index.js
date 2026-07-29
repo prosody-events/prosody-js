@@ -1023,13 +1023,10 @@ function eventMetadata(payload) {
  * Checks that a message collection is being handed an actual message.
  *
  * A message collection stores the Kafka message itself, so it accepts only a
- * message a handler received — an object merely shaped like one is rejected.
+ * `Message` — an object merely shaped like one is rejected. A message read back
+ * out of a collection is a `Message` and stores fine.
  * What it stores is the message's own wire bytes, so assigning to a message's
  * fields, or mutating its parsed `payload`, does not change what is written.
- *
- * This check only rules out values that are not messages at all. A message read
- * back out of a collection passes it and is rejected by the native layer, which
- * is the side that can tell the two apart.
  * @param {*} value - The value to store.
  * @returns {object} The message.
  * @throws {TransientStateError} If the value is not a Kafka message.

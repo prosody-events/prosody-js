@@ -45,30 +45,9 @@ use std::sync::Arc;
 /// the awaits inside the async write methods — a borrowed class reference
 /// cannot.
 ///
-/// Empty when the message came from keyed state rather than from a handler; see
-/// [`MessageItem::into_message`].
-pub struct MessageItem(Option<ConsumerMessage<BinaryPayload>>);
-
-impl MessageItem {
-    /// The consumer message to store.
-    ///
-    /// # Errors
-    ///
-    /// Transient when the message was read out of keyed state. Such a message
-    /// is a copy holding no consumer message, so there is nothing to store.
-    /// Storing the wrong message is a caller mistake, and caller mistakes
-    /// reject transient so the event stays visible instead of being
-    /// discarded.
-    fn into_message(self) -> napi::Result<ConsumerMessage<BinaryPayload>> {
-        self.0.ok_or_else(|| {
-            transient_error(
-                "a message read out of keyed state cannot be stored; store the message the \
-                 handler received"
-                    .to_owned(),
-            )
-        })
-    }
-}
+/// Accepts any message a handler holds, whether it arrived from the topic or
+/// was read back out of a collection — both wrap a real consumer message.
+pub struct MessageItem(ConsumerMessage<BinaryPayload>);
 
 impl TypeName for MessageItem {
     fn type_name() -> &'static str {
@@ -261,15 +240,12 @@ fn json_item(item: Option<BinaryPayload>) -> napi::Result<Option<Either<String, 
         .transpose()
 }
 
-/// Converts one resolved Kafka message into the value handed to JavaScript.
-///
-/// Copies it so the loader permit it was resolved under goes back when this
-/// read returns — see [`Message::stored`].
+/// Wraps one resolved Kafka message as the value handed to JavaScript.
 ///
 /// @param item The message read, or `None` when the cell is absent.
 /// @returns The `Message` object, or `None` when the cell is absent.
 fn message_item(item: Option<ConsumerMessage<BinaryPayload>>) -> Option<Either<String, Message>> {
-    item.map(|message| Either::B(Message::stored(&message)))
+    item.map(|message| Either::B(Message::new(message)))
 }
 
 /// The two payload flavours a value handle wraps: owned JSON values or
@@ -413,7 +389,7 @@ impl NativeValueState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             ValueStateVariant::Message(handle) => handle
-                .set(message.into_message()?)
+                .set(message.0)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -623,7 +599,7 @@ impl NativeMapState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             MapStateVariant::Message(handle) => handle
-                .set(key, message.into_message()?)
+                .set(key, message.0)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -943,7 +919,7 @@ impl NativeDequeState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Message(handle) => handle
-                .push_back(message.into_message()?)
+                .push_back(message.0)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -1002,7 +978,7 @@ impl NativeDequeState {
         let context = op_context(&self.propagator, &otel_context);
         match &self.state {
             DequeStateVariant::Message(handle) => handle
-                .push_front(message.into_message()?)
+                .push_front(message.0)
                 .with_context(context)
                 .await
                 .map_err(|e| state_error(&e)),
@@ -1187,13 +1163,13 @@ impl NativeStateCursor {
             }
             CursorVariant::DequeMessage(cursor) => {
                 pull(cursor, context, |message| {
-                    Ok(Either4::C(Message::stored(&message)))
+                    Ok(Either4::C(Message::new(message)))
                 })
                 .await
             }
             CursorVariant::MapMessage(cursor) => {
                 pull(cursor, context, |(key, message)| {
-                    Ok(Either4::D((key, Message::stored(&message))))
+                    Ok(Either4::D((key, Message::new(message))))
                 })
                 .await
             }
