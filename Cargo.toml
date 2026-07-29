@@ -26,7 +26,8 @@ napi = { version = "3.8", features = [
 ] }
 napi-derive = "3.5"
 opentelemetry = "0.32"
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "e9b492fc6c75bafce4d28bbea205aebf5baaa2d3", features = ["libz-static"] }
+# TODO: update to main once Prosody releases this change.
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "885b64a2a261c087d34a2a2412a125390419164d", features = ["libz-static"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["sync"] }

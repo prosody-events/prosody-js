@@ -382,6 +382,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crossbeam-epoch"
 version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1796,7 +1805,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.5.0"
-source = "git+https://github.com/prosody-events/prosody?rev=e9b492fc6c75bafce4d28bbea205aebf5baaa2d3#e9b492fc6c75bafce4d28bbea205aebf5baaa2d3"
+source = "git+https://github.com/prosody-events/prosody?rev=885b64a2a261c087d34a2a2412a125390419164d#885b64a2a261c087d34a2a2412a125390419164d"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -1808,6 +1817,7 @@ dependencies = [
  "base16ct",
  "bytes",
  "chrono",
+ "crc32fast",
  "crossbeam-utils",
  "derive_builder",
  "dyn-clone",
