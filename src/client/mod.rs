@@ -6,9 +6,8 @@ use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
-use prosody::Codec;
-use prosody::high_level::HighLevelClient;
-use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
+use prosody::JsonCodec;
+use prosody::high_level::erased::{ErasedConsumerState, SharedHighLevelClient, new_erased};
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::select;
@@ -24,7 +23,7 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: HighLevelClient<JsHandler>,
+    client: SharedHighLevelClient<JsHandler, JsonCodec>,
 }
 
 #[napi]
@@ -40,16 +39,31 @@ impl NativeClient {
         let consumer_builders = build_consumer_builders(&config)?;
         let cassandra_config = build_cassandra_config(&config);
 
-        let client = within_runtime_if_available(|| {
-            HighLevelClient::new(
+        let client = within_runtime_if_available(|| -> std::result::Result<_, String> {
+            let mock = consumer_builders
+                .consumer
+                .clone()
+                .build()
+                .map_err(|error| error.to_string())?
+                .mock;
+            let cassandra = if mock {
+                None
+            } else {
+                Some(
+                    cassandra_config
+                        .build()
+                        .map_err(|error| error.to_string())?,
+                )
+            };
+            new_erased(
                 config.mode.unwrap_or_default().into(),
                 &mut producer_config,
                 &consumer_builders,
-                &cassandra_config,
+                cassandra,
             )
-            .map_err(Box::new)
+            .map_err(|error| error.to_string())
         })
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+        .map_err(Error::from_reason)?;
 
         Ok(NativeClient { client })
     }
@@ -60,13 +74,14 @@ impl NativeClient {
     /// @throws Error if the operation fails
     #[napi(writable = false)]
     pub async fn consumer_state(&self) -> Result<ConsumerState> {
-        let state_view = self.client.consumer_state().await;
-        if let ProsodyConsumerState::ConfigurationFailed(err) = &*state_view {
-            return Err(Error::from_reason(format!(
-                "consumer configuration failed: {err:#}"
-            )));
+        match self.client.consumer_state().await {
+            ErasedConsumerState::Unconfigured => Ok(ConsumerState::Unconfigured),
+            ErasedConsumerState::ConfigurationFailed(error) => Err(Error::from_reason(format!(
+                "consumer configuration failed: {error}"
+            ))),
+            ErasedConsumerState::Configured(_) => Ok(ConsumerState::Configured),
+            ErasedConsumerState::Running { .. } => Ok(ConsumerState::Running),
         }
-        Ok((&*state_view).into())
     }
 
     /// Sends a message to a specified topic.
@@ -96,10 +111,10 @@ impl NativeClient {
 
         let send_future = async {
             self.client
-                .send(topic.as_str().into(), &key, payload)
+                .send(topic.as_str().into(), key, payload)
                 .instrument(span.clone())
                 .await
-                .map_err(|e| Error::from_reason(e.to_string()))
+                .map_err(|error| Error::from_reason(error.to_string()))
         };
 
         let Some(on_abort) = maybe_abort else {
@@ -137,9 +152,7 @@ impl NativeClient {
         self.client
             .subscribe(event_handler)
             .await
-            .map_err(|e| Error::from_reason(e.to_string()))?;
-
-        Ok(())
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Gets the number of partitions assigned to the consumer.
@@ -169,7 +182,7 @@ impl NativeClient {
         self.client
             .unsubscribe()
             .await
-            .map_err(|e| Error::from_reason(e.to_string()))
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Gets the source system identifier configured for the client.
@@ -197,15 +210,4 @@ pub enum ConsumerState {
 
     /// The consumer configuration failed
     ConfigurationFailed,
-}
-
-impl<T, C: Codec> From<&ProsodyConsumerState<T, C>> for ConsumerState {
-    fn from(value: &ProsodyConsumerState<T, C>) -> Self {
-        match value {
-            ProsodyConsumerState::Unconfigured => Self::Unconfigured,
-            ProsodyConsumerState::ConfigurationFailed(_) => Self::ConfigurationFailed,
-            ProsodyConsumerState::Configured(_) => Self::Configured,
-            ProsodyConsumerState::Running { .. } => Self::Running,
-        }
-    }
 }
