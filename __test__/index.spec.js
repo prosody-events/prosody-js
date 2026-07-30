@@ -101,11 +101,11 @@ test("published state uses the owned read method names", async () => {
     peekBack: jest.fn().mockResolvedValue("last"),
   };
 
-  expect(await new PublishedMap(mapNative).has("owner", "item")).toBe(true);
+  expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
   const dequeState = new PublishedDeque(dequeNative);
-  expect(await dequeState.isEmpty("owner")).toBe(false);
-  expect(await dequeState.at("owner", 0)).toBe("first");
-  expect(await dequeState.at("owner", -1)).toBe("last");
+  expect(await dequeState.isEmpty("user-1")).toBe(false);
+  expect(await dequeState.at("user-1", 0)).toBe("first");
+  expect(await dequeState.at("user-1", -1)).toBe("last");
 });
 
 // Helper functions

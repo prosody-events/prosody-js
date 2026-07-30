@@ -81,14 +81,14 @@ export async function checks(): Promise<void> {
     Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
   >();
   assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
-  for await (const [key, total] of await publishedTotals.entries("owner")) {
+  for await (const [key, total] of await publishedTotals.entries("user-1")) {
     assertTrue<Equal<typeof key, string>>();
     assertTrue<Equal<typeof total, number>>();
   }
-  for await (const key of await publishedTotals.keys("owner", "backward")) {
+  for await (const key of await publishedTotals.keys("user-1", "backward")) {
     assertTrue<Equal<typeof key, string>>();
   }
-  for await (const total of await publishedTotals.values("owner")) {
+  for await (const total of await publishedTotals.values("user-1")) {
     assertTrue<Equal<typeof total, number>>();
   }
   assertTrue<
@@ -97,7 +97,7 @@ export async function checks(): Promise<void> {
   assertTrue<
     Equal<Awaited<ReturnType<typeof publishedTags.isEmpty>>, boolean>
   >();
-  for await (const tag of await publishedTags.values("owner")) {
+  for await (const tag of await publishedTags.values("user-1")) {
     assertTrue<Equal<typeof tag, string>>();
   }
 
