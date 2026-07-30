@@ -221,9 +221,14 @@ export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions 
  * flows into the vended handle.
  */
 declare const StateItem: unique symbol;
+declare const StateDescriptor: unique symbol;
+
+interface DefinitionBrand {
+  readonly [StateDescriptor]: true;
+}
 
 /** A frozen single-value JSON collection definition. */
-export interface ValueDefinition<T = JsonValue> {
+export interface ValueDefinition<T = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "json";
@@ -235,7 +240,7 @@ export interface ValueDefinition<T = JsonValue> {
 }
 
 /** A frozen ordered-map JSON collection definition (string keys). */
-export interface MapDefinition<V = JsonValue> {
+export interface MapDefinition<V = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "json";
@@ -248,7 +253,7 @@ export interface MapDefinition<V = JsonValue> {
 }
 
 /** A frozen deque JSON collection definition. */
-export interface DequeDefinition<T = JsonValue> {
+export interface DequeDefinition<T = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "json";
@@ -261,7 +266,7 @@ export interface DequeDefinition<T = JsonValue> {
 }
 
 /** A frozen single-value message collection definition (items are `Message<P>`). */
-export interface MessageValueDefinition<P = JsonValue> {
+export interface MessageValueDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "message";
@@ -271,7 +276,7 @@ export interface MessageValueDefinition<P = JsonValue> {
 }
 
 /** A frozen ordered-map message collection definition (values are `Message<P>`). */
-export interface MessageMapDefinition<P = JsonValue> {
+export interface MessageMapDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "message";
@@ -282,7 +287,7 @@ export interface MessageMapDefinition<P = JsonValue> {
 }
 
 /** A frozen deque message collection definition (elements are `Message<P>`). */
-export interface MessageDequeDefinition<P = JsonValue> {
+export interface MessageDequeDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "message";

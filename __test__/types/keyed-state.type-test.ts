@@ -210,6 +210,8 @@ export async function checks(): Promise<void> {
   value<Cart>("v3", { capacity: 5 });
   // @ts-expect-error capacity is deque-only (map options reject it)
   map<number>("m3", { capacity: 5 });
+  // @ts-expect-error descriptors must come from a typed definition constructor
+  context.state({ name: "raw", kind: "value", payload: "json" });
 
   // ---- handles are vended by context.state(), never constructed directly ----
   // @ts-expect-error ValueState has a private constructor
