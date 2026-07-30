@@ -23,6 +23,7 @@ use prosody::state::descriptor::{
     MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
 };
 use prosody::state::order_codec::Utf8KeyCodec;
+use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
 use std::collections::HashSet;
@@ -262,6 +263,9 @@ pub struct Configuration {
     /// a whole number of seconds >= 1 when set (fractional, negative, and
     /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
+
+    /// Subsystem under which published keyed-state collections are advertised.
+    pub state_subsystem: Option<String>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -286,6 +290,9 @@ pub struct StateCollectionConfig {
     /// Optional opt-out of transactional staging (read-uncommitted, at-least
     /// once). Defaults to transactional.
     pub read_uncommitted: Option<bool>,
+
+    /// Whether other consumer groups may read this collection.
+    pub published: Option<bool>,
 
     /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
     /// disables ordered-scan tracking). Must be a whole number in that range
@@ -744,6 +751,7 @@ fn with_def<D: StateDescriptor>(
     descriptor: D,
     ttl_seconds: Option<u32>,
     read_uncommitted: Option<bool>,
+    published: Option<bool>,
 ) -> D {
     let mut descriptor = descriptor;
     if let Some(ttl) = ttl_seconds {
@@ -751,6 +759,9 @@ fn with_def<D: StateDescriptor>(
     }
     if read_uncommitted == Some(true) {
         descriptor = descriptor.read_uncommitted();
+    }
+    if let Some(published) = published {
+        descriptor = descriptor.published(published);
     }
     descriptor
 }
@@ -833,6 +844,7 @@ fn register_state_collection(
 
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, &collection.payload)?;
+    validate_publication(index, collection, &payload)?;
 
     let ttl_seconds = match collection.ttl_seconds {
         Some(value) => Some(whole_number_field(
@@ -871,6 +883,7 @@ fn register_state_collection(
                 value_state::<JsonCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
@@ -878,6 +891,7 @@ fn register_state_collection(
                 map_state::<Utf8KeyCodec, JsonCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
@@ -886,6 +900,7 @@ fn register_state_collection(
                 deque_state::<JsonCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -897,6 +912,7 @@ fn register_state_collection(
                 message_state::<KafkaLoader<JsonCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
@@ -904,6 +920,7 @@ fn register_state_collection(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
@@ -912,6 +929,7 @@ fn register_state_collection(
                 message_deque_state::<KafkaLoader<JsonCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -920,6 +938,19 @@ fn register_state_collection(
         }
     }
 
+    Ok(())
+}
+
+fn validate_publication(
+    index: usize,
+    collection: &StateCollectionConfig,
+    payload: &CollectionPayload,
+) -> Result<()> {
+    if collection.published == Some(true) && matches!(payload, CollectionPayload::Message) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].published: published readers support JSON collections only"
+        )));
+    }
     Ok(())
 }
 
@@ -953,6 +984,13 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
     if let Some(bytes) = config.state_cache_size_bytes {
         let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
         builder.cache_size_bytes(Some(bytes));
+    }
+
+    if let Some(subsystem) = &config.state_subsystem {
+        builder.subsystem(Some(
+            SubsystemName::try_new(subsystem)
+                .map_err(|error| Error::from_reason(error.to_string()))?,
+        ));
     }
 
     let mut keyed = builder

@@ -276,6 +276,7 @@ Register keyed-state collections before you subscribe. Persistence is backed by 
 | Option / Environment Variable                                | Description                                                                                                                                                                                                                            | Default             |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | `stateCollections` / -                                       | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)              |
+| `stateSubsystem` / -                                         | Subsystem name used to advertise collections whose definitions set `published: true`                                                                                                                                                | (none)              |
 | `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`                  | Disk workspace for the local keyed-state cache; each live client needs its own directory (it is locked exclusively)                                                                                                                    | per-client temp dir |
 | `stateCacheSizeBytes` / `PROSODY_STATE_CACHE_SIZE_BYTES`     | Capacity of the in-memory keyed-state cache, in bytes; must be a positive safe integer. One cache is shared by all partition keyspaces                                                                                                 | engine default      |
 | `stateRecoveryDelaySeconds` / `PROSODY_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                 |
@@ -664,6 +665,33 @@ client.subscribe(messageHandler);
 Keyed state gives every Kafka key its own durable working memory. Prosody automatically uses the current message or timer key, so a handler can relate the current event to earlier events for that key. State survives restarts and rebalances. By default, changes become visible only when the event succeeds.
 
 Use keyed state for time-aware stream processing: counters, deduplication, rolling aggregates, pending work, and per-key workflows. Keep your relational database as the source of truth for business data and for work that needs joins or ad hoc queries. Reconstructing stream state with repeated database queries can be slow and expensive; keyed state is built for that job.
+
+### Published state
+
+JSON value, map, and deque collections can be read from another consumer group without subscribing or acquiring its partitions. The owner opts in with `published: true` and names a `stateSubsystem`:
+
+```js
+const CART = value("cart", { published: true });
+const owner = new ProsodyClient({
+  ...config,
+  stateSubsystem: "carts",
+  stateCollections: [CART],
+});
+```
+
+Another client opens a read-only view with the same definition. Reads return committed values only:
+
+```js
+const carts = await client.state("carts", value("cart"));
+const cart = await carts.get("user-1");
+
+const items = await client.state("carts", map("items"));
+for await (const { key, value } of await items.scan("user-1")) {
+  // Entries are ordered by key.
+}
+```
+
+Maps also provide `getMany(key, mapKeys)`. Deques provide `get(key, index)`, `length(key)`, and ordered scans. Pass `{ ttlMs }` as the third `state` argument to override the configured read cache for one collection, or `{ disabled: true }` to read durable storage on every operation. To retire a publication, deploy the collection with `published: false` while retaining both its registration and `stateSubsystem` for that deploy.
 
 Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
 
@@ -1161,7 +1189,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `ScanDirection`: `"forward" | "backward"`.
 
-`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; keysetLimit?: number }`. The definition constructors produce objects assignable to this shape, so prefer them.
+`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; keysetLimit?: number }`. Publication is supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
 
 Errors:
 

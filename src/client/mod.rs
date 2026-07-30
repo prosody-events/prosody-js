@@ -2,14 +2,19 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
+use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapPropagator;
 use prosody::JsonCodec;
-use prosody::high_level::erased::{ErasedConsumerState, SharedHighLevelClient, new_erased};
+use prosody::high_level::erased::{
+    ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
+};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::result::Result as StdResult;
+use std::time::Duration;
 use tokio::select;
 use tracing::debug;
 use tracing::field::Empty;
@@ -39,7 +44,7 @@ impl NativeClient {
         let consumer_builders = build_consumer_builders(&config)?;
         let cassandra_config = build_cassandra_config(&config);
 
-        let client = within_runtime_if_available(|| -> std::result::Result<_, String> {
+        let client = within_runtime_if_available(|| -> StdResult<_, String> {
             let mock = consumer_builders
                 .consumer
                 .clone()
@@ -82,6 +87,57 @@ impl NativeClient {
             ErasedConsumerState::Configured(_) => Ok(ConsumerState::Configured),
             ErasedConsumerState::Running { .. } => Ok(ConsumerState::Running),
         }
+    }
+
+    /// Builds a read-only view of a published value collection.
+    #[napi(writable = false)]
+    pub async fn published_value(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedValue> {
+        let inner = self
+            .client
+            .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedValue { inner })
+    }
+
+    /// Builds a read-only view of a published map collection.
+    #[napi(writable = false)]
+    pub async fn published_map(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedMap> {
+        let inner = self
+            .client
+            .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedMap { inner })
+    }
+
+    /// Builds a read-only view of a published deque collection.
+    #[napi(writable = false)]
+    pub async fn published_deque(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedDeque> {
+        let inner = self
+            .client
+            .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedDeque { inner })
     }
 
     /// Sends a message to a specified topic.
@@ -143,10 +199,10 @@ impl NativeClient {
     /// established @throws Error if the subscription fails
     #[napi(
         writable = false,
-        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, Message, \
-                        Record<string, string>]) => Promise<void>; onTimer: (err: null | Error, \
-                        args: [NativeContext, Timer, Record<string, string>]) => Promise<void>; \
-                        isPermanent: (args: [Error]) => boolean }"
+        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
+                        Message, Record<string, string>]) => Promise<void>; onTimer: (err: null | \
+                        Error, args: [NativeContext, Timer, Record<string, string>]) => \
+                        Promise<void>; isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -191,6 +247,20 @@ impl NativeClient {
     #[napi(getter, writable = false)]
     pub fn source_system(&self) -> &str {
         self.client.source_system()
+    }
+}
+
+fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
+    match (cache_ms, disabled.unwrap_or(false)) {
+        (Some(_), true) => Err(Error::from_reason(
+            "read cache cannot set both ttlMs and disabled",
+        )),
+        (None, true) => Ok(ErasedReadCache::Disabled),
+        (Some(0), false) => Err(Error::from_reason("read cache ttlMs must be positive")),
+        (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
+            milliseconds,
+        )))),
+        (None, false) => Ok(ErasedReadCache::Inherit),
     }
 }
 

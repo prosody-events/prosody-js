@@ -217,6 +217,35 @@ class ProsodyClient {
   }
 
   /**
+   * Opens a read-only view of another consumer group's published collection.
+   * @param {string} subsystem - The publisher's subsystem.
+   * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
+   * @param {{ttlMs?: number, disabled?: boolean}} [readCache] - Cache override.
+   * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
+   */
+  async state(subsystem, definition, readCache = {}) {
+    if (definition.payload !== "json") {
+      throw new TypeError("published state readers support JSON collections only");
+    }
+    const args = [
+      subsystem,
+      definition.name,
+      readCache.ttlMs,
+      readCache.disabled,
+    ];
+    switch (definition.kind) {
+      case "value":
+        return new PublishedValue(await this.nativeClient.publishedValue(...args));
+      case "map":
+        return new PublishedMap(await this.nativeClient.publishedMap(...args));
+      case "deque":
+        return new PublishedDeque(await this.nativeClient.publishedDeque(...args));
+      default:
+        throw new TypeError(`unknown state collection kind: ${definition.kind}`);
+    }
+  }
+
+  /**
    * Sends a message to a specified topic.
    *
    * @param {string} topic - The topic to send the message to.
@@ -693,6 +722,8 @@ function stateDefinition(name, kind, payload, options = {}) {
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
     definition.readUncommitted = options.readUncommitted;
+  if (options.published !== undefined)
+    definition.published = options.published;
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
   if (options.capacity !== undefined) definition.capacity = options.capacity;
@@ -887,6 +918,81 @@ function stateIterator(cursor, transform) {
  * binding propagates context without adding an N-API span. Handles are valid
  * only within the handler invocation (attempt) that vended them.
  */
+class PublishedScan {
+  constructor(native) {
+    this.native = native;
+  }
+
+  [Symbol.asyncIterator]() {
+    return this;
+  }
+
+  async next() {
+    const value = await this.native.next();
+    return value === null
+      ? { done: true, value: undefined }
+      : { done: false, value };
+  }
+}
+
+function scanBackward(direction) {
+  if (direction === "forward") return false;
+  if (direction === "backward") return true;
+  throw new TypeError(
+    `direction must be "forward" or "backward", got ${String(direction)}`,
+  );
+}
+
+class PublishedValue {
+  constructor(native) {
+    this.native = native;
+  }
+
+  get(key) {
+    return this.native.get(key);
+  }
+}
+
+class PublishedMap {
+  constructor(native) {
+    this.native = native;
+  }
+
+  get(key, mapKey) {
+    return this.native.get(key, mapKey);
+  }
+
+  getMany(key, mapKeys) {
+    return this.native.getMany(key, mapKeys);
+  }
+
+  async scan(key, direction = "forward") {
+    return new PublishedScan(
+      await this.native.scan(key, scanBackward(direction)),
+    );
+  }
+}
+
+class PublishedDeque {
+  constructor(native) {
+    this.native = native;
+  }
+
+  get(key, index) {
+    return this.native.get(key, index);
+  }
+
+  length(key) {
+    return this.native.length(key);
+  }
+
+  async scan(key, direction = "forward") {
+    return new PublishedScan(
+      await this.native.scan(key, scanBackward(direction)),
+    );
+  }
+}
+
 class ValueState {
   /**
    * @param {import('./bindings').NativeValueState} native - The vended native handle.
@@ -1472,6 +1578,9 @@ module.exports = {
   PermanentError,
   PermanentStateError,
   ProsodyClient,
+  PublishedDeque,
+  PublishedMap,
+  PublishedValue,
   TransientError,
   TransientStateError,
   ValueState,

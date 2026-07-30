@@ -61,6 +61,15 @@ const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
 
+test("published state definitions preserve the owner opt-in", () => {
+  expect(value("cart", { published: true })).toMatchObject({
+    name: "cart",
+    kind: "value",
+    payload: "json",
+    published: true,
+  });
+});
+
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

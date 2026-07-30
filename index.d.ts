@@ -185,8 +185,14 @@ export interface StateDefinitionOptions {
   readUncommitted?: boolean;
 }
 
+/** Options accepted by JSON collections that may be published. */
+export interface PublishedStateDefinitionOptions extends StateDefinitionOptions {
+  /** Allow read-only access from other consumer groups. */
+  published?: boolean;
+}
+
 /** Options accepted by the map definition constructors. */
-export interface MapDefinitionOptions extends StateDefinitionOptions {
+export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
    * disables ordered-scan tracking). Map collections only.
@@ -195,7 +201,7 @@ export interface MapDefinitionOptions extends StateDefinitionOptions {
 }
 
 /** Options accepted by the deque definition constructors. */
-export interface DequeDefinitionOptions extends StateDefinitionOptions {
+export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Optional maximum element count (bounded backlog). Must be a whole number
    * >= 1. Runtime-only: not persisted, not part of collection identity, and
@@ -220,6 +226,7 @@ export interface ValueDefinition<T = JsonValue> {
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
   readonly [StateItem]?: T;
 }
 
@@ -230,6 +237,7 @@ export interface MapDefinition<V = JsonValue> {
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
   readonly keysetLimit?: number;
   readonly [StateItem]?: V;
 }
@@ -241,6 +249,7 @@ export interface DequeDefinition<T = JsonValue> {
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
   readonly capacity?: number;
   readonly [StateItem]?: T;
 }
@@ -288,7 +297,7 @@ export interface MessageDequeDefinition<P = JsonValue> {
  */
 export function value<T = JsonValue>(
   name: string,
-  options?: StateDefinitionOptions,
+  options?: PublishedStateDefinitionOptions,
 ): ValueDefinition<T>;
 
 /**
@@ -611,6 +620,25 @@ export declare class ProsodyClient {
    */
   isStalled(): Promise<boolean>;
 
+  /** Opens a read-only view of a published JSON value collection. */
+  state<T>(
+    subsystem: string,
+    definition: ValueDefinition<T>,
+    readCache?: ReadCacheOptions,
+  ): Promise<PublishedValue<T>>;
+  /** Opens a read-only view of a published JSON map collection. */
+  state<V>(
+    subsystem: string,
+    definition: MapDefinition<V>,
+    readCache?: ReadCacheOptions,
+  ): Promise<PublishedMap<V>>;
+  /** Opens a read-only view of a published JSON deque collection. */
+  state<T>(
+    subsystem: string,
+    definition: DequeDefinition<T>,
+    readCache?: ReadCacheOptions,
+  ): Promise<PublishedDeque<T>>;
+
   /**
    * Gets the source system identifier configured for the client.
    *
@@ -651,6 +679,39 @@ export declare class ProsodyClient {
    * @throws Error if the unsubscribe operation fails.
    */
   unsubscribe(): Promise<void>;
+}
+
+/** Per-collection cache override for published reads. */
+export interface ReadCacheOptions {
+  /** Cache duration in milliseconds. Mutually exclusive with `disabled`. */
+  ttlMs?: number;
+  /** Read durable storage on every operation. */
+  disabled?: boolean;
+}
+
+/** Read-only published value collection. */
+export declare class PublishedValue<T = JsonValue> {
+  get(key: string): Promise<T | null>;
+}
+
+/** Read-only published map collection. */
+export declare class PublishedMap<V = JsonValue> {
+  get(key: string, mapKey: string): Promise<V | null>;
+  getMany(key: string, mapKeys: string[]): Promise<Array<V | null>>;
+  scan(
+    key: string,
+    direction?: ScanDirection,
+  ): Promise<AsyncIterableIterator<{ key: string; value: V }>>;
+}
+
+/** Read-only published deque collection. */
+export declare class PublishedDeque<T = JsonValue> {
+  get(key: string, index: number): Promise<T | null>;
+  length(key: string): Promise<number>;
+  scan(
+    key: string,
+    direction?: ScanDirection,
+  ): Promise<AsyncIterableIterator<T>>;
 }
 
 /**
