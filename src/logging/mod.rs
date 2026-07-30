@@ -10,6 +10,7 @@ use napi::Env;
 use napi::bindgen_prelude::Function;
 use napi::bindgen_prelude::within_runtime_if_available;
 use napi_derive::napi;
+use prosody::tracing::flush_telemetry;
 use prosody::tracing::initialize_tracing;
 use serde_json::Value;
 use std::sync::{LazyLock, Once};
@@ -63,8 +64,15 @@ pub fn initialize(env: Env) {
             error!("failed to initialize tracing: {error:#}");
         }
 
-        // Add a cleanup hook to shutdown the logger when the environment is destroyed
+        // Add a cleanup hook to flush telemetry and shut down the logger when
+        // the environment is destroyed.
         if let Err(error) = env.add_env_cleanup_hook((), |()| {
+            // Telemetry is process-global, while Node can destroy one worker
+            // environment before its siblings. Flush here without shutting
+            // down their shared export pipeline.
+            if let Err(error) = flush_telemetry() {
+                error!("failed to flush telemetry: {error:#}");
+            }
             LOGGER.shutdown_logger();
         }) {
             error!("failed to attach environment cleanup hook: {error:#}");
