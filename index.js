@@ -220,28 +220,36 @@ class ProsodyClient {
    * Opens a read-only view of another consumer group's published collection.
    * @param {string} subsystem - The publisher's subsystem.
    * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
-   * @param {{ttlMs?: number, disabled?: boolean}} [readCache] - Cache override.
    * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
    */
-  async state(subsystem, definition, readCache = {}) {
+  async state(subsystem, definition) {
     if (definition.payload !== "json") {
-      throw new TypeError("published state readers support JSON collections only");
+      throw new TypeError(
+        "published state readers support JSON collections only",
+      );
     }
+    const readCache = definition.readCache;
     const args = [
       subsystem,
       definition.name,
-      readCache.ttlMs,
-      readCache.disabled,
+      readCache && readCache.ttlMs,
+      readCache === false,
     ];
     switch (definition.kind) {
       case "value":
-        return new PublishedValue(await this.nativeClient.publishedValue(...args));
+        return new PublishedValue(
+          await this.nativeClient.publishedValue(...args),
+        );
       case "map":
         return new PublishedMap(await this.nativeClient.publishedMap(...args));
       case "deque":
-        return new PublishedDeque(await this.nativeClient.publishedDeque(...args));
+        return new PublishedDeque(
+          await this.nativeClient.publishedDeque(...args),
+        );
       default:
-        throw new TypeError(`unknown state collection kind: ${definition.kind}`);
+        throw new TypeError(
+          `unknown state collection kind: ${definition.kind}`,
+        );
     }
   }
 
@@ -722,8 +730,8 @@ function stateDefinition(name, kind, payload, options = {}) {
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
     definition.readUncommitted = options.readUncommitted;
-  if (options.published !== undefined)
-    definition.published = options.published;
+  if (options.published !== undefined) definition.published = options.published;
+  if (options.readCache !== undefined) definition.readCache = options.readCache;
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
   if (options.capacity !== undefined) definition.capacity = options.capacity;

@@ -189,6 +189,8 @@ export interface StateDefinitionOptions {
 export interface PublishedStateDefinitionOptions extends StateDefinitionOptions {
   /** Allow read-only access from other consumer groups. */
   published?: boolean;
+  /** Override caching when this descriptor opens a published reader. */
+  readCache?: ReadCacheOptions | false;
 }
 
 /** Options accepted by the map definition constructors. */
@@ -227,6 +229,7 @@ export interface ValueDefinition<T = JsonValue> {
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
   readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly [StateItem]?: T;
 }
 
@@ -238,6 +241,7 @@ export interface MapDefinition<V = JsonValue> {
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
   readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly keysetLimit?: number;
   readonly [StateItem]?: V;
 }
@@ -250,6 +254,7 @@ export interface DequeDefinition<T = JsonValue> {
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
   readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly capacity?: number;
   readonly [StateItem]?: T;
 }
@@ -624,19 +629,16 @@ export declare class ProsodyClient {
   state<T>(
     subsystem: string,
     definition: ValueDefinition<T>,
-    readCache?: ReadCacheOptions,
   ): Promise<PublishedValue<T>>;
   /** Opens a read-only view of a published JSON map collection. */
   state<V>(
     subsystem: string,
     definition: MapDefinition<V>,
-    readCache?: ReadCacheOptions,
   ): Promise<PublishedMap<V>>;
   /** Opens a read-only view of a published JSON deque collection. */
   state<T>(
     subsystem: string,
     definition: DequeDefinition<T>,
-    readCache?: ReadCacheOptions,
   ): Promise<PublishedDeque<T>>;
 
   /**
@@ -683,10 +685,8 @@ export declare class ProsodyClient {
 
 /** Per-collection cache override for published reads. */
 export interface ReadCacheOptions {
-  /** Cache duration in milliseconds. Mutually exclusive with `disabled`. */
-  ttlMs?: number;
-  /** Read durable storage on every operation. */
-  disabled?: boolean;
+  /** Cache duration in milliseconds. */
+  ttlMs: number;
 }
 
 /** Read-only published value collection. */

@@ -61,12 +61,15 @@ const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
 
-test("published state definitions preserve the owner opt-in", () => {
-  expect(value("cart", { published: true })).toMatchObject({
+test("published state options stay on the descriptor", () => {
+  expect(
+    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
+  ).toMatchObject({
     name: "cart",
     kind: "value",
     payload: "json",
     published: true,
+    readCache: { ttlMs: 2_000 },
   });
 });
 
