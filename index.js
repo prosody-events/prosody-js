@@ -926,38 +926,13 @@ function stateIterator(cursor, transform) {
  * binding propagates context without adding an N-API span. Handles are valid
  * only within the handler invocation (attempt) that vended them.
  */
-class PublishedScan {
-  constructor(native) {
-    this.native = native;
-  }
-
-  [Symbol.asyncIterator]() {
-    return this;
-  }
-
-  async next() {
-    const value = await this.native.next();
-    return value === null
-      ? { done: true, value: undefined }
-      : { done: false, value };
-  }
-}
-
-function scanBackward(direction) {
-  if (direction === "forward") return false;
-  if (direction === "backward") return true;
-  throw new TypeError(
-    `direction must be "forward" or "backward", got ${String(direction)}`,
-  );
-}
-
 class PublishedValue {
   constructor(native) {
     this.native = native;
   }
 
   get(key) {
-    return this.native.get(key);
+    return stateOp((carrier) => this.native.get(key, carrier));
   }
 }
 
@@ -967,16 +942,17 @@ class PublishedMap {
   }
 
   get(key, mapKey) {
-    return this.native.get(key, mapKey);
+    return stateOp((carrier) => this.native.get(key, mapKey, carrier));
   }
 
   getMany(key, mapKeys) {
-    return this.native.getMany(key, mapKeys);
+    return stateOp((carrier) => this.native.getMany(key, mapKeys, carrier));
   }
 
   async scan(key, direction = "forward") {
-    return new PublishedScan(
-      await this.native.scan(key, scanBackward(direction)),
+    return stateIterator(
+      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      (entry) => entry,
     );
   }
 }
@@ -987,16 +963,17 @@ class PublishedDeque {
   }
 
   get(key, index) {
-    return this.native.get(key, index);
+    return stateOp((carrier) => this.native.get(key, index, carrier));
   }
 
   length(key) {
-    return this.native.length(key);
+    return stateOp((carrier) => this.native.length(key, carrier));
   }
 
   async scan(key, direction = "forward") {
-    return new PublishedScan(
-      await this.native.scan(key, scanBackward(direction)),
+    return stateIterator(
+      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      (item) => item,
     );
   }
 }

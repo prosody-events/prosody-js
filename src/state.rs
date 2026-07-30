@@ -208,7 +208,7 @@ fn reject_null(value: &Value, advice: &str) -> napi::Result<()> {
 /// @returns The matching `Direction`.
 /// @throws Error (transient) if the token is neither `"forward"` nor
 /// `"backward"` (a caller mistake — retries, not discarded).
-fn parse_direction(direction: &str) -> napi::Result<Direction> {
+pub(crate) fn parse_direction(direction: &str) -> napi::Result<Direction> {
     match direction {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
@@ -223,7 +223,7 @@ fn parse_direction(direction: &str) -> napi::Result<Direction> {
 /// @param propagator The OpenTelemetry propagator for context extraction.
 /// @param otelContext The propagated OpenTelemetry carrier.
 /// @returns The extracted OpenTelemetry context.
-fn op_context(
+pub(crate) fn op_context(
     propagator: &TextMapCompositePropagator,
     otel_context: &HashMap<String, String>,
 ) -> opentelemetry::Context {
@@ -1097,6 +1097,26 @@ pub struct NativeStateCursor {
 
 #[napi]
 impl NativeStateCursor {
+    pub(crate) fn published_map(
+        cursor: BoxStateCursor<(String, Value)>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::MapJson(cursor),
+            propagator,
+        }
+    }
+
+    pub(crate) fn published_deque(
+        cursor: BoxStateCursor<Value>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::DequeJson(cursor),
+            propagator,
+        }
+    }
+
     /// Pulls the next immediately-ready chunk of scanned items.
     ///
     /// Awaits the first item, then drains up to 255 more items only while they

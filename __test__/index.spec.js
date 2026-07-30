@@ -73,6 +73,22 @@ test("published state options stay on the descriptor", () => {
   });
 });
 
+test.each([
+  { stateReadCache: { ttlMs: 0 } },
+  { stateReadCache: { disabled: true, ttlMs: 1 } },
+  { stateReadCacheSizeBytes: 0 },
+])("rejects invalid published read cache config %p", (options) => {
+  expect(
+    () =>
+      new ProsodyClient({
+        mock: true,
+        groupId: GROUP_NAME,
+        bootstrapServers: [BOOTSTRAP_SERVERS],
+        ...options,
+      }),
+  ).toThrow(/stateReadCache/);
+});
+
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

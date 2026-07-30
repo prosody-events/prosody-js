@@ -256,6 +256,12 @@ pub struct Configuration {
     /// then to the storage-engine default. Must be a positive safe integer.
     pub state_cache_size_bytes: Option<f64>,
 
+    /// Byte budget for the published-state read-through cache.
+    pub state_read_cache_size_bytes: Option<f64>,
+
+    /// Default cache policy for published-state reads.
+    pub state_read_cache: Option<ReadCacheConfiguration>,
+
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
     /// this. Falls back to the `PROSODY_STATE_RECOVERY_DELAY` environment
@@ -306,6 +312,15 @@ pub struct StateCollectionConfig {
     /// identity, and freely changeable across deploys; enforced lazily on push.
     /// Invalid on value or map collections.
     pub capacity: Option<f64>,
+}
+
+/// Default cache policy for published-state reads.
+#[napi(object)]
+pub struct ReadCacheConfiguration {
+    /// Cache duration in milliseconds.
+    pub ttl_ms: Option<f64>,
+    /// Read durable storage on every operation.
+    pub disabled: Option<bool>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -984,6 +999,31 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
     if let Some(bytes) = config.state_cache_size_bytes {
         let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
         builder.cache_size_bytes(Some(bytes));
+    }
+
+    if let Some(bytes) = config.state_read_cache_size_bytes {
+        let bytes = positive_safe_integer(bytes, "stateReadCacheSizeBytes")?;
+        builder.read_cache_size_bytes(Some(bytes));
+    }
+
+    if let Some(cache) = &config.state_read_cache {
+        match (cache.ttl_ms, cache.disabled.unwrap_or(false)) {
+            (None, false) => {}
+            (None, true) => {
+                builder.read_cache_ttl(None);
+            }
+            (Some(milliseconds), false) if milliseconds.is_finite() && milliseconds > 0.0_f64 => {
+                builder.read_cache_ttl(Some(Duration::from_secs_f64(milliseconds / 1_000.0)));
+            }
+            (Some(_), false) => {
+                return Err(Error::from_reason("stateReadCache.ttlMs: must be positive"));
+            }
+            (Some(_), true) => {
+                return Err(Error::from_reason(
+                    "stateReadCache: cannot set both ttlMs and disabled",
+                ));
+            }
+        }
     }
 
     if let Some(subsystem) = &config.state_subsystem {

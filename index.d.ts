@@ -9,10 +9,11 @@ import type {
   ConsumerState,
   Message as NativeMessage,
   Mode,
+  ReadCacheConfiguration,
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Timer, Mode };
+export { Configuration, ConsumerState, ReadCacheConfiguration, Timer, Mode };
 
 /** A primitive value representable in JSON. */
 export type JsonPrimitive = null | boolean | number | string;

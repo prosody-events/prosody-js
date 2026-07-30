@@ -1,38 +1,43 @@
 //! Native read-only views over published keyed state.
 
+use crate::state::{NativeStateCursor, op_context, parse_direction};
 use napi::{Error, Result};
 use napi_derive::napi;
+use opentelemetry::propagation::TextMapCompositePropagator;
+use opentelemetry::trace::FutureExt;
 use prosody::JsonCodec;
 use prosody::high_level::erased::{
-    ErasedDirection, SharedDequeReader, SharedMapReader, SharedStateStream, SharedValueReader,
+    ErasedDirection, SharedDequeReader, SharedMapReader, SharedValueReader,
 };
+use prosody::state::Direction;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 fn read_error(error: &impl ToString) -> Error {
     Error::from_reason(error.to_string())
-}
-
-fn direction(backward: bool) -> ErasedDirection {
-    if backward {
-        ErasedDirection::Backward
-    } else {
-        ErasedDirection::Forward
-    }
 }
 
 /// A read-only published value collection.
 #[napi]
 pub struct NativePublishedValue {
     pub(crate) inner: SharedValueReader<JsonCodec>,
+    pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
 impl NativePublishedValue {
     /// Reads the committed value for a partition key.
     #[napi(writable = false)]
-    pub async fn get(&self, key: String) -> Result<Option<Value>> {
+    pub async fn get(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Option<Value>> {
+        let context = op_context(&self.propagator, &otel_context);
         self.inner
             .get(key)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))
     }
@@ -42,24 +47,39 @@ impl NativePublishedValue {
 #[napi]
 pub struct NativePublishedMap {
     pub(crate) inner: SharedMapReader<JsonCodec>,
+    pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
 impl NativePublishedMap {
     /// Reads one committed map entry.
     #[napi(writable = false)]
-    pub async fn get(&self, key: String, map_key: String) -> Result<Option<Value>> {
+    pub async fn get(
+        &self,
+        key: String,
+        map_key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Option<Value>> {
+        let context = op_context(&self.propagator, &otel_context);
         self.inner
             .get(key, map_key)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))
     }
 
     /// Reads entries aligned with the supplied map keys.
     #[napi(writable = false)]
-    pub async fn get_many(&self, key: String, map_keys: Vec<String>) -> Result<Vec<Option<Value>>> {
+    pub async fn get_many(
+        &self,
+        key: String,
+        map_keys: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Vec<Option<Value>>> {
+        let context = op_context(&self.propagator, &otel_context);
         self.inner
             .get_many(key, map_keys)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))
     }
@@ -69,43 +89,24 @@ impl NativePublishedMap {
     pub async fn scan(
         &self,
         key: String,
-        backward: Option<bool>,
-    ) -> Result<NativePublishedMapScan> {
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<NativeStateCursor> {
+        let direction = match parse_direction(&direction)? {
+            Direction::Forward => ErasedDirection::Forward,
+            Direction::Backward => ErasedDirection::Backward,
+        };
+        let context = op_context(&self.propagator, &otel_context);
         let inner = self
             .inner
-            .stream(key, direction(backward.unwrap_or(false)))
+            .stream(key, direction)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
-        Ok(NativePublishedMapScan { inner })
-    }
-}
-
-/// One published map entry.
-#[napi(object)]
-pub struct PublishedMapEntry {
-    /// The map key.
-    pub key: String,
-    /// The JSON value.
-    pub value: Value,
-}
-
-/// Pull cursor for a published map.
-#[napi]
-pub struct NativePublishedMapScan {
-    inner: SharedStateStream<(String, Value)>,
-}
-
-#[napi]
-impl NativePublishedMapScan {
-    /// Pulls the next ordered entry.
-    #[napi(writable = false)]
-    pub async fn next(&self) -> Result<Option<PublishedMapEntry>> {
-        self.inner
-            .next()
-            .await
-            .transpose()
-            .map(|entry| entry.map(|(key, value)| PublishedMapEntry { key, value }))
-            .map_err(|error| read_error(&error))
+        Ok(NativeStateCursor::published_map(
+            inner,
+            Arc::clone(&self.propagator),
+        ))
     }
 }
 
@@ -113,25 +114,35 @@ impl NativePublishedMapScan {
 #[napi]
 pub struct NativePublishedDeque {
     pub(crate) inner: SharedDequeReader<JsonCodec>,
+    pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
 impl NativePublishedDeque {
     /// Reads one front-relative element.
     #[napi(writable = false)]
-    pub async fn get(&self, key: String, index: u32) -> Result<Option<Value>> {
+    pub async fn get(
+        &self,
+        key: String,
+        index: u32,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Option<Value>> {
+        let context = op_context(&self.propagator, &otel_context);
         self.inner
             .get(key, index as usize)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))
     }
 
     /// Returns the committed deque length.
     #[napi(writable = false)]
-    pub async fn length(&self, key: String) -> Result<u32> {
+    pub async fn length(&self, key: String, otel_context: HashMap<String, String>) -> Result<u32> {
+        let context = op_context(&self.propagator, &otel_context);
         let length = self
             .inner
             .len(key)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
         u32::try_from(length).map_err(|error| read_error(&error))
@@ -142,32 +153,23 @@ impl NativePublishedDeque {
     pub async fn scan(
         &self,
         key: String,
-        backward: Option<bool>,
-    ) -> Result<NativePublishedDequeScan> {
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<NativeStateCursor> {
+        let direction = match parse_direction(&direction)? {
+            Direction::Forward => ErasedDirection::Forward,
+            Direction::Backward => ErasedDirection::Backward,
+        };
+        let context = op_context(&self.propagator, &otel_context);
         let inner = self
             .inner
-            .stream(key, direction(backward.unwrap_or(false)))
+            .stream(key, direction)
+            .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
-        Ok(NativePublishedDequeScan { inner })
-    }
-}
-
-/// Pull cursor for a published deque.
-#[napi]
-pub struct NativePublishedDequeScan {
-    inner: SharedStateStream<Value>,
-}
-
-#[napi]
-impl NativePublishedDequeScan {
-    /// Pulls the next ordered element.
-    #[napi(writable = false)]
-    pub async fn next(&self) -> Result<Option<Value>> {
-        self.inner
-            .next()
-            .await
-            .transpose()
-            .map_err(|error| read_error(&error))
+        Ok(NativeStateCursor::published_deque(
+            inner,
+            Arc::clone(&self.propagator),
+        ))
     }
 }

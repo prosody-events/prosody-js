@@ -6,14 +6,16 @@ use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublished
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
-use opentelemetry::propagation::TextMapPropagator;
+use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::JsonCodec;
 use prosody::high_level::erased::{
     ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
 };
+use prosody::propagator::new_propagator;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::result::Result as StdResult;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use tracing::debug;
@@ -29,6 +31,7 @@ mod config;
 #[napi]
 pub struct NativeClient {
     client: SharedHighLevelClient<JsHandler, JsonCodec>,
+    propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
@@ -70,7 +73,10 @@ impl NativeClient {
         })
         .map_err(Error::from_reason)?;
 
-        Ok(NativeClient { client })
+        Ok(NativeClient {
+            client,
+            propagator: Arc::new(new_propagator()),
+        })
     }
 
     /// Gets the current state of the consumer.
@@ -103,7 +109,10 @@ impl NativeClient {
             .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
-        Ok(NativePublishedValue { inner })
+        Ok(NativePublishedValue {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 
     /// Builds a read-only view of a published map collection.
@@ -120,7 +129,10 @@ impl NativeClient {
             .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
-        Ok(NativePublishedMap { inner })
+        Ok(NativePublishedMap {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 
     /// Builds a read-only view of a published deque collection.
@@ -137,7 +149,10 @@ impl NativeClient {
             .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
-        Ok(NativePublishedDeque { inner })
+        Ok(NativePublishedDeque {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 
     /// Sends a message to a specified topic.
