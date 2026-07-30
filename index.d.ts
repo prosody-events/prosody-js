@@ -717,25 +717,14 @@ export declare class PublishedMap<V = JsonValue> {
     key: string,
     direction?: ScanDirection,
   ): Promise<AsyncIterableIterator<V>>;
-  /** @deprecated Use {@link PublishedMap#entries}. */
-  scan(
-    key: string,
-    direction?: ScanDirection,
-  ): Promise<AsyncIterableIterator<[string, V]>>;
 }
 
 /** Read-only published deque collection. */
 export declare class PublishedDeque<T = JsonValue> {
-  get(key: string, index: number): Promise<T | null>;
   length(key: string): Promise<number>;
   isEmpty(key: string): Promise<boolean>;
   at(key: string, index: number): Promise<T | null>;
   values(
-    key: string,
-    direction?: ScanDirection,
-  ): Promise<AsyncIterableIterator<T>>;
-  /** @deprecated Use {@link PublishedDeque#values}. */
-  scan(
     key: string,
     direction?: ScanDirection,
   ): Promise<AsyncIterableIterator<T>>;

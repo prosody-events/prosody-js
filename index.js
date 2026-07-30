@@ -997,10 +997,6 @@ class PublishedMap {
     );
   }
 
-  scan(key, direction = "forward") {
-    return this.entries(key, direction);
-  }
-
   async keys(key, direction = "forward") {
     return stateIterator(
       await stateOp((carrier) => this.native.keys(key, direction, carrier)),
@@ -1019,10 +1015,6 @@ class PublishedMap {
 class PublishedDeque {
   constructor(native) {
     this.native = native;
-  }
-
-  get(key, index) {
-    return stateOp((carrier) => this.native.get(key, index, carrier));
   }
 
   length(key) {
@@ -1049,7 +1041,7 @@ class PublishedDeque {
       if (position < 0) return null;
     }
     if (position > 0xffffffff) return null;
-    return this.get(key, position);
+    return stateOp((carrier) => this.native.get(key, position, carrier));
   }
 
   async values(key, direction = "forward") {
@@ -1057,10 +1049,6 @@ class PublishedDeque {
       await stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (item) => item,
     );
-  }
-
-  scan(key, direction = "forward") {
-    return this.values(key, direction);
   }
 }
 
