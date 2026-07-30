@@ -108,6 +108,70 @@ test("published state uses the owned read method names", async () => {
   expect(await dequeState.at("user-1", -1)).toBe("last");
 });
 
+test("descriptors retain their owned and published access strategies", async () => {
+  const publishedCalls = [];
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    publishedValue: async (...args) => {
+      publishedCalls.push(["value", ...args]);
+      return {};
+    },
+    publishedMap: async (...args) => {
+      publishedCalls.push(["map", ...args]);
+      return {};
+    },
+    publishedDeque: async (...args) => {
+      publishedCalls.push(["deque", ...args]);
+      return {};
+    },
+  };
+
+  const definitions = [value("cart"), map("items"), deque("jobs")];
+  await Promise.all(
+    definitions.map((definition) => client.state("accounts", definition)),
+  );
+  expect(
+    publishedCalls.map(([kind, subsystem, name]) => [kind, subsystem, name]),
+  ).toEqual([
+    ["value", "accounts", "cart"],
+    ["map", "accounts", "items"],
+    ["deque", "accounts", "jobs"],
+  ]);
+
+  const ownedCalls = [];
+  const nativeContext = {};
+  for (const method of [
+    "valueState",
+    "mapState",
+    "dequeState",
+    "messageValueState",
+    "messageMapState",
+    "messageDequeState",
+  ]) {
+    nativeContext[method] = (name) => {
+      ownedCalls.push([method, name]);
+      return {};
+    };
+  }
+  const context = new Context(nativeContext);
+  [
+    value("value"),
+    map("map"),
+    deque("deque"),
+    messageValue("message-value"),
+    messageMap("message-map"),
+    messageDeque("message-deque"),
+  ].forEach((definition) => context.state(definition));
+  expect(ownedCalls).toEqual([
+    ["valueState", "value"],
+    ["mapState", "map"],
+    ["dequeState", "deque"],
+    ["messageValueState", "message-value"],
+    ["messageMapState", "message-map"],
+    ["messageDequeState", "message-deque"],
+  ]);
+});
+
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

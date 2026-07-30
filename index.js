@@ -223,34 +223,20 @@ class ProsodyClient {
    * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
    */
   async state(subsystem, definition) {
-    if (definition.payload !== "json") {
+    const access = stateDefinitionAccess.get(definition);
+    if (access?.published === undefined) {
       throw new TypeError(
-        "published state readers support JSON collections only",
+        "definition must be a JSON value, map, or deque definition",
       );
     }
     const readCache = definition.readCache;
-    const args = [
+    return access.published(
+      this.nativeClient,
       subsystem,
       definition.name,
       readCache && readCache.ttlMs,
       readCache === false,
-    ];
-    switch (definition.kind) {
-      case "value":
-        return new PublishedValue(
-          await this.nativeClient.publishedValue(...args),
-        );
-      case "map":
-        return new PublishedMap(await this.nativeClient.publishedMap(...args));
-      case "deque":
-        return new PublishedDeque(
-          await this.nativeClient.publishedDeque(...args),
-        );
-      default:
-        throw new TypeError(
-          `unknown state collection kind: ${definition.kind}`,
-        );
-    }
+    );
   }
 
   /**
@@ -724,7 +710,44 @@ function stateSync(operation) {
  * @returns {Readonly<object>} The frozen definition.
  * @private
  */
-function stateDefinition(name, kind, payload, options = {}) {
+const stateDefinitionAccess = new WeakMap();
+const VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.valueState(collection)),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedValue(
+      await client.publishedValue(subsystem, collection, ttl, disabled),
+    ),
+});
+const MAP_ACCESS = Object.freeze({
+  owned: (context, collection) => new MapState(context.mapState(collection)),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedMap(
+      await client.publishedMap(subsystem, collection, ttl, disabled),
+    ),
+});
+const DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.dequeState(collection)),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedDeque(
+      await client.publishedDeque(subsystem, collection, ttl, disabled),
+    ),
+});
+const MESSAGE_VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.messageValueState(collection)),
+});
+const MESSAGE_MAP_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new MapState(context.messageMapState(collection)),
+});
+const MESSAGE_DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.messageDequeState(collection)),
+});
+
+function stateDefinition(name, kind, payload, access, options = {}) {
   const definition = { name, kind, payload };
   if (options.ttlSeconds !== undefined)
     definition.ttlSeconds = options.ttlSeconds;
@@ -735,7 +758,9 @@ function stateDefinition(name, kind, payload, options = {}) {
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
   if (options.capacity !== undefined) definition.capacity = options.capacity;
-  return Object.freeze(definition);
+  const frozen = Object.freeze(definition);
+  stateDefinitionAccess.set(frozen, access);
+  return frozen;
 }
 
 /**
@@ -747,7 +772,7 @@ function stateDefinition(name, kind, payload, options = {}) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function value(name, options) {
-  return stateDefinition(name, "value", "json", options);
+  return stateDefinition(name, "value", "json", VALUE_ACCESS, options);
 }
 
 /**
@@ -758,7 +783,7 @@ function value(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function map(name, options) {
-  return stateDefinition(name, "map", "json", options);
+  return stateDefinition(name, "map", "json", MAP_ACCESS, options);
 }
 
 /**
@@ -770,7 +795,7 @@ function map(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function deque(name, options) {
-  return stateDefinition(name, "deque", "json", options);
+  return stateDefinition(name, "deque", "json", DEQUE_ACCESS, options);
 }
 
 /**
@@ -782,7 +807,13 @@ function deque(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageValue(name, options) {
-  return stateDefinition(name, "value", "message", options);
+  return stateDefinition(
+    name,
+    "value",
+    "message",
+    MESSAGE_VALUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -794,7 +825,7 @@ function messageValue(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageMap(name, options) {
-  return stateDefinition(name, "map", "message", options);
+  return stateDefinition(name, "map", "message", MESSAGE_MAP_ACCESS, options);
 }
 
 /**
@@ -807,7 +838,13 @@ function messageMap(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageDeque(name, options) {
-  return stateDefinition(name, "deque", "message", options);
+  return stateDefinition(
+    name,
+    "deque",
+    "message",
+    MESSAGE_DEQUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -1537,66 +1574,18 @@ class Context {
    *   durably-registered schema (kind/payload) mismatches (rejected core-side).
    */
   state(definition) {
-    let name, kind, payload;
-    try {
-      // Read + validate the definition shape. Wrapped so a hostile definition
-      // (e.g. throwing property getters) still surfaces as a classified caller
-      // mistake rather than a raw synchronous throw.
-      ({ name, kind, payload } = definition ?? {});
-      if (typeof name !== "string" || name.length === 0) {
-        throw new TransientStateError(
-          `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
-        );
-      }
-      if (kind !== "value" && kind !== "map" && kind !== "deque") {
-        throw new TransientStateError(
-          `state: unknown collection kind ${describeValue(kind)}`,
-        );
-      }
-      if (payload !== "json" && payload !== "message") {
-        throw new TransientStateError(
-          `state: unknown collection payload ${describeValue(payload)}`,
-        );
-      }
-    } catch (error) {
-      if (error instanceof EventHandlerError) throw error;
+    const access = stateDefinitionAccess.get(definition);
+    if (access === undefined) {
       throw new TransientStateError(
-        "state: the definition could not be read (malformed or hostile object)",
+        "state: definition must come from a Prosody state definition constructor",
       );
     }
-    const cacheKey = `${kind}:${payload}:${name}`;
+    const cacheKey = definition;
     const cached = this.stateHandles.get(cacheKey);
     if (cached !== undefined) return cached;
-    const message = payload === "message";
-    let handle;
-    switch (kind) {
-      case "value":
-        handle = new ValueState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageValueState(name)
-              : this.nativeContext.valueState(name),
-          ),
-        );
-        break;
-      case "map":
-        handle = new MapState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageMapState(name)
-              : this.nativeContext.mapState(name),
-          ),
-        );
-        break;
-      default:
-        handle = new DequeState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageDequeState(name)
-              : this.nativeContext.dequeState(name),
-          ),
-        );
-    }
+    const handle = stateSync(() =>
+      access.owned(this.nativeContext, definition.name),
+    );
     this.stateHandles.set(cacheKey, handle);
     return handle;
   }
