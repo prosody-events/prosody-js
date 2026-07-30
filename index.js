@@ -949,10 +949,32 @@ class PublishedMap {
     return stateOp((carrier) => this.native.getMany(key, mapKeys, carrier));
   }
 
-  async scan(key, direction = "forward") {
+  has(key, mapKey) {
+    return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
+  }
+
+  async entries(key, direction = "forward") {
     return stateIterator(
       await stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (entry) => entry,
+    );
+  }
+
+  scan(key, direction = "forward") {
+    return this.entries(key, direction);
+  }
+
+  async keys(key, direction = "forward") {
+    return stateIterator(
+      await stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      (mapKey) => mapKey,
+    );
+  }
+
+  async values(key, direction = "forward") {
+    return stateIterator(
+      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      (entry) => entry[1],
     );
   }
 }
@@ -970,11 +992,38 @@ class PublishedDeque {
     return stateOp((carrier) => this.native.length(key, carrier));
   }
 
-  async scan(key, direction = "forward") {
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  async at(key, index) {
+    if (!Number.isSafeInteger(index)) {
+      throw new TransientStateError(
+        `at: index must be a safe integer, got ${describeValue(index)}`,
+      );
+    }
+    if (index === 0)
+      return stateOp((carrier) => this.native.peekFront(key, carrier));
+    if (index === -1)
+      return stateOp((carrier) => this.native.peekBack(key, carrier));
+    let position = index;
+    if (position < 0) {
+      position += await this.length(key);
+      if (position < 0) return null;
+    }
+    if (position > 0xffffffff) return null;
+    return this.get(key, position);
+  }
+
+  async values(key, direction = "forward") {
     return stateIterator(
       await stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (item) => item,
     );
+  }
+
+  scan(key, direction = "forward") {
+    return this.values(key, direction);
   }
 }
 

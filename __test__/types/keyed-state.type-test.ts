@@ -11,6 +11,9 @@ import {
   MapState,
   Message,
   PermanentStateError,
+  PublishedDeque,
+  PublishedMap,
+  PublishedValue,
   TransientStateError,
   ValueState,
   deque,
@@ -53,6 +56,9 @@ void config;
 
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
+declare const publishedCart: PublishedValue<Cart>;
+declare const publishedTotals: PublishedMap<number>;
+declare const publishedTags: PublishedDeque<string>;
 
 export async function checks(): Promise<void> {
   // ---- overload resolution returns the exact handle types ----
@@ -70,6 +76,30 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<typeof b, DequeState<Message<OrderEvent>>>>();
   const defaultState = context.state(defaultJson);
   assertTrue<Equal<typeof defaultState, ValueState<JsonValue>>>();
+
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
+  >();
+  assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
+  for await (const [key, total] of await publishedTotals.entries("owner")) {
+    assertTrue<Equal<typeof key, string>>();
+    assertTrue<Equal<typeof total, number>>();
+  }
+  for await (const key of await publishedTotals.keys("owner", "backward")) {
+    assertTrue<Equal<typeof key, string>>();
+  }
+  for await (const total of await publishedTotals.values("owner")) {
+    assertTrue<Equal<typeof total, number>>();
+  }
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTags.at>>, string | null>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTags.isEmpty>>, boolean>
+  >();
+  for await (const tag of await publishedTags.values("owner")) {
+    assertTrue<Equal<typeof tag, string>>();
+  }
 
   // ---- value ----
   const current: Cart | null = await c.get();

@@ -691,12 +691,15 @@ const carts = await client.state("carts", CART);
 const cart = await carts.get("user-1");
 
 const items = await client.state("carts", map("items"));
-for await (const { key, value } of await items.scan("user-1")) {
+if (await items.has("user-1", "sku-1")) {
+  // Presence checks do not decode the value.
+}
+for await (const [key, value] of await items.entries("user-1")) {
   // Entries are ordered by key.
 }
 ```
 
-Maps also provide `getMany(key, mapKeys)`. Deques provide `get(key, index)`, `length(key)`, and ordered scans. Set `readCache: { ttlMs }` on the descriptor to override the configured read cache, or `readCache: false` to read durable storage on every operation. To retire a publication, deploy the collection with `published: false` while retaining both its registration and `stateSubsystem` for that deploy.
+Published maps provide the same read operations as owned maps: `get`, `getMany`, `has`, `entries`, `keys`, and `values`. Published deques likewise provide `at`, `length`, `isEmpty`, and `values`. Their extra first argument is the owner key. All scans use the same chunked cursor transport as owned state. Set `readCache: { ttlMs }` on the descriptor to override the configured read cache, or `readCache: false` to read durable storage on every operation. To retire a publication, deploy the collection with `published: false` while retaining both its registration and `stateSubsystem` for that deploy.
 
 Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
 

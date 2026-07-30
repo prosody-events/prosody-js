@@ -84,6 +84,22 @@ impl NativePublishedMap {
             .map_err(|error| read_error(&error))
     }
 
+    /// Reports whether a committed map entry exists.
+    #[napi(writable = false)]
+    pub async fn contains(
+        &self,
+        key: String,
+        map_key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .contains_key(key, map_key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
     /// Opens an ordered entry cursor.
     #[napi(writable = false)]
     pub async fn scan(
@@ -104,6 +120,31 @@ impl NativePublishedMap {
             .await
             .map_err(|error| read_error(&error))?;
         Ok(NativeStateCursor::published_map(
+            inner,
+            Arc::clone(&self.propagator),
+        ))
+    }
+
+    /// Opens an ordered key cursor.
+    #[napi(writable = false)]
+    pub async fn keys(
+        &self,
+        key: String,
+        direction: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<NativeStateCursor> {
+        let direction = match parse_direction(&direction)? {
+            Direction::Forward => ErasedDirection::Forward,
+            Direction::Backward => ErasedDirection::Backward,
+        };
+        let context = op_context(&self.propagator, &otel_context);
+        let inner = self
+            .inner
+            .keys(key, direction)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))?;
+        Ok(NativeStateCursor::published_map_keys(
             inner,
             Arc::clone(&self.propagator),
         ))
@@ -146,6 +187,51 @@ impl NativePublishedDeque {
             .await
             .map_err(|error| read_error(&error))?;
         u32::try_from(length).map_err(|error| read_error(&error))
+    }
+
+    /// Reports whether the committed deque is empty.
+    #[napi(writable = false)]
+    pub async fn is_empty(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .is_empty(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reads the committed front element.
+    #[napi(writable = false)]
+    pub async fn peek_front(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Option<Value>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .peek_front(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reads the committed back element.
+    #[napi(writable = false)]
+    pub async fn peek_back(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Option<Value>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .peek_back(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
     }
 
     /// Opens an ordered element cursor.

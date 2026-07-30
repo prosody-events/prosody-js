@@ -1107,6 +1107,16 @@ impl NativeStateCursor {
         }
     }
 
+    pub(crate) fn published_map_keys(
+        cursor: BoxStateCursor<String>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::MapKey(cursor),
+            propagator,
+        }
+    }
+
     pub(crate) fn published_deque(
         cursor: BoxStateCursor<Value>,
         propagator: Arc<TextMapCompositePropagator>,

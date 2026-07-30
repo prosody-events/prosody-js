@@ -16,6 +16,8 @@ const {
   messageDeque,
   MapState,
   DequeState,
+  PublishedMap,
+  PublishedDeque,
   PermanentStateError,
   TransientStateError,
   isStateError,
@@ -87,6 +89,23 @@ test.each([
         ...options,
       }),
   ).toThrow(/stateReadCache/);
+});
+
+test("published state uses the owned read method names", async () => {
+  const mapNative = {
+    contains: jest.fn().mockResolvedValue(true),
+  };
+  const dequeNative = {
+    isEmpty: jest.fn().mockResolvedValue(false),
+    peekFront: jest.fn().mockResolvedValue("first"),
+    peekBack: jest.fn().mockResolvedValue("last"),
+  };
+
+  expect(await new PublishedMap(mapNative).has("owner", "item")).toBe(true);
+  const dequeState = new PublishedDeque(dequeNative);
+  expect(await dequeState.isEmpty("owner")).toBe(false);
+  expect(await dequeState.at("owner", 0)).toBe("first");
+  expect(await dequeState.at("owner", -1)).toBe("last");
 });
 
 // Helper functions
