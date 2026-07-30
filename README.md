@@ -677,10 +677,11 @@ const CART = value("cart", {
   published: true,
   readCache: { ttlMs: 2_000 },
 });
+const ITEMS = map("items", { published: true });
 const owner = new ProsodyClient({
   ...config,
   stateSubsystem: "carts",
-  stateCollections: [CART],
+  stateCollections: [CART, ITEMS],
 });
 ```
 
@@ -690,7 +691,7 @@ Another client opens a read-only view with the same definition. Reads return com
 const cartReader = await client.state("carts", CART);
 const cart = await cartReader.get("user-1");
 
-const itemReader = await client.state("carts", map("items"));
+const itemReader = await client.state("carts", ITEMS);
 if (await itemReader.has("user-1", "sku-1")) {
   // Presence checks do not decode the value.
 }
