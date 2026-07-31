@@ -684,7 +684,7 @@ const CART = value("cart", {
 const ITEMS = map("items", { published: true });
 const owner = new ProsodyClient({
   ...config,
-  subsystem: "carts",
+  subsystem: "checkout",
   stateCollections: [CART, ITEMS],
 });
 
@@ -696,10 +696,10 @@ await cart.set({ sku: "book" });
 Another client opens a reader by naming the subsystem and passing that same definition. The reader is independent of subscriptions and only returns committed state:
 
 ```js
-const cartReader = await client.state("carts", CART);
+const cartReader = await client.state("checkout", CART);
 const cart = await cartReader.get("user-1");
 
-const itemReader = await client.state("carts", ITEMS);
+const itemReader = await client.state("checkout", ITEMS);
 if (await itemReader.has("user-1", "sku-1")) {
   // Presence checks do not decode the value.
 }
