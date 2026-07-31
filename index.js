@@ -1074,11 +1074,13 @@ function withParsedPayload(message) {
     get() {
       if (!parsed) {
         try {
-          document = JSON.parse(rawPayload.call(this));
-        } catch (error) {
-          failure = new PermanentError(
-            `message payload is not JSON: ${error.message}`,
+          document = parseJson(
+            rawPayload.call(this),
+            PermanentError,
+            "message payload is not JSON",
           );
+        } catch (error) {
+          failure = error;
         }
         parsed = true;
       }
@@ -1116,6 +1118,15 @@ function toJson(value, ErrorClass) {
     );
   }
   return json;
+}
+
+/** Parses JSON text and maps invalid input onto the caller's error class. */
+function parseJson(text, ErrorClass, context) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new ErrorClass(`${context}: ${error.message}`);
+  }
 }
 
 /**
@@ -1217,28 +1228,6 @@ function itemCodec(flavour, encode, decode) {
   });
 }
 
-/**
- * Parses a stored JSON document.
- *
- * Every document this layer writes came from `JSON.stringify`, so a parse
- * failure means a corrupt cell. It surfaces on the read that touched the cell,
- * as a permanent error: corruption is not a caller mistake and no retry
- * resolves it. A bare `SyntaxError` would carry no category at all.
- * @param {string} text - The stored document.
- * @returns {*} The parsed document.
- * @throws {PermanentStateError} If the document does not parse.
- * @private
- */
-function parseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new PermanentStateError(
-      `stored JSON document could not be parsed: ${error.message}`,
-    );
-  }
-}
-
 class PublishedDeque {
   constructor(native) {
     this.native = native;
@@ -1288,7 +1277,13 @@ class PublishedDeque {
 }
 
 /** JSON documents cross as their text. @private */
-const jsonItems = itemCodec("Json", encodeJson, parseJson);
+const jsonItems = itemCodec("Json", encodeJson, (text) =>
+  parseJson(
+    text,
+    PermanentStateError,
+    "stored JSON document could not be parsed",
+  ),
+);
 
 /** Kafka messages cross as the `Message` object itself. @private */
 const messageItems = itemCodec("Message", requireMessage, withParsedPayload);
