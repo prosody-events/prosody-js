@@ -224,7 +224,7 @@ fn expected_message(kind: &str) -> Error {
 /// @param payload The stored document.
 /// @returns The document's JSON text.
 /// @throws Error (permanent) if the stored bytes are not valid UTF-8.
-fn json_text(payload: BinaryPayload) -> napi::Result<String> {
+pub(crate) fn json_text(payload: BinaryPayload) -> napi::Result<String> {
     String::from_utf8(payload.bytes).map_err(|error| {
         permanent_error(format!("stored JSON document is not valid UTF-8: {error}"))
     })
@@ -1128,7 +1128,7 @@ pub struct NativeStateCursor {
 #[napi]
 impl NativeStateCursor {
     pub(crate) fn published_map(
-        cursor: BoxStateCursor<(String, Value)>,
+        cursor: BoxStateCursor<(String, BinaryPayload)>,
         propagator: Arc<TextMapCompositePropagator>,
     ) -> Self {
         Self {
@@ -1148,7 +1148,7 @@ impl NativeStateCursor {
     }
 
     pub(crate) fn published_deque(
-        cursor: BoxStateCursor<Value>,
+        cursor: BoxStateCursor<BinaryPayload>,
         propagator: Arc<TextMapCompositePropagator>,
     ) -> Self {
         Self {

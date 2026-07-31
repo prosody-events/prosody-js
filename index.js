@@ -984,8 +984,10 @@ class PublishedValue {
     this.native = native;
   }
 
-  get(key) {
-    return stateOp((carrier) => this.native.get(key, carrier));
+  async get(key) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, carrier)),
+    );
   }
 }
 
@@ -994,12 +996,17 @@ class PublishedMap {
     this.native = native;
   }
 
-  get(key, mapKey) {
-    return stateOp((carrier) => this.native.get(key, mapKey, carrier));
+  async get(key, mapKey) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, mapKey, carrier)),
+    );
   }
 
-  getMany(key, mapKeys) {
-    return stateOp((carrier) => this.native.getMany(key, mapKeys, carrier));
+  async getMany(key, mapKeys) {
+    const values = await stateOp((carrier) =>
+      this.native.getMany(key, mapKeys, carrier),
+    );
+    return values.map(jsonItems.decode);
   }
 
   has(key, mapKey) {
@@ -1009,7 +1016,7 @@ class PublishedMap {
   entries(key, direction = "forward") {
     return stateIterator(
       () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
-      (entry) => entry,
+      ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
     );
   }
 
@@ -1023,7 +1030,7 @@ class PublishedMap {
   values(key, direction = "forward") {
     return stateIterator(
       () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
-      (entry) => entry[1],
+      (entry) => jsonItems.decode(entry[1]),
     );
   }
 }
@@ -1251,23 +1258,31 @@ class PublishedDeque {
         `at: index must be a safe integer, got ${describeValue(index)}`,
       );
     }
-    if (index === 0)
-      return stateOp((carrier) => this.native.peekFront(key, carrier));
-    if (index === -1)
-      return stateOp((carrier) => this.native.peekBack(key, carrier));
+    if (index === 0) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekFront(key, carrier)),
+      );
+    }
+    if (index === -1) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekBack(key, carrier)),
+      );
+    }
     let position = index;
     if (position < 0) {
       position += await this.length(key);
       if (position < 0) return null;
     }
     if (position > 0xffffffff) return null;
-    return stateOp((carrier) => this.native.get(key, position, carrier));
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, position, carrier)),
+    );
   }
 
   values(key, direction = "forward") {
     return stateIterator(
       () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
-      (item) => item,
+      jsonItems.decode,
     );
   }
 }

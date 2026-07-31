@@ -1,16 +1,15 @@
 //! Native read-only views over published keyed state.
 
-use crate::state::{NativeStateCursor, op_context, parse_direction};
+use crate::state::{NativeStateCursor, json_text, op_context, parse_direction};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
 use opentelemetry::trace::FutureExt;
-use prosody::JsonCodec;
+use prosody::codec::JsonBinaryCodec;
 use prosody::high_level::erased::{
     ErasedDirection, SharedDequeReader, SharedMapReader, SharedValueReader,
 };
 use prosody::state::Direction;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -21,7 +20,7 @@ fn read_error(error: &impl ToString) -> Error {
 /// A read-only published value collection.
 #[napi]
 pub struct NativePublishedValue {
-    pub(crate) inner: SharedValueReader<JsonCodec>,
+    pub(crate) inner: SharedValueReader<JsonBinaryCodec>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -33,20 +32,22 @@ impl NativePublishedValue {
         &self,
         key: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<String>> {
         let context = op_context(&self.propagator, &otel_context);
-        self.inner
+        let value = self
+            .inner
             .get(key)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?;
+        value.map(json_text).transpose()
     }
 }
 
 /// A read-only published map collection.
 #[napi]
 pub struct NativePublishedMap {
-    pub(crate) inner: SharedMapReader<JsonCodec>,
+    pub(crate) inner: SharedMapReader<JsonBinaryCodec>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -59,13 +60,15 @@ impl NativePublishedMap {
         key: String,
         map_key: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<String>> {
         let context = op_context(&self.propagator, &otel_context);
-        self.inner
+        let value = self
+            .inner
             .get(key, map_key)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?;
+        value.map(json_text).transpose()
     }
 
     /// Reads entries aligned with the supplied map keys.
@@ -75,13 +78,16 @@ impl NativePublishedMap {
         key: String,
         map_keys: Vec<String>,
         otel_context: HashMap<String, String>,
-    ) -> Result<Vec<Option<Value>>> {
+    ) -> Result<Vec<Option<String>>> {
         let context = op_context(&self.propagator, &otel_context);
         self.inner
             .get_many(key, map_keys)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?
+            .into_iter()
+            .map(|value| value.map(json_text).transpose())
+            .collect()
     }
 
     /// Reports whether a committed map entry exists.
@@ -154,7 +160,7 @@ impl NativePublishedMap {
 /// A read-only published deque collection.
 #[napi]
 pub struct NativePublishedDeque {
-    pub(crate) inner: SharedDequeReader<JsonCodec>,
+    pub(crate) inner: SharedDequeReader<JsonBinaryCodec>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -167,13 +173,15 @@ impl NativePublishedDeque {
         key: String,
         index: u32,
         otel_context: HashMap<String, String>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<String>> {
         let context = op_context(&self.propagator, &otel_context);
-        self.inner
+        let value = self
+            .inner
             .get(key, index as usize)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?;
+        value.map(json_text).transpose()
     }
 
     /// Returns the committed deque length.
@@ -210,13 +218,15 @@ impl NativePublishedDeque {
         &self,
         key: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<String>> {
         let context = op_context(&self.propagator, &otel_context);
-        self.inner
+        let value = self
+            .inner
             .peek_front(key)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?;
+        value.map(json_text).transpose()
     }
 
     /// Reads the committed back element.
@@ -225,13 +235,15 @@ impl NativePublishedDeque {
         &self,
         key: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<String>> {
         let context = op_context(&self.propagator, &otel_context);
-        self.inner
+        let value = self
+            .inner
             .peek_back(key)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))
+            .map_err(|error| read_error(&error))?;
+        value.map(json_text).transpose()
     }
 
     /// Opens an ordered element cursor.
