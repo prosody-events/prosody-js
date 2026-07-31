@@ -1,8 +1,8 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
-use prosody::JsonCodec;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
+use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
@@ -836,10 +836,10 @@ fn parse_capacity(
 
 /// Validates one collection and registers its descriptor.
 ///
-/// Message collections monomorphize over `KafkaLoader<JsonCodec>`. Their stored
-/// identity is loader-independent (the message ref codec and resolver carry
-/// fixed `"message-ref"` identifiers), so this matches the identity the erased
-/// vend path asserts using the session's own loader.
+/// Message collections monomorphize over `KafkaLoader<JsonBinaryCodec>`. Their
+/// stored identity is loader-independent (the message ref codec and resolver
+/// carry fixed `"message-ref"` identifiers), so this matches the identity the
+/// erased vend path asserts using the session's own loader.
 ///
 /// @param keyed The keyed-state configuration to register into.
 /// @param index The collection's index in `stateCollections`.
@@ -895,7 +895,7 @@ fn register_state_collection(
     match (kind, payload) {
         (CollectionKind::Value, CollectionPayload::Json) => {
             let _ = keyed.register(with_def(
-                value_state::<JsonCodec>(name),
+                value_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -903,7 +903,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
             let descriptor = with_def(
-                map_state::<Utf8KeyCodec, JsonCodec>(name),
+                map_state::<Utf8KeyCodec, JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -912,7 +912,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
             let mut descriptor = with_def(
-                deque_state::<JsonCodec>(name),
+                deque_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -924,7 +924,7 @@ fn register_state_collection(
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
-                message_state::<KafkaLoader<JsonCodec>>(name),
+                message_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -932,7 +932,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
-                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -941,7 +941,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let mut descriptor = with_def(
-                message_deque_state::<KafkaLoader<JsonCodec>>(name),
+                message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,

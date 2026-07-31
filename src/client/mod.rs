@@ -7,12 +7,11 @@ use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use prosody::JsonCodec;
+use prosody::codec::{BinaryPayload, JsonBinaryCodec};
 use prosody::high_level::erased::{
     ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
 };
 use prosody::propagator::new_propagator;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -30,7 +29,7 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: SharedHighLevelClient<JsHandler, JsonCodec>,
+    client: SharedHighLevelClient<JsHandler, JsonBinaryCodec>,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -142,9 +141,15 @@ impl NativeClient {
 
     /// Sends a message to a specified topic.
     ///
+    /// The payload crosses as its JSON text and is forwarded to Kafka verbatim;
+    /// Rust never parses it. The caller supplies the event metadata, read off
+    /// the payload object before it was serialized, so the boundary costs no
+    /// JSON re-parse.
+    ///
     /// @param topic - The topic to send the message to
     /// @param key - The key of the message
-    /// @param payload - The payload of the message (must be JSON-serializable)
+    /// @param payload - The payload as JSON text
+    /// @param metadata - The event metadata read off the payload object
     /// @param otelContext - The OpenTelemetry context for tracing
     /// @param maybeAbort - Optional promise that resolves when the operation
     /// should be aborted @returns A promise that resolves when the message
@@ -155,7 +160,8 @@ impl NativeClient {
         &self,
         topic: String,
         key: String,
-        payload: Value,
+        payload: String,
+        metadata: EventMetadata,
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
     ) -> Result<()> {
@@ -164,6 +170,9 @@ impl NativeClient {
         if let Err(err) = span.set_parent(context) {
             debug!("failed to set parent span: {err:#}");
         }
+
+        let payload =
+            BinaryPayload::new(payload.into_bytes(), metadata.event_id, metadata.event_type);
 
         let send_future = async {
             self.client
@@ -262,6 +271,20 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
         )))),
         (None, false) => Ok(ErasedReadCache::Inherit),
     }
+}
+
+/// Event metadata read off a payload before it was serialized.
+///
+/// Carrying it alongside the JSON text is what lets the send path forward the
+/// payload verbatim: neither side re-parses the document to recover these two
+/// fields.
+#[napi(object)]
+pub struct EventMetadata {
+    /// The payload's `id` field.
+    pub event_id: Option<String>,
+
+    /// The payload's `type` field.
+    pub event_type: Option<String>,
 }
 
 /// Current state of the consumer.

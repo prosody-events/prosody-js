@@ -49,6 +49,10 @@ export type JsonCompatible<T> = T extends JsonPrimitive
  * payload is unchanged. An unparameterized `Message` uses {@link JsonValue};
  * provide an application payload type for precise field-level checking.
  * Message-backed keyed-state collections vend their items as `Message<P>`.
+ *
+ * A message can be stored into a message collection, whether it arrived from the
+ * topic or was read back out of a collection. What is stored is the message
+ * itself, so mutating its parsed `payload` does not change what is written.
  */
 export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */

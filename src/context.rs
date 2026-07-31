@@ -13,6 +13,7 @@ use napi::Error;
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
+use prosody::codec::BinaryPayload;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
@@ -22,7 +23,7 @@ use std::sync::Arc;
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
 pub struct NativeContext {
-    context: BoxEventContext<serde_json::Value>,
+    context: BoxEventContext<BinaryPayload>,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -34,7 +35,7 @@ impl NativeContext {
     /// @param propagator The OpenTelemetry propagator to use for context
     ///   extraction.
     pub fn new(
-        context: BoxEventContext<serde_json::Value>,
+        context: BoxEventContext<BinaryPayload>,
         propagator: Arc<TextMapCompositePropagator>,
     ) -> Self {
         Self {
