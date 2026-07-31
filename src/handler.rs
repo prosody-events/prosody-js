@@ -15,6 +15,7 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use prosody::codec::BinaryPayload;
 use prosody::consumer::DemandType;
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::message::ConsumerMessage;
@@ -246,7 +247,7 @@ impl FromNapiValue for JsHandler {
 impl FallibleHandler for JsHandler {
     type Error = JsHandlerError;
     type Output = ();
-    type Payload = serde_json::Value;
+    type Payload = BinaryPayload;
 
     /// Processes a message by calling the JavaScript callback.
     ///
@@ -278,7 +279,7 @@ impl FallibleHandler for JsHandler {
             .propagator
             .inject_context(&span.context(), &mut carrier);
 
-        let message = Message::from(&message);
+        let message = Message::new(message);
 
         debug!("processing message");
 

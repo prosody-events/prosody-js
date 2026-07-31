@@ -11,6 +11,9 @@ import {
   MapState,
   Message,
   PermanentStateError,
+  PublishedDeque,
+  PublishedMap,
+  PublishedValue,
   TransientStateError,
   ValueState,
   deque,
@@ -53,6 +56,9 @@ void config;
 
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
+declare const publishedCart: PublishedValue<Cart>;
+declare const publishedTotals: PublishedMap<number>;
+declare const publishedTags: PublishedDeque<string>;
 
 export async function checks(): Promise<void> {
   // ---- overload resolution returns the exact handle types ----
@@ -70,6 +76,35 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<typeof b, DequeState<Message<OrderEvent>>>>();
   const defaultState = context.state(defaultJson);
   assertTrue<Equal<typeof defaultState, ValueState<JsonValue>>>();
+
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
+  >();
+  assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
+  for await (const [key, total] of publishedTotals.entries("user-1")) {
+    assertTrue<Equal<typeof key, string>>();
+    assertTrue<Equal<typeof total, number>>();
+    void key;
+    void total;
+  }
+  for await (const key of publishedTotals.keys("user-1", "backward")) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const total of publishedTotals.values("user-1")) {
+    assertTrue<Equal<typeof total, number>>();
+    void total;
+  }
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTags.at>>, string | null>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTags.isEmpty>>, boolean>
+  >();
+  for await (const tag of publishedTags.values("user-1")) {
+    assertTrue<Equal<typeof tag, string>>();
+    void tag;
+  }
 
   // ---- value ----
   const current: Cart | null = await c.get();
@@ -180,6 +215,8 @@ export async function checks(): Promise<void> {
   value<Cart>("v3", { capacity: 5 });
   // @ts-expect-error capacity is deque-only (map options reject it)
   map<number>("m3", { capacity: 5 });
+  // @ts-expect-error descriptors must come from a typed definition constructor
+  context.state({ name: "raw", kind: "value", payload: "json" });
 
   // ---- handles are vended by context.state(), never constructed directly ----
   // @ts-expect-error ValueState has a private constructor

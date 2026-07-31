@@ -16,6 +16,8 @@ const {
   messageDeque,
   MapState,
   DequeState,
+  PublishedMap,
+  PublishedDeque,
   PermanentStateError,
   TransientStateError,
   isStateError,
@@ -60,6 +62,139 @@ const BOOTSTRAP_SERVERS =
 const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
+
+test("published state options stay on the descriptor", () => {
+  expect(
+    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
+  ).toMatchObject({
+    name: "cart",
+    kind: "value",
+    payload: "json",
+    published: true,
+    readCache: { ttlMs: 2_000 },
+  });
+});
+
+test.each([
+  { stateReadCache: { ttlMs: 0 } },
+  { stateReadCache: { disabled: true, ttlMs: 1 } },
+  { stateReadCacheSizeBytes: 0 },
+])("rejects invalid published read cache config %p", (options) => {
+  expect(
+    () =>
+      new ProsodyClient({
+        mock: true,
+        groupId: GROUP_NAME,
+        bootstrapServers: [BOOTSTRAP_SERVERS],
+        ...options,
+      }),
+  ).toThrow(/stateReadCache/);
+});
+
+test("published state uses the owned read method names", async () => {
+  const mapNative = {
+    contains: jest.fn().mockResolvedValue(true),
+  };
+  const dequeNative = {
+    isEmpty: jest.fn().mockResolvedValue(false),
+    peekFront: jest.fn().mockResolvedValue(JSON.stringify("first")),
+    peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
+  };
+
+  expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
+  const dequeState = new PublishedDeque(dequeNative);
+  expect(await dequeState.isEmpty("user-1")).toBe(false);
+  expect(await dequeState.at("user-1", 0)).toBe("first");
+  expect(await dequeState.at("user-1", -1)).toBe("last");
+});
+
+test("published scans return an async iterator and open lazily", async () => {
+  const cursor = {
+    nextChunk: jest
+      .fn()
+      .mockResolvedValueOnce([["item", 7]])
+      .mockResolvedValueOnce(null),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+  const scan = jest.fn().mockResolvedValue(cursor);
+  const entries = new PublishedMap({ scan }).entries("user-1");
+
+  expect(scan).not.toHaveBeenCalled();
+  expect(entries[Symbol.asyncIterator]()).toBe(entries);
+  await expect(entries.next()).resolves.toEqual({
+    value: ["item", 7],
+    done: false,
+  });
+  expect(scan).toHaveBeenCalledTimes(1);
+  await expect(entries.next()).resolves.toEqual({
+    value: undefined,
+    done: true,
+  });
+});
+
+test("descriptors retain their owned and published access strategies", async () => {
+  const publishedCalls = [];
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    publishedValue: async (...args) => {
+      publishedCalls.push(["value", ...args]);
+      return {};
+    },
+    publishedMap: async (...args) => {
+      publishedCalls.push(["map", ...args]);
+      return {};
+    },
+    publishedDeque: async (...args) => {
+      publishedCalls.push(["deque", ...args]);
+      return {};
+    },
+  };
+
+  const definitions = [value("cart"), map("items"), deque("jobs")];
+  await Promise.all(
+    definitions.map((definition) => client.state("accounts", definition)),
+  );
+  expect(
+    publishedCalls.map(([kind, subsystem, name]) => [kind, subsystem, name]),
+  ).toEqual([
+    ["value", "accounts", "cart"],
+    ["map", "accounts", "items"],
+    ["deque", "accounts", "jobs"],
+  ]);
+
+  const ownedCalls = [];
+  const nativeContext = {};
+  for (const method of [
+    "valueState",
+    "mapState",
+    "dequeState",
+    "messageValueState",
+    "messageMapState",
+    "messageDequeState",
+  ]) {
+    nativeContext[method] = (name) => {
+      ownedCalls.push([method, name]);
+      return {};
+    };
+  }
+  const context = new Context(nativeContext);
+  [
+    value("value"),
+    map("map"),
+    deque("deque"),
+    messageValue("message-value"),
+    messageMap("message-map"),
+    messageDeque("message-deque"),
+  ].forEach((definition) => context.state(definition));
+  expect(ownedCalls).toEqual([
+    ["valueState", "value"],
+    ["mapState", "map"],
+    ["dequeState", "deque"],
+    ["messageValueState", "message-value"],
+    ["messageMapState", "message-map"],
+    ["messageDequeState", "message-deque"],
+  ]);
+});
 
 // Helper functions
 const generateTopicName = () =>
@@ -1853,22 +1988,14 @@ describe("ProsodyClient", () => {
       expect(obs.after).toBe(V);
     });
 
-    // C10c — a value with no JSON representation is a CALLER MISTAKE, rejected
-    // TRANSIENT at the FFI boundary (retry, stay visible, never discard the
-    // message — discarding it would lose data; see CLAUDE.md). Core never
-    // receives the value, so the glue owns the classification: it captures the
-    // failed conversion and re-raises a transient-tagged error on the async
-    // promise-rejection path where the category `cause` survives. Covers the
-    // top-level kinds (a bare `undefined`, a bare function) and the nested kinds
-    // the serde bridge rejects rather than drops (a function nested in an
-    // object; `undefined` as an array element). (A nested `undefined` OBJECT
-    // property is the one exception — it is dropped, matching `JSON.stringify` —
-    // so it is not exercised here.)
+    // C10c — a value with no JSON representation AT THE TOP LEVEL is a CALLER
+    // MISTAKE, rejected TRANSIENT at the boundary (retry, stay visible, never
+    // discard the message — discarding it would lose data; see CLAUDE.md).
+    // `JSON.stringify` answers `undefined` for these, which the binding turns
+    // into a transient state error.
     const unrepresentable = [
       ["a bare undefined", undefined],
       ["a bare function", () => 1],
-      ["a function nested in an object", { v: () => 1, keep: 1 }],
-      ["undefined as an array element", [1, undefined, 2]],
     ];
     it.each(unrepresentable)(
       "rejects an unrepresentable write (%s) transient, not permanent",
@@ -2072,6 +2199,11 @@ describe("keyed state (unit)", () => {
 
   // A finite cursor that yields `items` then null (exhausted), closing on
   // exhaustion.
+  // These handles are built directly over stub natives, so they need an item
+  // codec the way Context.state() supplies one. The stubs already speak decoded
+  // values, so the codec passes them through.
+  const RAW_ITEMS = { decode: (item) => item };
+
   const makeFiniteCursor = (items, chunkSize = 1) => {
     let i = 0;
     const counts = { closed: 0, pulls: 0 };
@@ -2096,7 +2228,7 @@ describe("keyed state (unit)", () => {
   // A1 — return() (early break) awaits the native close() exactly once.
   it("iterator return() awaits the native cursor close exactly once", async () => {
     const fake = makeGatedCursor();
-    const m = new MapState({ scan: () => fake.cursor });
+    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
     const it = m.entries();
     await it.next();
 
@@ -2122,7 +2254,7 @@ describe("keyed state (unit)", () => {
       ["a", "v1"],
       ["b", "v2"],
     ]);
-    const m = new MapState({ scan: () => fake.cursor });
+    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const v of m.values()) collected.push(v);
     expect(collected).toEqual(["v1", "v2"]);
@@ -2139,7 +2271,7 @@ describe("keyed state (unit)", () => {
       ],
       3,
     );
-    const m = new MapState({ scan: () => fake.cursor });
+    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const entry of m.entries()) collected.push(entry);
     expect(collected).toEqual([
@@ -2177,7 +2309,7 @@ describe("keyed state (unit)", () => {
       },
       close: (...args) => fake.cursor.close(...args),
     };
-    const it = new MapState({ scan: () => cursor }).entries();
+    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
 
     await expect(
       Promise.all([it.next(), it.next(), it.next()]),
@@ -2204,7 +2336,7 @@ describe("keyed state (unit)", () => {
         closed += 1;
       },
     };
-    const it = new MapState({ scan: () => cursor }).entries();
+    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
     const next = it.next();
     const returned = it.return("stop");
 
@@ -2231,7 +2363,7 @@ describe("keyed state (unit)", () => {
         counts.closed += 1;
       },
     };
-    const m = new MapState({ scan: () => cursor });
+    const m = new MapState({ scan: () => cursor }, RAW_ITEMS);
     const it = m.entries();
     await expect(it.next()).rejects.toBeInstanceOf(TransientStateError);
     expect(counts.closed).toBe(1);
@@ -2257,7 +2389,10 @@ describe("keyed state (unit)", () => {
   // peeks and the negative-index length path are covered in A5d.
   it("deque at() validates the index and returns null out of range", async () => {
     // native.len reports a length of 3; get echoes its index for any read.
-    const d = new DequeState({ get: async (i) => i, len: async () => 3 });
+    const d = new DequeState(
+      { get: async (i) => i, len: async () => 3 },
+      RAW_ITEMS,
+    );
     // Fractional / NaN / infinite indices are caller mistakes -> transient reject.
     await expect(d.at(1.5)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(1.5)).rejects.toThrow(/index/);
@@ -2276,16 +2411,22 @@ describe("keyed state (unit)", () => {
   // returns the boolean directly — no value decode. DequeState.clear() passes
   // straight through to the native clear.
   it("map has() rides native contains and deque clear() passes through", async () => {
-    const m = new MapState({ contains: async (key) => key === "present" });
+    const m = new MapState(
+      { contains: async (key) => key === "present" },
+      RAW_ITEMS,
+    );
     await expect(m.has("present")).resolves.toBe(true);
     await expect(m.has("absent")).resolves.toBe(false);
 
     let cleared = false;
-    const d = new DequeState({
-      clear: async () => {
-        cleared = true;
+    const d = new DequeState(
+      {
+        clear: async () => {
+          cleared = true;
+        },
       },
-    });
+      RAW_ITEMS,
+    );
     await expect(d.clear()).resolves.toBeUndefined();
     expect(cleared).toBe(true);
   });
@@ -2296,7 +2437,7 @@ describe("keyed state (unit)", () => {
   // single-character key would hide.
   it("map keys() iterates the key cursor and yields bare keys", async () => {
     const fake = makeFiniteCursor(["apple", "berry", "cherry"]);
-    const m = new MapState({ keys: () => fake.cursor });
+    const m = new MapState({ keys: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const key of m.keys()) collected.push(key);
     expect(collected).toEqual(["apple", "berry", "cherry"]);
@@ -2307,12 +2448,15 @@ describe("keyed state (unit)", () => {
   // peekBack, one read each) and every other index through native.get; negative
   // indices past -1 still resolve against native.len.
   it("deque at() routes endpoints to peeks and other indices to get", async () => {
-    const d = new DequeState({
-      peekFront: async () => "F",
-      peekBack: async () => "B",
-      get: async (i) => i,
-      len: async () => 3,
-    });
+    const d = new DequeState(
+      {
+        peekFront: async () => "F",
+        peekBack: async () => "B",
+        get: async (i) => i,
+        len: async () => 3,
+      },
+      RAW_ITEMS,
+    );
     await expect(d.at(0)).resolves.toBe("F");
     await expect(d.at(-1)).resolves.toBe("B");
     // A non-endpoint non-negative index reads through get.

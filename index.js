@@ -38,6 +38,7 @@ const {
 } = require("@opentelemetry/api");
 
 const {
+  Message: NativeMessage,
   Mode,
   NativeClient,
   ConsumerState,
@@ -217,11 +218,35 @@ class ProsodyClient {
   }
 
   /**
+   * Opens a read-only view of another consumer group's published collection.
+   * @param {string} subsystem - The publisher's subsystem.
+   * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
+   * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
+   */
+  async state(subsystem, definition) {
+    const access = stateDefinitionAccess.get(definition);
+    if (access?.published === undefined) {
+      throw new TypeError(
+        "definition must be a JSON value, map, or deque definition",
+      );
+    }
+    const readCache = definition.readCache;
+    return access.published(
+      this.nativeClient,
+      subsystem,
+      definition.name,
+      readCache && readCache.ttlMs,
+      readCache === false,
+    );
+  }
+
+  /**
    * Sends a message to a specified topic.
    *
    * @param {string} topic - The topic to send the message to.
    * @param {string} key - The key of the message.
-   * @param {*} payload - The payload of the message.
+   * @param {*} payload - The payload of the message. Serialized here; Kafka
+   *   receives the bytes verbatim.
    * @param {AbortSignal} [signal] - Optional abort signal to cancel the send operation. When aborted, the promise will reject with the abort reason.
    * @returns {Promise<void>} A promise that resolves when the message has been successfully sent.
    * @throws {Error} If the send operation fails or is aborted.
@@ -233,7 +258,8 @@ class ProsodyClient {
     await this.nativeClient.send(
       topic,
       key,
-      payload,
+      toJson(payload, TransientError),
+      eventMetadata(payload),
       carrier,
       signal && onAbort(signal),
     );
@@ -309,7 +335,11 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              await onMessage(context, message, controller.signal);
+              await onMessage(
+                context,
+                withParsedPayload(message),
+                controller.signal,
+              );
             } catch (error) {
               getCurrentLogger()?.error(
                 "Message handler error",
@@ -687,16 +717,58 @@ function stateSync(operation) {
  * @returns {Readonly<object>} The frozen definition.
  * @private
  */
-function stateDefinition(name, kind, payload, options = {}) {
+const stateDefinitionAccess = new WeakMap();
+const VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.valueState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedValue(
+      await client.publishedValue(subsystem, collection, ttl, disabled),
+    ),
+});
+const MAP_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new MapState(context.mapState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedMap(
+      await client.publishedMap(subsystem, collection, ttl, disabled),
+    ),
+});
+const DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.dequeState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedDeque(
+      await client.publishedDeque(subsystem, collection, ttl, disabled),
+    ),
+});
+const MESSAGE_VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.messageValueState(collection), messageItems),
+});
+const MESSAGE_MAP_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new MapState(context.messageMapState(collection), messageItems),
+});
+const MESSAGE_DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.messageDequeState(collection), messageItems),
+});
+
+function stateDefinition(name, kind, payload, access, options = {}) {
   const definition = { name, kind, payload };
   if (options.ttlSeconds !== undefined)
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
     definition.readUncommitted = options.readUncommitted;
+  if (options.published !== undefined) definition.published = options.published;
+  if (options.readCache !== undefined) definition.readCache = options.readCache;
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
   if (options.capacity !== undefined) definition.capacity = options.capacity;
-  return Object.freeze(definition);
+  const frozen = Object.freeze(definition);
+  stateDefinitionAccess.set(frozen, access);
+  return frozen;
 }
 
 /**
@@ -708,7 +780,7 @@ function stateDefinition(name, kind, payload, options = {}) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function value(name, options) {
-  return stateDefinition(name, "value", "json", options);
+  return stateDefinition(name, "value", "json", VALUE_ACCESS, options);
 }
 
 /**
@@ -719,7 +791,7 @@ function value(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function map(name, options) {
-  return stateDefinition(name, "map", "json", options);
+  return stateDefinition(name, "map", "json", MAP_ACCESS, options);
 }
 
 /**
@@ -731,7 +803,7 @@ function map(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function deque(name, options) {
-  return stateDefinition(name, "deque", "json", options);
+  return stateDefinition(name, "deque", "json", DEQUE_ACCESS, options);
 }
 
 /**
@@ -743,7 +815,13 @@ function deque(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageValue(name, options) {
-  return stateDefinition(name, "value", "message", options);
+  return stateDefinition(
+    name,
+    "value",
+    "message",
+    MESSAGE_VALUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -755,7 +833,7 @@ function messageValue(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageMap(name, options) {
-  return stateDefinition(name, "map", "message", options);
+  return stateDefinition(name, "map", "message", MESSAGE_MAP_ACCESS, options);
 }
 
 /**
@@ -768,7 +846,13 @@ function messageMap(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageDeque(name, options) {
-  return stateDefinition(name, "deque", "message", options);
+  return stateDefinition(
+    name,
+    "deque",
+    "message",
+    MESSAGE_DEQUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -784,18 +868,26 @@ function messageDeque(name, options) {
  * or early-exit path is normalized through `toStateError`, so every keyed-state
  * failure a caller can observe is a `PermanentStateError`/`TransientStateError`.
  *
- * The iterator is valid only within the handler invocation (attempt) that
- * opened it; a cursor leaked past the attempt errors on its next pull.
- * @param {object} cursor - The native scan cursor.
+ * Owned cursors remain attempt-fenced. Published cursors remain valid with
+ * their standalone reader.
+ * @param {object|(() => Promise<object>)} source - The native scan cursor, or
+ *   a lazy asynchronous cursor opener.
  * @param {(item: *) => *} transform - Maps each raw item to the yielded value.
  * @returns {AsyncIterableIterator<*>} The async iterator.
  * @private
  */
-function stateIterator(cursor, transform) {
+function stateIterator(source, transform) {
+  let cursor;
   let finished = false;
   let chunk = [];
   let offset = 0;
   let queue = Promise.resolve();
+  const openCursor = async () => {
+    if (cursor === undefined) {
+      cursor = typeof source === "function" ? await source() : source;
+    }
+    return cursor;
+  };
   // Serialize the complete iterator protocol, not just native pulls. Without
   // this queue, concurrent next() continuations can both reset `offset` after
   // awaiting the same chunk and yield the same first item. return() shares the
@@ -813,6 +905,7 @@ function stateIterator(cursor, transform) {
   // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
   // from `close()` is swallowed too.
   const closeQuietly = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch {
@@ -822,6 +915,7 @@ function stateIterator(cursor, transform) {
   // Close on clean exhaustion / early exit, where there is no primary error to
   // mask: a close failure surfaces through the state-error model.
   const closeOrThrow = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch (error) {
@@ -836,7 +930,7 @@ function stateIterator(cursor, transform) {
           chunk = [];
           offset = 0;
           try {
-            chunk = await cursor.nextChunk(injectedCarrier());
+            chunk = await (await openCursor()).nextChunk(injectedCarrier());
           } catch (error) {
             finished = true;
             await closeQuietly();
@@ -882,51 +976,334 @@ function stateIterator(cursor, transform) {
 }
 
 /**
- * Typed handle over a single-value keyed-state collection, vended by
- * {@link Context#state}. Core records one semantic span per operation; this
- * binding propagates context without adding an N-API span. Handles are valid
- * only within the handler invocation (attempt) that vended them.
+ * Read-only handle over a published single-value collection. It is independent
+ * of subscription and remains valid for the lifetime of its client.
  */
-class ValueState {
-  /**
-   * @param {import('./bindings').NativeValueState} native - The vended native handle.
-   */
+class PublishedValue {
   constructor(native) {
     this.native = native;
   }
 
-  /**
-   * Reads the current value.
-   * @returns {Promise<*|null>} The stored value, or null when absent/cleared.
-   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
-   */
-  get() {
-    return stateOp((carrier) => this.native.get(carrier));
+  async get(key) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, carrier)),
+    );
+  }
+}
+
+class PublishedMap {
+  constructor(native) {
+    this.native = native;
   }
 
-  /**
-   * Buffers a write of the value. Writing JSON `null` (or an unrepresentable
-   * value) is a caller mistake, rejected with a {@link TransientStateError}
-   * naming `clear()` — use {@link ValueState#clear} to delete instead. The
-   * error is transient so it retries and stays visible rather than discarding
-   * the message and losing data.
-   * @param {*} value - The value to store.
-   * @returns {Promise<void>}
-   * @throws {TransientStateError} On a null/unrepresentable/shape mistake or a
-   *   transient store failure; {@link PermanentStateError} only if the store
-   *   reports one.
-   */
-  set(value) {
-    return stateOp((carrier) => this.native.set(value, carrier));
+  async get(key, mapKey) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, mapKey, carrier)),
+    );
   }
 
+  async getMany(key, mapKeys) {
+    const values = await stateOp((carrier) =>
+      this.native.getMany(key, mapKeys, carrier),
+    );
+    return values.map(jsonItems.decode);
+  }
+
+  has(key, mapKey) {
+    return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
+  }
+
+  entries(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
+    );
+  }
+
+  keys(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      (mapKey) => mapKey,
+    );
+  }
+
+  values(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      (entry) => jsonItems.decode(entry[1]),
+    );
+  }
+}
+
+/**
+ * The native `payload` getter, which answers the raw JSON text read from the
+ * wire. Captured before {@link withParsedPayload} shadows it per instance.
+ * @private
+ */
+const rawPayload = Object.getOwnPropertyDescriptor(
+  NativeMessage.prototype,
+  "payload",
+).get;
+
+/**
+ * Replaces a message's raw-text `payload` with the parsed document.
+ *
+ * Rust hands the payload across as the bytes it read from the wire, never
+ * parsing them; the parse happens here, on first read, and the result is kept.
+ * A handler that only inspects metadata therefore never pays for one.
+ *
+ * A payload that is not JSON raises a permanent error: no retry makes bytes
+ * parse. Reading `payload` is where that surfaces, since nothing before it
+ * looks at the document. That outcome is kept too, so a handler reading a bad
+ * payload twice re-raises rather than re-parsing.
+ * @param {object} message - The native message.
+ * @returns {object} The same message, with `payload` parsed on demand.
+ * @private
+ */
+function withParsedPayload(message) {
+  let document;
+  let failure;
+  let parsed = false;
+  // Not enumerable, matching the five native getters: none of a message's
+  // fields are own properties, so spread, `Object.keys`, and `JSON.stringify`
+  // see none of them. An enumerable own `payload` would make `JSON.stringify`
+  // of a message serialize the whole parsed document.
+  Object.defineProperty(message, "payload", {
+    configurable: true,
+    enumerable: false,
+    get() {
+      if (!parsed) {
+        try {
+          document = parseJson(
+            rawPayload.call(this),
+            PermanentError,
+            "message payload is not JSON",
+          );
+        } catch (error) {
+          failure = error;
+        }
+        parsed = true;
+      }
+      if (failure !== undefined) throw failure;
+      return document;
+    },
+  });
+  return message;
+}
+
+/**
+ * Serializes a value, mapping the two ways `JSON.stringify` can fail onto the
+ * caller's error class.
+ *
+ * It answers `undefined` for a function, a symbol, or `undefined` itself, and
+ * throws outright on a BigInt or a cycle.
+ * @param {*} value - The value to serialize.
+ * @param {Function} ErrorClass - The error to raise on failure.
+ * @returns {string} The JSON text.
+ * @private
+ */
+function toJson(value, ErrorClass) {
+  let json;
+  try {
+    json = JSON.stringify(value);
+  } catch (error) {
+    throw new ErrorClass(
+      `value is not representable as JSON: ${error.message}`,
+    );
+  }
+  if (json === undefined) {
+    throw new ErrorClass(
+      "value is not representable as JSON (functions, symbols, and " +
+        "`undefined` have no JSON form)",
+    );
+  }
+  return json;
+}
+
+/** Parses JSON text and maps invalid input onto the caller's error class. */
+function parseJson(text, ErrorClass, context) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new ErrorClass(`${context}: ${error.message}`);
+  }
+}
+
+/**
+ * Serializes a value for a JSON collection.
+ *
+ * A collection stores whatever JSON it is given, so the only rejections here
+ * are values with no JSON form at all. Both are caller mistakes and reject
+ * transient: the event retries and the mistake stays visible rather than
+ * discarding the message.
+ *
+ * Everything else follows `JSON.stringify`, which is now the serializer of
+ * record. Inside a container a function-valued property is dropped and an
+ * `undefined` element becomes `null`. `NaN` and the infinities become `null`
+ * anywhere they appear. A `toJSON` method decides what its value serializes to.
+ * The previous Rust-side conversion rejected each of those instead.
+ * @param {*} value - The value to store.
+ * @returns {string} The document's JSON text.
+ * @throws {TransientStateError} If the value has no JSON representation.
+ * @private
+ */
+function encodeJson(value) {
+  if (value instanceof NativeMessage) {
+    throw new TransientStateError(
+      "a Kafka message cannot be stored in a JSON collection; declare it with " +
+        "messageValue/messageMap/messageDeque instead",
+    );
+  }
+  return toJson(value, TransientStateError);
+}
+
+/**
+ * Reads the event metadata a payload carries.
+ *
+ * When the payload is an object with a string `id` or `type`, prosody uses
+ * them. Anything else carries no metadata. Each field is read once, so a getter
+ * that answers differently on a second read cannot make the metadata disagree
+ * with itself.
+ * @param {*} payload - The payload about to be sent.
+ * @returns {{eventId?: string, eventType?: string}} The metadata.
+ * @private
+ */
+function eventMetadata(payload) {
+  const id = payload?.id;
+  const type = payload?.type;
+  return {
+    eventId: typeof id === "string" ? id : undefined,
+    eventType: typeof type === "string" ? type : undefined,
+  };
+}
+
+/**
+ * Checks that a message collection is being handed an actual message.
+ *
+ * A message collection stores the Kafka message itself, so it accepts only a
+ * `Message` — an object merely shaped like one is rejected. A message read back
+ * out of a collection is a `Message` and stores fine.
+ * What it stores is the message's own wire bytes, so assigning to a message's
+ * fields, or mutating its parsed `payload`, does not change what is written.
+ * @param {*} value - The value to store.
+ * @returns {object} The message.
+ * @throws {TransientStateError} If the value is not a Kafka message.
+ * @private
+ */
+function requireMessage(value) {
+  if (!(value instanceof NativeMessage)) {
+    throw new TransientStateError(
+      "expected a Kafka message; a JSON value cannot be stored in a message collection",
+    );
+  }
+  return value;
+}
+
+/**
+ * Builds the item codec for one collection payload flavour.
+ *
+ * Native names each write verb after the flavour it accepts — `setJson` versus
+ * `setMessage` — so one factory covers both: `encode` prepares an item for the
+ * wire and `flavour` selects the verb. The definition's payload picks a codec
+ * when the handle is vended, so no operation tests the flavour again.
+ * @param {string} flavour - `"Json"` or `"Message"`, the native verb suffix.
+ * @param {(item: *) => *} encode - Prepares an item for a write.
+ * @param {(item: *) => *} decode - Turns a read item into what the caller asked for.
+ * @returns {Readonly<object>} The frozen codec.
+ * @private
+ */
+function itemCodec(flavour, encode, decode) {
+  const set = `set${flavour}`;
+  const pushBack = `pushBack${flavour}`;
+  const pushFront = `pushFront${flavour}`;
+  return Object.freeze({
+    decode: (item) => (item === null ? null : decode(item)),
+    set: (native, item, carrier) => native[set](encode(item), carrier),
+    setKey: (native, key, item, carrier) =>
+      native[set](key, encode(item), carrier),
+    pushBack: (native, item, carrier) =>
+      native[pushBack](encode(item), carrier),
+    pushFront: (native, item, carrier) =>
+      native[pushFront](encode(item), carrier),
+  });
+}
+
+class PublishedDeque {
+  constructor(native) {
+    this.native = native;
+  }
+
+  length(key) {
+    return stateOp((carrier) => this.native.length(key, carrier));
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  async at(key, index) {
+    if (!Number.isSafeInteger(index)) {
+      throw new TransientStateError(
+        `at: index must be a safe integer, got ${describeValue(index)}`,
+      );
+    }
+    if (index === 0) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekFront(key, carrier)),
+      );
+    }
+    if (index === -1) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekBack(key, carrier)),
+      );
+    }
+    let position = index;
+    if (position < 0) {
+      position += await this.length(key);
+      if (position < 0) return null;
+    }
+    if (position > 0xffffffff) return null;
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, position, carrier)),
+    );
+  }
+
+  values(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      jsonItems.decode,
+    );
+  }
+}
+
+/** JSON documents cross as their text. @private */
+const jsonItems = itemCodec("Json", encodeJson, (text) =>
+  parseJson(
+    text,
+    PermanentStateError,
+    "stored JSON document could not be parsed",
+  ),
+);
+
+/** Kafka messages cross as the `Message` object itself. @private */
+const messageItems = itemCodec("Message", requireMessage, withParsedPayload);
+
+/**
+ * What every keyed-state handle shares: the native handle it wraps, the item
+ * codec for its payload flavour, and the two transaction verbs.
+ *
+ * Core records one semantic span per operation; this binding propagates context
+ * without adding an N-API span. Handles are valid only within the handler
+ * invocation (attempt) that vended them.
+ */
+class StateHandle {
   /**
-   * Deletes the stored value.
-   * @returns {Promise<void>}
-   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   * @param {object} native - The vended native handle.
+   * @param {object} items - The item codec for the collection's payload flavour.
    */
-  clear() {
-    return stateOp((carrier) => this.native.clear(carrier));
+  constructor(native, items) {
+    this.native = native;
+    this.items = items;
   }
 
   /**
@@ -949,19 +1326,56 @@ class ValueState {
 }
 
 /**
+ * Typed handle over a single-value keyed-state collection, vended by
+ * {@link Context#state}. Core records one semantic span per operation; this
+ * binding propagates context without adding an N-API span. Handles are valid
+ * only within the handler invocation (attempt) that vended them.
+ */
+class ValueState extends StateHandle {
+  /**
+   * Reads the current value.
+   * @returns {Promise<*|null>} The stored value, or null when absent/cleared.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  get() {
+    return stateOp((carrier) => this.native.get(carrier)).then(
+      this.items.decode,
+    );
+  }
+
+  /**
+   * Buffers a write of the value. Writing JSON `null` (or an unrepresentable
+   * value) is a caller mistake, rejected with a {@link TransientStateError}
+   * naming `clear()` — use {@link ValueState#clear} to delete instead. The
+   * error is transient so it retries and stays visible rather than discarding
+   * the message and losing data.
+   * @param {*} value - The value to store.
+   * @returns {Promise<void>}
+   * @throws {TransientStateError} On a null/unrepresentable/shape mistake or a
+   *   transient store failure; {@link PermanentStateError} only if the store
+   *   reports one.
+   */
+  set(value) {
+    return stateOp((carrier) => this.items.set(this.native, value, carrier));
+  }
+
+  /**
+   * Deletes the stored value.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  clear() {
+    return stateOp((carrier) => this.native.clear(carrier));
+  }
+}
+
+/**
  * Typed handle over an ordered-map keyed-state collection, vended by
  * {@link Context#state}. Map keys are always strings. Core records one semantic
  * span per operation; this binding propagates context without adding an N-API
  * span. Handles and iterators are valid only within the handler invocation.
  */
-class MapState {
-  /**
-   * @param {import('./bindings').NativeMapState} native - The vended native handle.
-   */
-  constructor(native) {
-    this.native = native;
-  }
-
+class MapState extends StateHandle {
   /**
    * Reads the value for `key`.
    * @param {string} key - The map key.
@@ -969,7 +1383,9 @@ class MapState {
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   get(key) {
-    return stateOp((carrier) => this.native.get(key, carrier));
+    return stateOp((carrier) => this.native.get(key, carrier)).then(
+      this.items.decode,
+    );
   }
 
   /**
@@ -983,7 +1399,9 @@ class MapState {
    * @throws {PermanentStateError|TransientStateError} If the read fails.
    */
   getMany(keys) {
-    return stateOp((carrier) => this.native.getMany(keys, carrier));
+    return stateOp((carrier) => this.native.getMany(keys, carrier)).then(
+      (items) => items.map(this.items.decode),
+    );
   }
 
   /**
@@ -1014,7 +1432,9 @@ class MapState {
    *   reports one.
    */
   set(key, value) {
-    return stateOp((carrier) => this.native.set(key, value, carrier));
+    return stateOp((carrier) =>
+      this.items.setKey(this.native, key, value, carrier),
+    );
   }
 
   /**
@@ -1053,7 +1473,7 @@ class MapState {
   entries(direction = "forward") {
     return stateIterator(
       stateSync(() => this.native.scan(direction, injectedCarrier())),
-      (entry) => entry,
+      ([key, item]) => [key, this.items.decode(item)],
     );
   }
 
@@ -1087,7 +1507,7 @@ class MapState {
   values(direction = "forward") {
     return stateIterator(
       stateSync(() => this.native.scan(direction, injectedCarrier())),
-      (entry) => entry[1],
+      ([, item]) => this.items.decode(item),
     );
   }
 
@@ -1099,24 +1519,6 @@ class MapState {
   [Symbol.asyncIterator]() {
     return this.entries();
   }
-
-  /**
-   * Durably commits the buffered operations mid-handler (at-least-once; the
-   * committed floor survives a later rollback or a failed event).
-   * @returns {Promise<void>} Resolves with no value — the erased seam drops the outcome.
-   * @throws {PermanentStateError|TransientStateError} On a categorized commit failure.
-   */
-  commit() {
-    return stateOp((carrier) => this.native.commit(carrier));
-  }
-
-  /**
-   * Discards buffered uncommitted operations back to the last committed floor.
-   * @returns {Promise<void>} Resolves with no value.
-   */
-  rollback() {
-    return stateOp((carrier) => this.native.rollback(carrier));
-  }
 }
 
 /**
@@ -1125,14 +1527,7 @@ class MapState {
  * binding propagates context without adding an N-API span. Handles and
  * iterators are valid only within the handler invocation that vended them.
  */
-class DequeState {
-  /**
-   * @param {import('./bindings').NativeDequeState} native - The vended native handle.
-   */
-  constructor(native) {
-    this.native = native;
-  }
-
+class DequeState extends StateHandle {
   /**
    * Appends an element at the back. Writing JSON `null` is a caller mistake
    * rejected with a {@link TransientStateError}, so an uncaught handler bug
@@ -1143,7 +1538,9 @@ class DequeState {
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   push(item) {
-    return stateOp((carrier) => this.native.pushBack(item, carrier));
+    return stateOp((carrier) =>
+      this.items.pushBack(this.native, item, carrier),
+    );
   }
 
   /**
@@ -1156,7 +1553,9 @@ class DequeState {
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   unshift(item) {
-    return stateOp((carrier) => this.native.pushFront(item, carrier));
+    return stateOp((carrier) =>
+      this.items.pushFront(this.native, item, carrier),
+    );
   }
 
   /**
@@ -1165,7 +1564,9 @@ class DequeState {
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   pop() {
-    return stateOp((carrier) => this.native.popBack(carrier));
+    return stateOp((carrier) => this.native.popBack(carrier)).then(
+      this.items.decode,
+    );
   }
 
   /**
@@ -1174,7 +1575,9 @@ class DequeState {
    * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
    */
   shift() {
-    return stateOp((carrier) => this.native.popFront(carrier));
+    return stateOp((carrier) => this.native.popFront(carrier)).then(
+      this.items.decode,
+    );
   }
 
   /**
@@ -1237,9 +1640,13 @@ class DequeState {
       );
     }
     if (index === 0)
-      return stateOp((carrier) => this.native.peekFront(carrier));
+      return stateOp((carrier) => this.native.peekFront(carrier)).then(
+        this.items.decode,
+      );
     if (index === -1)
-      return stateOp((carrier) => this.native.peekBack(carrier));
+      return stateOp((carrier) => this.native.peekBack(carrier)).then(
+        this.items.decode,
+      );
     let position = index;
     if (position < 0) {
       position += await this.length();
@@ -1248,7 +1655,9 @@ class DequeState {
     }
     // Beyond the addressable u32 range can only be past the end, never a wrap.
     if (position > 0xffffffff) return null;
-    return stateOp((carrier) => this.native.get(position, carrier));
+    return stateOp((carrier) => this.native.get(position, carrier)).then(
+      this.items.decode,
+    );
   }
 
   /**
@@ -1263,7 +1672,7 @@ class DequeState {
   values(direction = "forward") {
     return stateIterator(
       stateSync(() => this.native.scan(direction, injectedCarrier())),
-      (item) => item,
+      (item) => this.items.decode(item),
     );
   }
 
@@ -1274,24 +1683,6 @@ class DequeState {
    */
   [Symbol.asyncIterator]() {
     return this.values();
-  }
-
-  /**
-   * Durably commits the buffered operations mid-handler (at-least-once; the
-   * committed floor survives a later rollback or a failed event).
-   * @returns {Promise<void>} Resolves with no value — the erased seam drops the outcome.
-   * @throws {PermanentStateError|TransientStateError} On a categorized commit failure.
-   */
-  commit() {
-    return stateOp((carrier) => this.native.commit(carrier));
-  }
-
-  /**
-   * Discards buffered uncommitted operations back to the last committed floor.
-   * @returns {Promise<void>} Resolves with no value.
-   */
-  rollback() {
-    return stateOp((carrier) => this.native.rollback(carrier));
   }
 }
 
@@ -1397,66 +1788,18 @@ class Context {
    *   durably-registered schema (kind/payload) mismatches (rejected core-side).
    */
   state(definition) {
-    let name, kind, payload;
-    try {
-      // Read + validate the definition shape. Wrapped so a hostile definition
-      // (e.g. throwing property getters) still surfaces as a classified caller
-      // mistake rather than a raw synchronous throw.
-      ({ name, kind, payload } = definition ?? {});
-      if (typeof name !== "string" || name.length === 0) {
-        throw new TransientStateError(
-          `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
-        );
-      }
-      if (kind !== "value" && kind !== "map" && kind !== "deque") {
-        throw new TransientStateError(
-          `state: unknown collection kind ${describeValue(kind)}`,
-        );
-      }
-      if (payload !== "json" && payload !== "message") {
-        throw new TransientStateError(
-          `state: unknown collection payload ${describeValue(payload)}`,
-        );
-      }
-    } catch (error) {
-      if (error instanceof EventHandlerError) throw error;
+    const access = stateDefinitionAccess.get(definition);
+    if (access === undefined) {
       throw new TransientStateError(
-        "state: the definition could not be read (malformed or hostile object)",
+        "state: definition must come from a Prosody state definition constructor",
       );
     }
-    const cacheKey = `${kind}:${payload}:${name}`;
+    const cacheKey = definition;
     const cached = this.stateHandles.get(cacheKey);
     if (cached !== undefined) return cached;
-    const message = payload === "message";
-    let handle;
-    switch (kind) {
-      case "value":
-        handle = new ValueState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageValueState(name)
-              : this.nativeContext.valueState(name),
-          ),
-        );
-        break;
-      case "map":
-        handle = new MapState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageMapState(name)
-              : this.nativeContext.mapState(name),
-          ),
-        );
-        break;
-      default:
-        handle = new DequeState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageDequeState(name)
-              : this.nativeContext.dequeState(name),
-          ),
-        );
-    }
+    const handle = stateSync(() =>
+      access.owned(this.nativeContext, definition.name),
+    );
     this.stateHandles.set(cacheKey, handle);
     return handle;
   }
@@ -1472,6 +1815,9 @@ module.exports = {
   PermanentError,
   PermanentStateError,
   ProsodyClient,
+  PublishedDeque,
+  PublishedMap,
+  PublishedValue,
   TransientError,
   TransientStateError,
   ValueState,

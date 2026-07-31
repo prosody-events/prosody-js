@@ -2,14 +2,20 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
+use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
-use opentelemetry::propagation::TextMapPropagator;
-use prosody::JsonCodec;
-use prosody::high_level::erased::{ErasedConsumerState, SharedHighLevelClient, new_erased};
-use serde_json::Value;
+use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
+use prosody::codec::{BinaryPayload, JsonBinaryCodec};
+use prosody::high_level::erased::{
+    ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
+};
+use prosody::propagator::new_propagator;
 use std::collections::HashMap;
+use std::result::Result as StdResult;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::select;
 use tracing::debug;
 use tracing::field::Empty;
@@ -23,7 +29,8 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: SharedHighLevelClient<JsHandler, JsonCodec>,
+    client: SharedHighLevelClient<JsHandler, JsonBinaryCodec>,
+    propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
@@ -37,35 +44,23 @@ impl NativeClient {
     pub fn new(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
         let consumer_builders = build_consumer_builders(&config)?;
-        let cassandra_config = build_cassandra_config(&config);
+        let cassandra = build_cassandra_config(&config);
 
-        let client = within_runtime_if_available(|| -> std::result::Result<_, String> {
-            let mock = consumer_builders
-                .consumer
-                .clone()
-                .build()
-                .map_err(|error| error.to_string())?
-                .mock;
-            let cassandra = if mock {
-                None
-            } else {
-                Some(
-                    cassandra_config
-                        .build()
-                        .map_err(|error| error.to_string())?,
-                )
-            };
+        let client = within_runtime_if_available(|| -> StdResult<_, String> {
             new_erased(
                 config.mode.unwrap_or_default().into(),
                 &mut producer_config,
                 &consumer_builders,
-                cassandra,
+                &cassandra,
             )
             .map_err(|error| error.to_string())
         })
         .map_err(Error::from_reason)?;
 
-        Ok(NativeClient { client })
+        Ok(NativeClient {
+            client,
+            propagator: Arc::new(new_propagator()),
+        })
     }
 
     /// Gets the current state of the consumer.
@@ -84,11 +79,77 @@ impl NativeClient {
         }
     }
 
+    /// Builds a read-only view of a published value collection.
+    #[napi(writable = false)]
+    pub async fn published_value(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedValue> {
+        let inner = self
+            .client
+            .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedValue {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published map collection.
+    #[napi(writable = false)]
+    pub async fn published_map(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedMap> {
+        let inner = self
+            .client
+            .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedMap {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published deque collection.
+    #[napi(writable = false)]
+    pub async fn published_deque(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedDeque> {
+        let inner = self
+            .client
+            .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedDeque {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
     /// Sends a message to a specified topic.
+    ///
+    /// The payload crosses as its JSON text and is forwarded to Kafka verbatim;
+    /// Rust never parses it. The caller supplies the event metadata, read off
+    /// the payload object before it was serialized, so the boundary costs no
+    /// JSON re-parse.
     ///
     /// @param topic - The topic to send the message to
     /// @param key - The key of the message
-    /// @param payload - The payload of the message (must be JSON-serializable)
+    /// @param payload - The payload as JSON text
+    /// @param metadata - The event metadata read off the payload object
     /// @param otelContext - The OpenTelemetry context for tracing
     /// @param maybeAbort - Optional promise that resolves when the operation
     /// should be aborted @returns A promise that resolves when the message
@@ -99,7 +160,8 @@ impl NativeClient {
         &self,
         topic: String,
         key: String,
-        payload: Value,
+        payload: String,
+        metadata: EventMetadata,
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
     ) -> Result<()> {
@@ -108,6 +170,9 @@ impl NativeClient {
         if let Err(err) = span.set_parent(context) {
             debug!("failed to set parent span: {err:#}");
         }
+
+        let payload =
+            BinaryPayload::new(payload.into_bytes(), metadata.event_id, metadata.event_type);
 
         let send_future = async {
             self.client
@@ -143,10 +208,10 @@ impl NativeClient {
     /// established @throws Error if the subscription fails
     #[napi(
         writable = false,
-        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, Message, \
-                        Record<string, string>]) => Promise<void>; onTimer: (err: null | Error, \
-                        args: [NativeContext, Timer, Record<string, string>]) => Promise<void>; \
-                        isPermanent: (args: [Error]) => boolean }"
+        ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
+                        Message, Record<string, string>]) => Promise<void>; onTimer: (err: null | \
+                        Error, args: [NativeContext, Timer, Record<string, string>]) => \
+                        Promise<void>; isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -192,6 +257,34 @@ impl NativeClient {
     pub fn source_system(&self) -> &str {
         self.client.source_system()
     }
+}
+
+fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
+    match (cache_ms, disabled.unwrap_or(false)) {
+        (Some(_), true) => Err(Error::from_reason(
+            "read cache cannot set both ttlMs and disabled",
+        )),
+        (None, true) => Ok(ErasedReadCache::Disabled),
+        (Some(0), false) => Err(Error::from_reason("read cache ttlMs must be positive")),
+        (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
+            milliseconds,
+        )))),
+        (None, false) => Ok(ErasedReadCache::Inherit),
+    }
+}
+
+/// Event metadata read off a payload before it was serialized.
+///
+/// Carrying it alongside the JSON text is what lets the send path forward the
+/// payload verbatim: neither side re-parses the document to recover these two
+/// fields.
+#[napi(object)]
+pub struct EventMetadata {
+    /// The payload's `id` field.
+    pub event_id: Option<String>,
+
+    /// The payload's `type` field.
+    pub event_type: Option<String>,
 }
 
 /// Current state of the consumer.

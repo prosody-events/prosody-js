@@ -1,8 +1,8 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
-use prosody::JsonCodec;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
+use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
@@ -23,6 +23,7 @@ use prosody::state::descriptor::{
     MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
 };
 use prosody::state::order_codec::Utf8KeyCodec;
+use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
 use std::collections::HashSet;
@@ -255,6 +256,12 @@ pub struct Configuration {
     /// then to the storage-engine default. Must be a positive safe integer.
     pub state_cache_size_bytes: Option<f64>,
 
+    /// Byte budget for the published-state read-through cache.
+    pub state_read_cache_size_bytes: Option<f64>,
+
+    /// Default cache policy for published-state reads.
+    pub state_read_cache: Option<ReadCacheConfiguration>,
+
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
     /// this. Falls back to the `PROSODY_STATE_RECOVERY_DELAY` environment
@@ -262,6 +269,9 @@ pub struct Configuration {
     /// a whole number of seconds >= 1 when set (fractional, negative, and
     /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
+
+    /// Subsystem under which published keyed-state collections are advertised.
+    pub subsystem: Option<String>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -287,6 +297,9 @@ pub struct StateCollectionConfig {
     /// once). Defaults to transactional.
     pub read_uncommitted: Option<bool>,
 
+    /// Whether other consumer groups may read this collection.
+    pub published: Option<bool>,
+
     /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
     /// disables ordered-scan tracking). Must be a whole number in that range
     /// (fractional, negative, and non-finite values are rejected). Invalid on
@@ -299,6 +312,15 @@ pub struct StateCollectionConfig {
     /// identity, and freely changeable across deploys; enforced lazily on push.
     /// Invalid on value or map collections.
     pub capacity: Option<f64>,
+}
+
+/// Default cache policy for published-state reads.
+#[napi(object)]
+pub struct ReadCacheConfiguration {
+    /// Cache duration in milliseconds.
+    pub ttl_ms: Option<f64>,
+    /// Read durable storage on every operation.
+    pub disabled: Option<bool>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -744,6 +766,7 @@ fn with_def<D: StateDescriptor>(
     descriptor: D,
     ttl_seconds: Option<u32>,
     read_uncommitted: Option<bool>,
+    published: Option<bool>,
 ) -> D {
     let mut descriptor = descriptor;
     if let Some(ttl) = ttl_seconds {
@@ -751,6 +774,9 @@ fn with_def<D: StateDescriptor>(
     }
     if read_uncommitted == Some(true) {
         descriptor = descriptor.read_uncommitted();
+    }
+    if let Some(published) = published {
+        descriptor = descriptor.published(published);
     }
     descriptor
 }
@@ -810,10 +836,10 @@ fn parse_capacity(
 
 /// Validates one collection and registers its descriptor.
 ///
-/// Message collections monomorphize over `KafkaLoader<JsonCodec>`. Their stored
-/// identity is loader-independent (the message ref codec and resolver carry
-/// fixed `"message-ref"` identifiers), so this matches the identity the erased
-/// vend path asserts using the session's own loader.
+/// Message collections monomorphize over `KafkaLoader<JsonBinaryCodec>`. Their
+/// stored identity is loader-independent (the message ref codec and resolver
+/// carry fixed `"message-ref"` identifiers), so this matches the identity the
+/// erased vend path asserts using the session's own loader.
 ///
 /// @param keyed The keyed-state configuration to register into.
 /// @param index The collection's index in `stateCollections`.
@@ -833,6 +859,7 @@ fn register_state_collection(
 
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, &collection.payload)?;
+    validate_publication(index, collection, &payload)?;
 
     let ttl_seconds = match collection.ttl_seconds {
         Some(value) => Some(whole_number_field(
@@ -868,24 +895,27 @@ fn register_state_collection(
     match (kind, payload) {
         (CollectionKind::Value, CollectionPayload::Json) => {
             let _ = keyed.register(with_def(
-                value_state::<JsonCodec>(name),
+                value_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
             let descriptor = with_def(
-                map_state::<Utf8KeyCodec, JsonCodec>(name),
+                map_state::<Utf8KeyCodec, JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
             let mut descriptor = with_def(
-                deque_state::<JsonCodec>(name),
+                deque_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -894,24 +924,27 @@ fn register_state_collection(
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
-                message_state::<KafkaLoader<JsonCodec>>(name),
+                message_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
-                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonCodec>>(name),
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let mut descriptor = with_def(
-                message_deque_state::<KafkaLoader<JsonCodec>>(name),
+                message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -920,6 +953,19 @@ fn register_state_collection(
         }
     }
 
+    Ok(())
+}
+
+fn validate_publication(
+    index: usize,
+    collection: &StateCollectionConfig,
+    payload: &CollectionPayload,
+) -> Result<()> {
+    if collection.published == Some(true) && matches!(payload, CollectionPayload::Message) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].published: published readers support JSON collections only"
+        )));
+    }
     Ok(())
 }
 
@@ -953,6 +999,38 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
     if let Some(bytes) = config.state_cache_size_bytes {
         let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
         builder.cache_size_bytes(Some(bytes));
+    }
+
+    if let Some(bytes) = config.state_read_cache_size_bytes {
+        let bytes = positive_safe_integer(bytes, "stateReadCacheSizeBytes")?;
+        builder.read_cache_size_bytes(Some(bytes));
+    }
+
+    if let Some(cache) = &config.state_read_cache {
+        match (cache.ttl_ms, cache.disabled.unwrap_or(false)) {
+            (None, false) => {}
+            (None, true) => {
+                builder.read_cache_ttl(None);
+            }
+            (Some(milliseconds), false) if milliseconds.is_finite() && milliseconds > 0.0_f64 => {
+                builder.read_cache_ttl(Some(Duration::from_secs_f64(milliseconds / 1_000.0)));
+            }
+            (Some(_), false) => {
+                return Err(Error::from_reason("stateReadCache.ttlMs: must be positive"));
+            }
+            (Some(_), true) => {
+                return Err(Error::from_reason(
+                    "stateReadCache: cannot set both ttlMs and disabled",
+                ));
+            }
+        }
+    }
+
+    if let Some(subsystem) = &config.subsystem {
+        builder.subsystem(Some(
+            SubsystemName::try_new(subsystem)
+                .map_err(|error| Error::from_reason(error.to_string()))?,
+        ));
     }
 
     let mut keyed = builder

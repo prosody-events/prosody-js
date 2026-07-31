@@ -273,12 +273,15 @@ Persistent storage for timers and deferred retries (not needed if `mock: true`):
 
 Register keyed-state collections before you subscribe. Persistence is backed by Cassandra and is not needed when `mock: true`. See the [Keyed State](#keyed-state-1) feature section for handler usage; the client-level knobs and per-collection fields are below. Where an option and an environment variable are paired, an explicitly set option wins; otherwise the environment variable applies, then the default.
 
-| Option / Environment Variable                                | Description                                                                                                                                                                                                                            | Default             |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `stateCollections` / -                                       | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)              |
-| `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`                  | Disk workspace for the local keyed-state cache; each live client needs its own directory (it is locked exclusively)                                                                                                                    | per-client temp dir |
-| `stateCacheSizeBytes` / `PROSODY_STATE_CACHE_SIZE_BYTES`     | Capacity of the in-memory keyed-state cache, in bytes; must be a positive safe integer. One cache is shared by all partition keyspaces                                                                                                 | engine default      |
-| `stateRecoveryDelaySeconds` / `PROSODY_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                 |
+| Option / Environment Variable                                     | Description                                                                                                                                                                                                                            | Default                      |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `stateCollections` / -                                            | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)                       |
+| `subsystem` / `PROSODY_SUBSYSTEM`                                 | Subsystem name used to advertise collections whose definitions set `published: true`                                                                                                                                                   | (none)                       |
+| `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`                       | Disk workspace for the local keyed-state cache; each live client needs its own directory (it is locked exclusively)                                                                                                                    | per-client temp dir          |
+| `stateCacheSizeBytes` / `PROSODY_STATE_CACHE_SIZE_BYTES`          | Capacity of the in-memory keyed-state cache, in bytes; must be a positive safe integer. One cache is shared by all partition keyspaces                                                                                                 | engine default               |
+| `stateReadCacheSizeBytes` / `PROSODY_STATE_READ_CACHE_SIZE_BYTES` | Byte budget for the published-state read-through cache; must be a positive safe integer                                                                                                                                                | state cache size, then 1 MiB |
+| `stateReadCache` / `PROSODY_STATE_READ_CACHE_TTL`                 | Default published-read cache policy. Use `{ ttlMs }` or `{ disabled: true }`                                                                                                                                                           | 5s                           |
+| `stateRecoveryDelaySeconds` / `PROSODY_STATE_RECOVERY_DELAY`      | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                          |
 
 Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Prefer the definition constructors (`value` / `map` / `deque` and their `message*` variants, documented below): they serialize into `stateCollections` so you declare each collection once and reuse the same object with `context.state()`.
 
@@ -289,6 +292,8 @@ Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Pref
 | `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received) | (required) |
 | `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)         | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                 | false      |
+| `published`       | Allow other clients to read this JSON collection without subscribing                | false      |
+| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted        | inherit    |
 | `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)     | 128        |
 | `capacity`        | Deque-only; bounded backlog (a whole number `>= 1`), enforced lazily on push        | (none)     |
 
@@ -666,6 +671,46 @@ Keyed state gives every Kafka key its own durable working memory. Prosody automa
 Use keyed state for time-aware stream processing: counters, deduplication, rolling aggregates, pending work, and per-key workflows. Keep your relational database as the source of truth for business data and for work that needs joins or ad hoc queries. Reconstructing stream state with repeated database queries can be slow and expensive; keyed state is built for that job.
 
 Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
+
+### Published state
+
+Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, names its `subsystem`, and registers the definition as usual:
+
+```js
+const CART = value("cart", {
+  published: true,
+  readCache: { ttlMs: 2_000 },
+});
+const ITEMS = map("items", { published: true });
+const owner = new ProsodyClient({
+  ...config,
+  subsystem: "carts",
+  stateCollections: [CART, ITEMS],
+});
+
+// Inside the owner's handler, the event supplies the user key.
+const cart = context.state(CART);
+await cart.set({ sku: "book" });
+```
+
+Another client opens a reader by naming the subsystem and passing that same definition. The reader is independent of subscriptions and only returns committed state:
+
+```js
+const cartReader = await client.state("carts", CART);
+const cart = await cartReader.get("user-1");
+
+const itemReader = await client.state("carts", ITEMS);
+if (await itemReader.has("user-1", "sku-1")) {
+  // Presence checks do not decode the value.
+}
+for await (const [key, value] of itemReader.entries("user-1")) {
+  // Entries are ordered by key.
+}
+```
+
+Published readers provide the owned collection's read operations without its mutations. An owned handle gets the user key from the current event; a published reader is outside a handler, so every operation takes that key explicitly. Map and deque iteration is asynchronous and reads in chunks rather than loading the entire collection.
+
+The default cache window is five seconds unless the client configuration changes it. Set `readCache: { ttlMs }` on a definition to choose a different freshness window, or `readCache: false` to read durable storage on every operation. To stop publishing a collection, deploy its definition with `published: false` while keeping it registered and retaining `subsystem` for that deployment.
 
 ### A counter for each key
 
@@ -1053,6 +1098,9 @@ your changes before merging to `main`.
   topic.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
+- `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
+- `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
+- `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>`: Subscribe using a handler whose payload type flows into `Message<P>`.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
 
@@ -1112,14 +1160,14 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 Definition constructors (each returns a frozen definition object used both in `Configuration.stateCollections` and with `context.state()`):
 
-- `value<T = JsonValue>(name: string, options?: StateDefinitionOptions): ValueDefinition<T>`
+- `value<T = JsonValue>(name: string, options?: PublishedStateDefinitionOptions): ValueDefinition<T>`
 - `map<V = JsonValue>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
-- `deque<T = JsonValue>(name: string, options?: StateDefinitionOptions): DequeDefinition<T>`
+- `deque<T = JsonValue>(name: string, options?: DequeDefinitionOptions): DequeDefinition<T>`
 - `messageValue<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
-- `messageMap<P = JsonValue>(name: string, options?: MapDefinitionOptions): MessageMapDefinition<P>`
-- `messageDeque<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageDequeDefinition<P>`
+- `messageMap<P = JsonValue>(name: string, options?: MessageMapDefinitionOptions): MessageMapDefinition<P>`
+- `messageDeque<P = JsonValue>(name: string, options?: MessageDequeDefinitionOptions): MessageDequeDefinition<P>`
 
-`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `MapDefinitionOptions` extends it with `keysetLimit?: number`.
+`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options.
 
 `ValueState<T>`:
 
@@ -1161,7 +1209,9 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `ScanDirection`: `"forward" | "backward"`.
 
-`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; keysetLimit?: number }`. The definition constructors produce objects assignable to this shape, so prefer them.
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
+
+`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; readCache?: { ttlMs: number } | false; keysetLimit?: number; capacity?: number }`. Publication and `readCache` are supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
 
 Errors:
 

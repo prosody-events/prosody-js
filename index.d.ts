@@ -9,10 +9,11 @@ import type {
   ConsumerState,
   Message as NativeMessage,
   Mode,
+  ReadCacheConfiguration,
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, Timer, Mode };
+export { Configuration, ConsumerState, ReadCacheConfiguration, Timer, Mode };
 
 /** A primitive value representable in JSON. */
 export type JsonPrimitive = null | boolean | number | string;
@@ -48,6 +49,10 @@ export type JsonCompatible<T> = T extends JsonPrimitive
  * payload is unchanged. An unparameterized `Message` uses {@link JsonValue};
  * provide an application payload type for precise field-level checking.
  * Message-backed keyed-state collections vend their items as `Message<P>`.
+ *
+ * A message can be stored into a message collection, whether it arrived from the
+ * topic or was read back out of a collection. What is stored is the message
+ * itself, so mutating its parsed `payload` does not change what is written.
  */
 export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */
@@ -185,8 +190,16 @@ export interface StateDefinitionOptions {
   readUncommitted?: boolean;
 }
 
+/** Options accepted by JSON collections that may be published. */
+export interface PublishedStateDefinitionOptions extends StateDefinitionOptions {
+  /** Allow read-only access from other consumer groups. */
+  published?: boolean;
+  /** Override caching when this descriptor opens a published reader. */
+  readCache?: ReadCacheOptions | false;
+}
+
 /** Options accepted by the map definition constructors. */
-export interface MapDefinitionOptions extends StateDefinitionOptions {
+export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
    * disables ordered-scan tracking). Map collections only.
@@ -195,7 +208,7 @@ export interface MapDefinitionOptions extends StateDefinitionOptions {
 }
 
 /** Options accepted by the deque definition constructors. */
-export interface DequeDefinitionOptions extends StateDefinitionOptions {
+export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Optional maximum element count (bounded backlog). Must be a whole number
    * >= 1. Runtime-only: not persisted, not part of collection identity, and
@@ -206,47 +219,70 @@ export interface DequeDefinitionOptions extends StateDefinitionOptions {
   capacity?: number;
 }
 
+/** Options accepted by message-map definitions, which cannot be published. */
+export interface MessageMapDefinitionOptions extends StateDefinitionOptions {
+  /** Keyset bound for ordered scans (`0..=4096`; default 128 core-side). */
+  keysetLimit?: number;
+}
+
+/** Options accepted by message-deque definitions, which cannot be published. */
+export interface MessageDequeDefinitionOptions extends StateDefinitionOptions {
+  /** Optional maximum element count. Must be a whole number >= 1. */
+  capacity?: number;
+}
+
 /**
  * Phantom brand carrying a definition's item type. Never present at runtime —
  * it exists only so the item type survives on the frozen definition object and
  * flows into the vended handle.
  */
 declare const StateItem: unique symbol;
+declare const StateDescriptor: unique symbol;
+
+interface DefinitionBrand {
+  readonly [StateDescriptor]: true;
+}
 
 /** A frozen single-value JSON collection definition. */
-export interface ValueDefinition<T = JsonValue> {
+export interface ValueDefinition<T = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly [StateItem]?: T;
 }
 
 /** A frozen ordered-map JSON collection definition (string keys). */
-export interface MapDefinition<V = JsonValue> {
+export interface MapDefinition<V = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly keysetLimit?: number;
   readonly [StateItem]?: V;
 }
 
 /** A frozen deque JSON collection definition. */
-export interface DequeDefinition<T = JsonValue> {
+export interface DequeDefinition<T = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "json";
   readonly ttlSeconds?: number;
   readonly readUncommitted?: boolean;
+  readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
   readonly capacity?: number;
   readonly [StateItem]?: T;
 }
 
 /** A frozen single-value message collection definition (items are `Message<P>`). */
-export interface MessageValueDefinition<P = JsonValue> {
+export interface MessageValueDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "message";
@@ -256,7 +292,7 @@ export interface MessageValueDefinition<P = JsonValue> {
 }
 
 /** A frozen ordered-map message collection definition (values are `Message<P>`). */
-export interface MessageMapDefinition<P = JsonValue> {
+export interface MessageMapDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "message";
@@ -267,7 +303,7 @@ export interface MessageMapDefinition<P = JsonValue> {
 }
 
 /** A frozen deque message collection definition (elements are `Message<P>`). */
-export interface MessageDequeDefinition<P = JsonValue> {
+export interface MessageDequeDefinition<P = JsonValue> extends DefinitionBrand {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "message";
@@ -284,11 +320,12 @@ export interface MessageDequeDefinition<P = JsonValue> {
  * handle. The type parameter annotates the stored value and is compile-time
  * only — payloads cross as plain JSON with no runtime validation.
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param options - Optional retention, transaction, publication, and read-cache
+ *   settings.
  */
 export function value<T = JsonValue>(
   name: string,
-  options?: StateDefinitionOptions,
+  options?: PublishedStateDefinitionOptions,
 ): ValueDefinition<T>;
 
 /**
@@ -297,7 +334,8 @@ export function value<T = JsonValue>(
  * and with `Context.state()`. The type parameter annotates the stored value
  * (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `keysetLimit` settings.
  */
 export function map<V = JsonValue>(
   name: string,
@@ -309,8 +347,8 @@ export function map<V = JsonValue>(
  * is used both in `Configuration.stateCollections` and with `Context.state()`.
  * The type parameter annotates the stored element (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
- *   `capacity` (bounded backlog; enforced lazily on push).
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `capacity` settings.
  */
 export function deque<T = JsonValue>(
   name: string,
@@ -338,7 +376,7 @@ export function messageValue<P = JsonValue>(
  */
 export function messageMap<P = JsonValue>(
   name: string,
-  options?: MapDefinitionOptions,
+  options?: MessageMapDefinitionOptions,
 ): MessageMapDefinition<P>;
 
 /**
@@ -351,7 +389,7 @@ export function messageMap<P = JsonValue>(
  */
 export function messageDeque<P = JsonValue>(
   name: string,
-  options?: DequeDefinitionOptions,
+  options?: MessageDequeDefinitionOptions,
 ): MessageDequeDefinition<P>;
 
 /**
@@ -611,6 +649,22 @@ export declare class ProsodyClient {
    */
   isStalled(): Promise<boolean>;
 
+  /** Opens a read-only view of a published JSON value collection. */
+  state<T>(
+    subsystem: string,
+    definition: ValueDefinition<T>,
+  ): Promise<PublishedValue<T>>;
+  /** Opens a read-only view of a published JSON map collection. */
+  state<V>(
+    subsystem: string,
+    definition: MapDefinition<V>,
+  ): Promise<PublishedMap<V>>;
+  /** Opens a read-only view of a published JSON deque collection. */
+  state<T>(
+    subsystem: string,
+    definition: DequeDefinition<T>,
+  ): Promise<PublishedDeque<T>>;
+
   /**
    * Gets the source system identifier configured for the client.
    *
@@ -651,6 +705,38 @@ export declare class ProsodyClient {
    * @throws Error if the unsubscribe operation fails.
    */
   unsubscribe(): Promise<void>;
+}
+
+/** Per-collection cache override for published reads. */
+export interface ReadCacheOptions {
+  /** Cache duration in milliseconds. */
+  ttlMs: number;
+}
+
+/** Read-only published value collection. */
+export declare class PublishedValue<T = JsonValue> {
+  get(key: string): Promise<T | null>;
+}
+
+/** Read-only published map collection. */
+export declare class PublishedMap<V = JsonValue> {
+  get(key: string, mapKey: string): Promise<V | null>;
+  getMany(key: string, mapKeys: string[]): Promise<Array<V | null>>;
+  has(key: string, mapKey: string): Promise<boolean>;
+  entries(
+    key: string,
+    direction?: ScanDirection,
+  ): AsyncIterableIterator<[string, V]>;
+  keys(key: string, direction?: ScanDirection): AsyncIterableIterator<string>;
+  values(key: string, direction?: ScanDirection): AsyncIterableIterator<V>;
+}
+
+/** Read-only published deque collection. */
+export declare class PublishedDeque<T = JsonValue> {
+  length(key: string): Promise<number>;
+  isEmpty(key: string): Promise<boolean>;
+  at(key: string, index: number): Promise<T | null>;
+  values(key: string, direction?: ScanDirection): AsyncIterableIterator<T>;
 }
 
 /**
