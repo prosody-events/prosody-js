@@ -84,12 +84,16 @@ export async function checks(): Promise<void> {
   for await (const [key, total] of publishedTotals.entries("user-1")) {
     assertTrue<Equal<typeof key, string>>();
     assertTrue<Equal<typeof total, number>>();
+    void key;
+    void total;
   }
   for await (const key of publishedTotals.keys("user-1", "backward")) {
     assertTrue<Equal<typeof key, string>>();
+    void key;
   }
   for await (const total of publishedTotals.values("user-1")) {
     assertTrue<Equal<typeof total, number>>();
+    void total;
   }
   assertTrue<
     Equal<Awaited<ReturnType<typeof publishedTags.at>>, string | null>
@@ -99,6 +103,7 @@ export async function checks(): Promise<void> {
   >();
   for await (const tag of publishedTags.values("user-1")) {
     assertTrue<Equal<typeof tag, string>>();
+    void tag;
   }
 
   // ---- value ----
