@@ -227,9 +227,10 @@ in the same commit as any API change.
 
 ## Documentation Standards
 
-**All code comments, technical documentation, READMEs, and plans must conform
-to ASD-STE100 (Simplified Technical English).** Apply these primary STE rules
-in everything you write for this project:
+**All code comments, technical documentation, READMEs, plans, commit
+messages, and PR descriptions must conform to ASD-STE100 (Simplified
+Technical English).** Apply these primary STE rules in everything you write
+for this project:
 
 - Use the active voice. Write instructions in the imperative.
 - Write short sentences: 20 words or fewer for instructions, 25 words or
