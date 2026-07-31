@@ -45,29 +45,14 @@ impl NativeClient {
     pub fn new(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
         let consumer_builders = build_consumer_builders(&config)?;
-        let cassandra_config = build_cassandra_config(&config);
+        let cassandra = build_cassandra_config(&config);
 
         let client = within_runtime_if_available(|| -> StdResult<_, String> {
-            let mock = consumer_builders
-                .consumer
-                .clone()
-                .build()
-                .map_err(|error| error.to_string())?
-                .mock;
-            let cassandra = if mock {
-                None
-            } else {
-                Some(
-                    cassandra_config
-                        .build()
-                        .map_err(|error| error.to_string())?,
-                )
-            };
             new_erased(
                 config.mode.unwrap_or_default().into(),
                 &mut producer_config,
                 &consumer_builders,
-                cassandra,
+                &cassandra,
             )
             .map_err(|error| error.to_string())
         })
