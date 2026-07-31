@@ -215,6 +215,18 @@ export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions 
   capacity?: number;
 }
 
+/** Options accepted by message-map definitions, which cannot be published. */
+export interface MessageMapDefinitionOptions extends StateDefinitionOptions {
+  /** Keyset bound for ordered scans (`0..=4096`; default 128 core-side). */
+  keysetLimit?: number;
+}
+
+/** Options accepted by message-deque definitions, which cannot be published. */
+export interface MessageDequeDefinitionOptions extends StateDefinitionOptions {
+  /** Optional maximum element count. Must be a whole number >= 1. */
+  capacity?: number;
+}
+
 /**
  * Phantom brand carrying a definition's item type. Never present at runtime —
  * it exists only so the item type survives on the frozen definition object and
@@ -304,7 +316,8 @@ export interface MessageDequeDefinition<P = JsonValue> extends DefinitionBrand {
  * handle. The type parameter annotates the stored value and is compile-time
  * only — payloads cross as plain JSON with no runtime validation.
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds) and `readUncommitted`.
+ * @param options - Optional retention, transaction, publication, and read-cache
+ *   settings.
  */
 export function value<T = JsonValue>(
   name: string,
@@ -317,7 +330,8 @@ export function value<T = JsonValue>(
  * and with `Context.state()`. The type parameter annotates the stored value
  * (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds`, `readUncommitted`, and `keysetLimit`.
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `keysetLimit` settings.
  */
 export function map<V = JsonValue>(
   name: string,
@@ -329,8 +343,8 @@ export function map<V = JsonValue>(
  * is used both in `Configuration.stateCollections` and with `Context.state()`.
  * The type parameter annotates the stored element (compile-time only).
  * @param name - The collection name (unique per client).
- * @param options - Optional `ttlSeconds` (whole seconds), `readUncommitted`, and
- *   `capacity` (bounded backlog; enforced lazily on push).
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `capacity` settings.
  */
 export function deque<T = JsonValue>(
   name: string,
@@ -358,7 +372,7 @@ export function messageValue<P = JsonValue>(
  */
 export function messageMap<P = JsonValue>(
   name: string,
-  options?: MapDefinitionOptions,
+  options?: MessageMapDefinitionOptions,
 ): MessageMapDefinition<P>;
 
 /**
@@ -371,7 +385,7 @@ export function messageMap<P = JsonValue>(
  */
 export function messageDeque<P = JsonValue>(
   name: string,
-  options?: DequeDefinitionOptions,
+  options?: MessageDequeDefinitionOptions,
 ): MessageDequeDefinition<P>;
 
 /**

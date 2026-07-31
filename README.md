@@ -292,6 +292,8 @@ Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Pref
 | `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received) | (required) |
 | `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)         | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                 | false      |
+| `published`       | Allow other clients to read this JSON collection without subscribing                | false      |
+| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted         | inherit    |
 | `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)     | 128        |
 | `capacity`        | Deque-only; bounded backlog (a whole number `>= 1`), enforced lazily on push        | (none)     |
 
@@ -668,9 +670,11 @@ Keyed state gives every Kafka key its own durable working memory. Prosody automa
 
 Use keyed state for time-aware stream processing: counters, deduplication, rolling aggregates, pending work, and per-key workflows. Keep your relational database as the source of truth for business data and for work that needs joins or ad hoc queries. Reconstructing stream state with repeated database queries can be slow and expensive; keyed state is built for that job.
 
+Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
+
 ### Published state
 
-JSON value, map, and deque collections can be read from another consumer group without subscribing or acquiring its partitions. The owner opts in with `published: true` and names a `stateSubsystem`:
+Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, gives its state a `stateSubsystem`, and registers the definition as usual:
 
 ```js
 const CART = value("cart", {
@@ -683,9 +687,13 @@ const owner = new ProsodyClient({
   stateSubsystem: "carts",
   stateCollections: [CART, ITEMS],
 });
+
+// Inside the owner's handler, the event supplies the user key.
+const cart = context.state(CART);
+await cart.set({ sku: "book" });
 ```
 
-Another client opens a read-only view with the same definition. Reads return committed values only:
+Another client opens a reader by naming the subsystem and passing that same definition. The reader is independent of subscriptions and only returns committed state:
 
 ```js
 const cartReader = await client.state("carts", CART);
@@ -700,9 +708,9 @@ for await (const [key, value] of itemReader.entries("user-1")) {
 }
 ```
 
-Published maps provide the same read operations as owned maps: `get`, `getMany`, `has`, `entries`, `keys`, and `values`. Published deques likewise provide `at`, `length`, `isEmpty`, and `values`. An owned handle gets its state key from the current event; a published reader is outside a handler, so each operation receives that state key explicitly. All scans use the same chunked cursor transport as owned state. Set `readCache: { ttlMs }` on the descriptor to override the configured read cache, or `readCache: false` to read durable storage on every operation. To retire a publication, deploy the collection with `published: false` while retaining both its registration and `stateSubsystem` for that deploy.
+Published readers provide the owned collection's read operations without its mutations. An owned handle gets the user key from the current event; a published reader is outside a handler, so every operation takes that key explicitly. Map and deque iteration is asynchronous and reads in chunks rather than loading the entire collection.
 
-Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
+The default cache window is five seconds unless the client configuration changes it. Set `readCache: { ttlMs }` on a definition to choose a different freshness window, or `readCache: false` to read durable storage on every operation. To stop publishing a collection, deploy its definition with `published: false` while keeping it registered and retaining `stateSubsystem` for that deployment.
 
 ### A counter for each key
 
@@ -1090,6 +1098,9 @@ your changes before merging to `main`.
   topic.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
+- `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
+- `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
+- `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>`: Subscribe using a handler whose payload type flows into `Message<P>`.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
 
@@ -1149,14 +1160,14 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 Definition constructors (each returns a frozen definition object used both in `Configuration.stateCollections` and with `context.state()`):
 
-- `value<T = JsonValue>(name: string, options?: StateDefinitionOptions): ValueDefinition<T>`
+- `value<T = JsonValue>(name: string, options?: PublishedStateDefinitionOptions): ValueDefinition<T>`
 - `map<V = JsonValue>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
-- `deque<T = JsonValue>(name: string, options?: StateDefinitionOptions): DequeDefinition<T>`
+- `deque<T = JsonValue>(name: string, options?: DequeDefinitionOptions): DequeDefinition<T>`
 - `messageValue<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
-- `messageMap<P = JsonValue>(name: string, options?: MapDefinitionOptions): MessageMapDefinition<P>`
-- `messageDeque<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageDequeDefinition<P>`
+- `messageMap<P = JsonValue>(name: string, options?: MessageMapDefinitionOptions): MessageMapDefinition<P>`
+- `messageDeque<P = JsonValue>(name: string, options?: MessageDequeDefinitionOptions): MessageDequeDefinition<P>`
 
-`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `MapDefinitionOptions` extends it with `keysetLimit?: number`.
+`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options.
 
 `ValueState<T>`:
 
@@ -1198,7 +1209,9 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `ScanDirection`: `"forward" | "backward"`.
 
-`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; keysetLimit?: number }`. Publication is supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
+
+`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; readCache?: { ttlMs: number } | false; keysetLimit?: number; capacity?: number }`. Publication and `readCache` are supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
 
 Errors:
 
