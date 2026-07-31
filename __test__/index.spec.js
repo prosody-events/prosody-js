@@ -108,6 +108,30 @@ test("published state uses the owned read method names", async () => {
   expect(await dequeState.at("user-1", -1)).toBe("last");
 });
 
+test("published scans return an async iterator and open lazily", async () => {
+  const cursor = {
+    nextChunk: jest
+      .fn()
+      .mockResolvedValueOnce([["item", 7]])
+      .mockResolvedValueOnce(null),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+  const scan = jest.fn().mockResolvedValue(cursor);
+  const entries = new PublishedMap({ scan }).entries("user-1");
+
+  expect(scan).not.toHaveBeenCalled();
+  expect(entries[Symbol.asyncIterator]()).toBe(entries);
+  await expect(entries.next()).resolves.toEqual({
+    value: ["item", 7],
+    done: false,
+  });
+  expect(scan).toHaveBeenCalledTimes(1);
+  await expect(entries.next()).resolves.toEqual({
+    value: undefined,
+    done: true,
+  });
+});
+
 test("descriptors retain their owned and published access strategies", async () => {
   const publishedCalls = [];
   const client = Object.create(ProsodyClient.prototype);

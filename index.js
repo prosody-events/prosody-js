@@ -860,18 +860,26 @@ function messageDeque(name, options) {
  * or early-exit path is normalized through `toStateError`, so every keyed-state
  * failure a caller can observe is a `PermanentStateError`/`TransientStateError`.
  *
- * The iterator is valid only within the handler invocation (attempt) that
- * opened it; a cursor leaked past the attempt errors on its next pull.
- * @param {object} cursor - The native scan cursor.
+ * Owned cursors remain attempt-fenced. Published cursors remain valid with
+ * their standalone reader.
+ * @param {object|(() => Promise<object>)} source - The native scan cursor, or
+ *   a lazy asynchronous cursor opener.
  * @param {(item: *) => *} transform - Maps each raw item to the yielded value.
  * @returns {AsyncIterableIterator<*>} The async iterator.
  * @private
  */
-function stateIterator(cursor, transform) {
+function stateIterator(source, transform) {
+  let cursor;
   let finished = false;
   let chunk = [];
   let offset = 0;
   let queue = Promise.resolve();
+  const openCursor = async () => {
+    if (cursor === undefined) {
+      cursor = typeof source === "function" ? await source() : source;
+    }
+    return cursor;
+  };
   // Serialize the complete iterator protocol, not just native pulls. Without
   // this queue, concurrent next() continuations can both reset `offset` after
   // awaiting the same chunk and yield the same first item. return() shares the
@@ -889,6 +897,7 @@ function stateIterator(cursor, transform) {
   // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
   // from `close()` is swallowed too.
   const closeQuietly = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch {
@@ -898,6 +907,7 @@ function stateIterator(cursor, transform) {
   // Close on clean exhaustion / early exit, where there is no primary error to
   // mask: a close failure surfaces through the state-error model.
   const closeOrThrow = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch (error) {
@@ -912,7 +922,7 @@ function stateIterator(cursor, transform) {
           chunk = [];
           offset = 0;
           try {
-            chunk = await cursor.nextChunk(injectedCarrier());
+            chunk = await (await openCursor()).nextChunk(injectedCarrier());
           } catch (error) {
             finished = true;
             await closeQuietly();
@@ -958,10 +968,8 @@ function stateIterator(cursor, transform) {
 }
 
 /**
- * Typed handle over a single-value keyed-state collection, vended by
- * {@link Context#state}. Core records one semantic span per operation; this
- * binding propagates context without adding an N-API span. Handles are valid
- * only within the handler invocation (attempt) that vended them.
+ * Read-only handle over a published single-value collection. It is independent
+ * of subscription and remains valid for the lifetime of its client.
  */
 class PublishedValue {
   constructor(native) {
@@ -990,23 +998,23 @@ class PublishedMap {
     return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
   }
 
-  async entries(key, direction = "forward") {
+  entries(key, direction = "forward") {
     return stateIterator(
-      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (entry) => entry,
     );
   }
 
-  async keys(key, direction = "forward") {
+  keys(key, direction = "forward") {
     return stateIterator(
-      await stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      () => stateOp((carrier) => this.native.keys(key, direction, carrier)),
       (mapKey) => mapKey,
     );
   }
 
-  async values(key, direction = "forward") {
+  values(key, direction = "forward") {
     return stateIterator(
-      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (entry) => entry[1],
     );
   }
@@ -1044,9 +1052,9 @@ class PublishedDeque {
     return stateOp((carrier) => this.native.get(key, position, carrier));
   }
 
-  async values(key, direction = "forward") {
+  values(key, direction = "forward") {
     return stateIterator(
-      await stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
       (item) => item,
     );
   }

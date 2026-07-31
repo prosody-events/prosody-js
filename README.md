@@ -695,7 +695,7 @@ const itemReader = await client.state("carts", ITEMS);
 if (await itemReader.has("user-1", "sku-1")) {
   // Presence checks do not decode the value.
 }
-for await (const [key, value] of await itemReader.entries("user-1")) {
+for await (const [key, value] of itemReader.entries("user-1")) {
   // Entries are ordered by key.
 }
 ```
