@@ -1,6 +1,7 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
+use prosody::ByteSize;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
@@ -251,13 +252,11 @@ pub struct Configuration {
     /// empty string when set.
     pub state_cache_dir: Option<String>,
 
-    /// Capacity of the in-memory keyed-state cache, in bytes. Falls back to
-    /// `PROSODY_STATE_CACHE_SIZE_BYTES`,
-    /// then to the storage-engine default. Must be a positive safe integer.
-    pub state_cache_size_bytes: Option<f64>,
+    /// Capacity of the owning keyed-state cache. Accepts a human-readable size.
+    pub state_owned_cache_size: Option<String>,
 
-    /// Byte budget for the published-state read-through cache.
-    pub state_read_cache_size_bytes: Option<f64>,
+    /// Capacity of the published-state read-through cache.
+    pub state_read_cache_size: Option<String>,
 
     /// Default cache policy for published-state reads.
     pub state_read_cache: Option<ReadCacheConfiguration>,
@@ -996,14 +995,18 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
         builder.recovery_delay(CompactDuration::new(seconds));
     }
 
-    if let Some(bytes) = config.state_cache_size_bytes {
-        let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
-        builder.cache_size_bytes(Some(bytes));
+    if let Some(size) = &config.state_owned_cache_size {
+        let size = size
+            .parse::<ByteSize>()
+            .map_err(|error| Error::from_reason(format!("stateOwnedCacheSize: {error}")))?;
+        builder.owned_cache_size(Some(size));
     }
 
-    if let Some(bytes) = config.state_read_cache_size_bytes {
-        let bytes = positive_safe_integer(bytes, "stateReadCacheSizeBytes")?;
-        builder.read_cache_size_bytes(Some(bytes));
+    if let Some(size) = &config.state_read_cache_size {
+        let size = size
+            .parse::<ByteSize>()
+            .map_err(|error| Error::from_reason(format!("stateReadCacheSize: {error}")))?;
+        builder.read_cache_size(Some(size));
     }
 
     if let Some(cache) = &config.state_read_cache {

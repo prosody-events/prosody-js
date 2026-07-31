@@ -27,7 +27,7 @@ napi = { version = "3.8", features = [
 napi-derive = "3.5"
 opentelemetry = "0.32"
 # TODO: replace this Git revision with the published Prosody release once the backend change is released.
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "3ab47cc37ccbe5dae45351f4d57a8079eaf4b2bd", features = ["libz-static"] }
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "03f83b93ce598f4ded35396aa2f6d1ac30bfefdc", features = ["libz-static"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["sync"] }

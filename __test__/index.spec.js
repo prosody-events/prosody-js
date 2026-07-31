@@ -78,7 +78,7 @@ test("published state options stay on the descriptor", () => {
 test.each([
   { stateReadCache: { ttlMs: 0 } },
   { stateReadCache: { disabled: true, ttlMs: 1 } },
-  { stateReadCacheSizeBytes: 0 },
+  { stateReadCacheSize: "0" },
 ])("rejects invalid published read cache config %p", (options) => {
   expect(
     () =>
@@ -2712,12 +2712,12 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/stateRecoveryDelaySeconds/);
   });
 
-  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-    "rejects invalid stateCacheSizeBytes %p",
-    (stateCacheSizeBytes) => {
+  it.each(["0", "-1 MiB", "nonsense"])(
+    "rejects invalid stateOwnedCacheSize %p",
+    (stateOwnedCacheSize) => {
       expect(
-        () => new ProsodyClient(makeConfig({ stateCacheSizeBytes })),
-      ).toThrow(/stateCacheSizeBytes: must be a positive safe integer/);
+        () => new ProsodyClient(makeConfig({ stateOwnedCacheSize })),
+      ).toThrow(/stateOwnedCacheSize/);
     },
   );
 

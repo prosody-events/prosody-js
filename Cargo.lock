@@ -1680,6 +1680,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "parse-size"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1805,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.5.0"
-source = "git+https://github.com/prosody-events/prosody?rev=3ab47cc37ccbe5dae45351f4d57a8079eaf4b2bd#3ab47cc37ccbe5dae45351f4d57a8079eaf4b2bd"
+source = "git+https://github.com/prosody-events/prosody?rev=03f83b93ce598f4ded35396aa2f6d1ac30bfefdc#03f83b93ce598f4ded35396aa2f6d1ac30bfefdc"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -1833,6 +1839,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "parse-size",
  "paste",
  "pin-project",
  "portable-atomic",
