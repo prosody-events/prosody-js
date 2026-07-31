@@ -28,7 +28,7 @@ use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
 use std::collections::HashSet;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -737,20 +737,6 @@ fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32
     } else {
         Err(Error::from_reason(format!(
             "{field}: must be a whole number in {min}..={max}"
-        )))
-    }
-}
-
-/// Validates a positive JS safe integer.
-fn positive_safe_integer(value: f64, field: &str) -> Result<NonZeroU64> {
-    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-
-    if value.is_finite() && value.fract() == 0.0 && (1.0..=MAX_SAFE_INTEGER).contains(&value) {
-        NonZeroU64::new(value as u64)
-            .ok_or_else(|| Error::from_reason(format!("{field}: must be greater than 0")))
-    } else {
-        Err(Error::from_reason(format!(
-            "{field}: must be a positive safe integer"
         )))
     }
 }
