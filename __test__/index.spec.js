@@ -97,8 +97,8 @@ test("published state uses the owned read method names", async () => {
   };
   const dequeNative = {
     isEmpty: jest.fn().mockResolvedValue(false),
-    peekFront: jest.fn().mockResolvedValue("first"),
-    peekBack: jest.fn().mockResolvedValue("last"),
+    peekFront: jest.fn().mockResolvedValue(JSON.stringify("first")),
+    peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
   };
 
   expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
