@@ -276,7 +276,7 @@ Register keyed-state collections before you subscribe. Persistence is backed by 
 | Option / Environment Variable                                     | Description                                                                                                                                                                                                                            | Default                      |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | `stateCollections` / -                                            | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)                       |
-| `stateSubsystem` / -                                              | Subsystem name used to advertise collections whose definitions set `published: true`                                                                                                                                                   | (none)                       |
+| `subsystem` / `PROSODY_SUBSYSTEM`                                 | Subsystem name used to advertise collections whose definitions set `published: true`                                                                                                                                                   | (none)                       |
 | `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`                       | Disk workspace for the local keyed-state cache; each live client needs its own directory (it is locked exclusively)                                                                                                                    | per-client temp dir          |
 | `stateCacheSizeBytes` / `PROSODY_STATE_CACHE_SIZE_BYTES`          | Capacity of the in-memory keyed-state cache, in bytes; must be a positive safe integer. One cache is shared by all partition keyspaces                                                                                                 | engine default               |
 | `stateReadCacheSizeBytes` / `PROSODY_STATE_READ_CACHE_SIZE_BYTES` | Byte budget for the published-state read-through cache; must be a positive safe integer                                                                                                                                                | state cache size, then 1 MiB |
@@ -293,7 +293,7 @@ Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Pref
 | `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)         | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                 | false      |
 | `published`       | Allow other clients to read this JSON collection without subscribing                | false      |
-| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted         | inherit    |
+| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted        | inherit    |
 | `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)     | 128        |
 | `capacity`        | Deque-only; bounded backlog (a whole number `>= 1`), enforced lazily on push        | (none)     |
 
@@ -674,7 +674,7 @@ Most collections should have a TTL. Set it comfortably beyond the longest timer 
 
 ### Published state
 
-Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, gives its state a `stateSubsystem`, and registers the definition as usual:
+Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, names its `subsystem`, and registers the definition as usual:
 
 ```js
 const CART = value("cart", {
@@ -684,7 +684,7 @@ const CART = value("cart", {
 const ITEMS = map("items", { published: true });
 const owner = new ProsodyClient({
   ...config,
-  stateSubsystem: "carts",
+  subsystem: "carts",
   stateCollections: [CART, ITEMS],
 });
 
@@ -710,7 +710,7 @@ for await (const [key, value] of itemReader.entries("user-1")) {
 
 Published readers provide the owned collection's read operations without its mutations. An owned handle gets the user key from the current event; a published reader is outside a handler, so every operation takes that key explicitly. Map and deque iteration is asynchronous and reads in chunks rather than loading the entire collection.
 
-The default cache window is five seconds unless the client configuration changes it. Set `readCache: { ttlMs }` on a definition to choose a different freshness window, or `readCache: false` to read durable storage on every operation. To stop publishing a collection, deploy its definition with `published: false` while keeping it registered and retaining `stateSubsystem` for that deployment.
+The default cache window is five seconds unless the client configuration changes it. Set `readCache: { ttlMs }` on a definition to choose a different freshness window, or `readCache: false` to read durable storage on every operation. To stop publishing a collection, deploy its definition with `published: false` while keeping it registered and retaining `subsystem` for that deployment.
 
 ### A counter for each key
 

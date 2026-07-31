@@ -271,7 +271,7 @@ pub struct Configuration {
     pub state_recovery_delay_seconds: Option<f64>,
 
     /// Subsystem under which published keyed-state collections are advertised.
-    pub state_subsystem: Option<String>,
+    pub subsystem: Option<String>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -1026,7 +1026,7 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
         }
     }
 
-    if let Some(subsystem) = &config.state_subsystem {
+    if let Some(subsystem) = &config.subsystem {
         builder.subsystem(Some(
             SubsystemName::try_new(subsystem)
                 .map_err(|error| Error::from_reason(error.to_string()))?,
