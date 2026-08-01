@@ -677,35 +677,26 @@ Most collections should have a TTL. Set it comfortably beyond the longest timer 
 Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, names its `subsystem`, and registers the definition as usual:
 
 ```js
-const CART = value("cart", {
+const CURRENT_ORDER = value("current-order", {
   published: true,
   readCache: { ttlMs: 2_000 },
 });
-const ITEMS = map("items", { published: true });
 const owner = new ProsodyClient({
   ...config,
   subsystem: "checkout",
-  stateCollections: [CART, ITEMS],
+  stateCollections: [CURRENT_ORDER],
 });
 
 // Inside the owner's handler, the event supplies the user key.
-const cart = context.state(CART);
-await cart.set({ sku: "book" });
+const currentOrder = context.state(CURRENT_ORDER);
+await currentOrder.set({ sku: "book" });
 ```
 
 Another client opens a reader by naming the subsystem and passing that same definition. The reader is independent of subscriptions and only returns committed state:
 
 ```js
-const cartReader = await client.state("checkout", CART);
-const cart = await cartReader.get("user-1");
-
-const itemReader = await client.state("checkout", ITEMS);
-if (await itemReader.has("user-1", "sku-1")) {
-  // Presence checks do not decode the value.
-}
-for await (const [key, value] of itemReader.entries("user-1")) {
-  // Entries are ordered by key.
-}
+const orderReader = await client.state("checkout", CURRENT_ORDER);
+const currentOrder = await orderReader.get("customer-123");
 ```
 
 Published readers provide the owned collection's read operations without its mutations. An owned handle gets the user key from the current event; a published reader is outside a handler, so every operation takes that key explicitly. Map and deque iteration is asynchronous and reads in chunks rather than loading the entire collection.
