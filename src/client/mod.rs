@@ -265,7 +265,6 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
             "read cache cannot set both ttlMs and disabled",
         )),
         (None, true) => Ok(ErasedReadCache::Disabled),
-        (Some(0), false) => Err(Error::from_reason("read cache ttlMs must be positive")),
         (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
             milliseconds,
         )))),

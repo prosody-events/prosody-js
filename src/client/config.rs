@@ -27,7 +27,6 @@ use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -285,8 +284,8 @@ pub struct Configuration {
 /// Declares one keyed-state collection to register before subscribe.
 #[napi(object)]
 pub struct StateCollectionConfig {
-    /// The collection name. Must be non-empty and unique within the client's
-    /// definition set.
+    /// The collection name. Prosody requires it to be non-empty and unique
+    /// within the definition set.
     pub name: String,
 
     /// The collection kind: `"value"`, `"map"`, or `"deque"`.
@@ -309,9 +308,9 @@ pub struct StateCollectionConfig {
     pub published: Option<bool>,
 
     /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
-    /// disables ordered-scan tracking). Must be a whole number in that range
-    /// (fractional, negative, and non-finite values are rejected). Invalid on
-    /// value or deque collections.
+    /// disables ordered-scan tracking). The binding rejects values that cannot
+    /// map to an unsigned integer. Prosody enforces the semantic ceiling.
+    /// Invalid on value or deque collections.
     pub keyset_limit: Option<f64>,
 
     /// Optional deque-only capacity (bounded backlog). Must be a whole number
@@ -845,21 +844,14 @@ fn register_state_collection(
     index: usize,
     collection: &StateCollectionConfig,
 ) -> Result<()> {
-    if collection.name.is_empty() {
-        return Err(Error::from_reason(format!(
-            "stateCollections[{index}].name: must not be empty"
-        )));
-    }
-
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, &collection.payload)?;
-    validate_publication(index, collection, &payload)?;
 
     let ttl_seconds = match collection.ttl_seconds {
         Some(value) => Some(whole_number_field(
             value,
             &format!("stateCollections[{index}].ttlSeconds"),
-            1,
+            0,
             u32::MAX,
         )?),
         None => None,
@@ -876,7 +868,7 @@ fn register_state_collection(
                 value,
                 &format!("stateCollections[{index}].keysetLimit"),
                 0,
-                4096,
+                u32::MAX,
             )?)
         }
         None => None,
@@ -950,43 +942,24 @@ fn register_state_collection(
     Ok(())
 }
 
-fn validate_publication(
-    index: usize,
-    collection: &StateCollectionConfig,
-    payload: &CollectionPayload,
-) -> Result<()> {
-    if collection.published == Some(true) && matches!(payload, CollectionPayload::Message) {
-        return Err(Error::from_reason(format!(
-            "stateCollections[{index}].published: published readers support JSON collections only"
-        )));
-    }
-    Ok(())
-}
-
 /// Builds the real `KeyedStateConfiguration` from the given Configuration.
 ///
-/// Registers each declared collection synchronously (before subscribe, hence
-/// resubscribe-safe), rejecting duplicate names. Field-level validation names
-/// the offending JS field; core validates the remaining rules (TTL ceiling,
-/// TTL exceeding the recovery delay, identity conflicts) at consumer build.
+/// Registers each declared collection synchronously before subscribe. Host
+/// values are checked only while mapping them into Prosody types. The normal
+/// Prosody construction path validates the resulting configuration.
 ///
 /// @param config The Configuration to build from.
 /// @returns The keyed-state configuration with every collection registered.
-/// @throws Error if a keyed-state field is invalid or a name is duplicated.
+/// @throws Error if a host value cannot be mapped.
 pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConfiguration> {
     let mut builder = KeyedStateConfiguration::builder();
 
     if let Some(dir) = &config.state_cache_dir {
-        if dir.is_empty() {
-            return Err(Error::from_reason(
-                "stateCacheDir: must not be an empty string",
-            ));
-        }
         builder.cache_dir(PathBuf::from(dir));
     }
 
     if let Some(seconds) = config.state_recovery_delay_seconds {
-        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 1, u32::MAX)?;
+        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 0, u32::MAX)?;
         builder.recovery_delay(CompactDuration::new(seconds));
     }
 
@@ -1010,11 +983,11 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
             (None, true) => {
                 builder.read_cache_ttl(None);
             }
-            (Some(milliseconds), false) if milliseconds.is_finite() && milliseconds > 0.0_f64 => {
-                builder.read_cache_ttl(Some(Duration::from_secs_f64(milliseconds / 1_000.0)));
-            }
-            (Some(_), false) => {
-                return Err(Error::from_reason("stateReadCache.ttlMs: must be positive"));
+            (Some(milliseconds), false) => {
+                let ttl = Duration::try_from_secs_f64(milliseconds / 1_000.0).map_err(|_| {
+                    Error::from_reason("stateReadCache.ttlMs: must be a finite non-negative number")
+                })?;
+                builder.read_cache_ttl(Some(ttl));
             }
             (Some(_), true) => {
                 return Err(Error::from_reason(
@@ -1036,14 +1009,7 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
         .map_err(|error| Error::from_reason(error.to_string()))?;
 
     if let Some(collections) = &config.state_collections {
-        let mut seen = HashSet::with_capacity(collections.len());
         for (index, collection) in collections.iter().enumerate() {
-            if !seen.insert(collection.name.as_str()) {
-                return Err(Error::from_reason(format!(
-                    "stateCollections[{index}].name: duplicate collection name {:?}",
-                    collection.name
-                )));
-            }
             register_state_collection(&mut keyed, index, collection)?;
         }
     }

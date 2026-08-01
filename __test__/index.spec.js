@@ -2516,30 +2516,6 @@ describe("keyed state configuration validation", () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
   });
 
-  it("rejects an empty collection name", () => {
-    expect(
-      () => new ProsodyClient(makeConfig({ stateCollections: [value("")] })),
-    ).toThrow(/name: must not be empty/);
-  });
-
-  it("rejects a duplicate collection name", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("dup"), map("dup")] }),
-        ),
-    ).toThrow(/duplicate collection name/);
-  });
-
-  it("rejects ttlSeconds of zero", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { ttlSeconds: 0 })] }),
-        ),
-    ).toThrow(/ttlSeconds/);
-  });
-
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
   // whole-number guard instead of being truncated toward zero by a u32
   // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
@@ -2575,38 +2551,6 @@ describe("keyed state configuration validation", () => {
       ).toThrow(/ttlSeconds: must be a whole number/);
     },
   );
-
-  // The u32::MAX boundary is a valid whole second and must be accepted.
-  it("accepts ttlSeconds at the u32 ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [value("v", { ttlSeconds: 4294967295 })],
-          }),
-        ),
-    ).not.toThrow();
-  });
-
-  it("rejects ttlSeconds above the u32 ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [value("v", { ttlSeconds: 4294967296 })],
-          }),
-        ),
-    ).toThrow(/ttlSeconds: must be a whole number/);
-  });
-
-  it("rejects keysetLimit above the ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [map("m", { keysetLimit: 5000 })] }),
-        ),
-    ).toThrow(/keysetLimit: must be a whole number in 0..=4096/);
-  });
 
   // Regression: a fractional keysetLimit used to truncate (2.5 -> 2) and be
   // silently accepted; it must now throw.
