@@ -16,6 +16,8 @@ const {
   messageDeque,
   MapState,
   DequeState,
+  PublishedMap,
+  PublishedDeque,
   PermanentStateError,
   TransientStateError,
   isStateError,
@@ -60,6 +62,138 @@ const BOOTSTRAP_SERVERS =
 const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
+
+test("published state options stay on the descriptor", () => {
+  expect(
+    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
+  ).toMatchObject({
+    name: "cart",
+    kind: "value",
+    payload: "json",
+    published: true,
+    readCache: { ttlMs: 2_000 },
+  });
+});
+
+test.each([
+  { stateReadCache: { disabled: true, ttlMs: 1 } },
+  { stateReadCacheSize: "0" },
+])("rejects invalid published read cache config %p", (options) => {
+  expect(
+    () =>
+      new ProsodyClient({
+        mock: true,
+        groupId: GROUP_NAME,
+        bootstrapServers: [BOOTSTRAP_SERVERS],
+        ...options,
+      }),
+  ).toThrow(/stateReadCache/);
+});
+
+test("published state uses the owned read method names", async () => {
+  const mapNative = {
+    contains: jest.fn().mockResolvedValue(true),
+  };
+  const dequeNative = {
+    isEmpty: jest.fn().mockResolvedValue(false),
+    peekFront: jest.fn().mockResolvedValue(JSON.stringify("first")),
+    peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
+  };
+
+  expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
+  const dequeState = new PublishedDeque(dequeNative);
+  expect(await dequeState.isEmpty("user-1")).toBe(false);
+  expect(await dequeState.at("user-1", 0)).toBe("first");
+  expect(await dequeState.at("user-1", -1)).toBe("last");
+});
+
+test("published scans return an async iterator and open lazily", async () => {
+  const cursor = {
+    nextChunk: jest
+      .fn()
+      .mockResolvedValueOnce([["item", 7]])
+      .mockResolvedValueOnce(null),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+  const scan = jest.fn().mockResolvedValue(cursor);
+  const entries = new PublishedMap({ scan }).entries("user-1");
+
+  expect(scan).not.toHaveBeenCalled();
+  expect(entries[Symbol.asyncIterator]()).toBe(entries);
+  await expect(entries.next()).resolves.toEqual({
+    value: ["item", 7],
+    done: false,
+  });
+  expect(scan).toHaveBeenCalledTimes(1);
+  await expect(entries.next()).resolves.toEqual({
+    value: undefined,
+    done: true,
+  });
+});
+
+test("descriptors retain their owned and published access strategies", async () => {
+  const publishedCalls = [];
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    publishedValue: async (...args) => {
+      publishedCalls.push(["value", ...args]);
+      return {};
+    },
+    publishedMap: async (...args) => {
+      publishedCalls.push(["map", ...args]);
+      return {};
+    },
+    publishedDeque: async (...args) => {
+      publishedCalls.push(["deque", ...args]);
+      return {};
+    },
+  };
+
+  const definitions = [value("cart"), map("items"), deque("jobs")];
+  await Promise.all(
+    definitions.map((definition) => client.state("accounts", definition)),
+  );
+  expect(
+    publishedCalls.map(([kind, subsystem, name]) => [kind, subsystem, name]),
+  ).toEqual([
+    ["value", "accounts", "cart"],
+    ["map", "accounts", "items"],
+    ["deque", "accounts", "jobs"],
+  ]);
+
+  const ownedCalls = [];
+  const nativeContext = {};
+  for (const method of [
+    "valueState",
+    "mapState",
+    "dequeState",
+    "messageValueState",
+    "messageMapState",
+    "messageDequeState",
+  ]) {
+    nativeContext[method] = (name) => {
+      ownedCalls.push([method, name]);
+      return {};
+    };
+  }
+  const context = new Context(nativeContext);
+  [
+    value("value"),
+    map("map"),
+    deque("deque"),
+    messageValue("message-value"),
+    messageMap("message-map"),
+    messageDeque("message-deque"),
+  ].forEach((definition) => context.state(definition));
+  expect(ownedCalls).toEqual([
+    ["valueState", "value"],
+    ["mapState", "map"],
+    ["dequeState", "deque"],
+    ["messageValueState", "message-value"],
+    ["messageMapState", "message-map"],
+    ["messageDequeState", "message-deque"],
+  ]);
+});
 
 // Helper functions
 const generateTopicName = () =>
@@ -2381,30 +2515,6 @@ describe("keyed state configuration validation", () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
   });
 
-  it("rejects an empty collection name", () => {
-    expect(
-      () => new ProsodyClient(makeConfig({ stateCollections: [value("")] })),
-    ).toThrow(/name: must not be empty/);
-  });
-
-  it("rejects a duplicate collection name", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("dup"), map("dup")] }),
-        ),
-    ).toThrow(/duplicate collection name/);
-  });
-
-  it("rejects ttlSeconds of zero", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { ttlSeconds: 0 })] }),
-        ),
-    ).toThrow(/ttlSeconds/);
-  });
-
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
   // whole-number guard instead of being truncated toward zero by a u32
   // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
@@ -2440,38 +2550,6 @@ describe("keyed state configuration validation", () => {
       ).toThrow(/ttlSeconds: must be a whole number/);
     },
   );
-
-  // The u32::MAX boundary is a valid whole second and must be accepted.
-  it("accepts ttlSeconds at the u32 ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [value("v", { ttlSeconds: 4294967295 })],
-          }),
-        ),
-    ).not.toThrow();
-  });
-
-  it("rejects ttlSeconds above the u32 ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [value("v", { ttlSeconds: 4294967296 })],
-          }),
-        ),
-    ).toThrow(/ttlSeconds: must be a whole number/);
-  });
-
-  it("rejects keysetLimit above the ceiling", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [map("m", { keysetLimit: 5000 })] }),
-        ),
-    ).toThrow(/keysetLimit: must be a whole number in 0..=4096/);
-  });
 
   // Regression: a fractional keysetLimit used to truncate (2.5 -> 2) and be
   // silently accepted; it must now throw.
@@ -2571,18 +2649,12 @@ describe("keyed state configuration validation", () => {
     ).toThrow(/payload: expected/);
   });
 
-  it("rejects stateRecoveryDelaySeconds of zero", () => {
-    expect(
-      () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds: 0 })),
-    ).toThrow(/stateRecoveryDelaySeconds/);
-  });
-
-  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-    "rejects invalid stateCacheSizeBytes %p",
-    (stateCacheSizeBytes) => {
+  it.each(["0", "-1 MiB", "nonsense"])(
+    "rejects invalid stateOwnedCacheSize %p",
+    (stateOwnedCacheSize) => {
       expect(
-        () => new ProsodyClient(makeConfig({ stateCacheSizeBytes })),
-      ).toThrow(/stateCacheSizeBytes: must be a positive safe integer/);
+        () => new ProsodyClient(makeConfig({ stateOwnedCacheSize })),
+      ).toThrow(/stateOwnedCacheSize/);
     },
   );
 

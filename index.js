@@ -218,6 +218,29 @@ class ProsodyClient {
   }
 
   /**
+   * Opens a read-only view of another consumer group's published collection.
+   * @param {string} subsystem - The publisher's subsystem.
+   * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
+   * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
+   */
+  async state(subsystem, definition) {
+    const access = stateDefinitionAccess.get(definition);
+    if (access?.published === undefined) {
+      throw new TypeError(
+        "definition must be a JSON value, map, or deque definition",
+      );
+    }
+    const readCache = definition.readCache;
+    return access.published(
+      this.nativeClient,
+      subsystem,
+      definition.name,
+      readCache && readCache.ttlMs,
+      readCache === false,
+    );
+  }
+
+  /**
    * Sends a message to a specified topic.
    *
    * @param {string} topic - The topic to send the message to.
@@ -694,16 +717,58 @@ function stateSync(operation) {
  * @returns {Readonly<object>} The frozen definition.
  * @private
  */
-function stateDefinition(name, kind, payload, options = {}) {
+const stateDefinitionAccess = new WeakMap();
+const VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.valueState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedValue(
+      await client.publishedValue(subsystem, collection, ttl, disabled),
+    ),
+});
+const MAP_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new MapState(context.mapState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedMap(
+      await client.publishedMap(subsystem, collection, ttl, disabled),
+    ),
+});
+const DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.dequeState(collection), jsonItems),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedDeque(
+      await client.publishedDeque(subsystem, collection, ttl, disabled),
+    ),
+});
+const MESSAGE_VALUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new ValueState(context.messageValueState(collection), messageItems),
+});
+const MESSAGE_MAP_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new MapState(context.messageMapState(collection), messageItems),
+});
+const MESSAGE_DEQUE_ACCESS = Object.freeze({
+  owned: (context, collection) =>
+    new DequeState(context.messageDequeState(collection), messageItems),
+});
+
+function stateDefinition(name, kind, payload, access, options = {}) {
   const definition = { name, kind, payload };
   if (options.ttlSeconds !== undefined)
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
     definition.readUncommitted = options.readUncommitted;
+  if (options.published !== undefined) definition.published = options.published;
+  if (options.readCache !== undefined) definition.readCache = options.readCache;
   if (options.keysetLimit !== undefined)
     definition.keysetLimit = options.keysetLimit;
   if (options.capacity !== undefined) definition.capacity = options.capacity;
-  return Object.freeze(definition);
+  const frozen = Object.freeze(definition);
+  stateDefinitionAccess.set(frozen, access);
+  return frozen;
 }
 
 /**
@@ -715,7 +780,7 @@ function stateDefinition(name, kind, payload, options = {}) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function value(name, options) {
-  return stateDefinition(name, "value", "json", options);
+  return stateDefinition(name, "value", "json", VALUE_ACCESS, options);
 }
 
 /**
@@ -726,7 +791,7 @@ function value(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function map(name, options) {
-  return stateDefinition(name, "map", "json", options);
+  return stateDefinition(name, "map", "json", MAP_ACCESS, options);
 }
 
 /**
@@ -738,7 +803,7 @@ function map(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function deque(name, options) {
-  return stateDefinition(name, "deque", "json", options);
+  return stateDefinition(name, "deque", "json", DEQUE_ACCESS, options);
 }
 
 /**
@@ -750,7 +815,13 @@ function deque(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageValue(name, options) {
-  return stateDefinition(name, "value", "message", options);
+  return stateDefinition(
+    name,
+    "value",
+    "message",
+    MESSAGE_VALUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -762,7 +833,7 @@ function messageValue(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageMap(name, options) {
-  return stateDefinition(name, "map", "message", options);
+  return stateDefinition(name, "map", "message", MESSAGE_MAP_ACCESS, options);
 }
 
 /**
@@ -775,7 +846,13 @@ function messageMap(name, options) {
  * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
  */
 function messageDeque(name, options) {
-  return stateDefinition(name, "deque", "message", options);
+  return stateDefinition(
+    name,
+    "deque",
+    "message",
+    MESSAGE_DEQUE_ACCESS,
+    options,
+  );
 }
 
 /**
@@ -791,18 +868,26 @@ function messageDeque(name, options) {
  * or early-exit path is normalized through `toStateError`, so every keyed-state
  * failure a caller can observe is a `PermanentStateError`/`TransientStateError`.
  *
- * The iterator is valid only within the handler invocation (attempt) that
- * opened it; a cursor leaked past the attempt errors on its next pull.
- * @param {object} cursor - The native scan cursor.
+ * Owned cursors remain attempt-fenced. Published cursors remain valid with
+ * their standalone reader.
+ * @param {object|(() => Promise<object>)} source - The native scan cursor, or
+ *   a lazy asynchronous cursor opener.
  * @param {(item: *) => *} transform - Maps each raw item to the yielded value.
  * @returns {AsyncIterableIterator<*>} The async iterator.
  * @private
  */
-function stateIterator(cursor, transform) {
+function stateIterator(source, transform) {
+  let cursor;
   let finished = false;
   let chunk = [];
   let offset = 0;
   let queue = Promise.resolve();
+  const openCursor = async () => {
+    if (cursor === undefined) {
+      cursor = typeof source === "function" ? await source() : source;
+    }
+    return cursor;
+  };
   // Serialize the complete iterator protocol, not just native pulls. Without
   // this queue, concurrent next() continuations can both reset `offset` after
   // awaiting the same chunk and yield the same first item. return() shares the
@@ -820,6 +905,7 @@ function stateIterator(cursor, transform) {
   // mask the primary error. `try/catch` (not `.catch()`) so a synchronous throw
   // from `close()` is swallowed too.
   const closeQuietly = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch {
@@ -829,6 +915,7 @@ function stateIterator(cursor, transform) {
   // Close on clean exhaustion / early exit, where there is no primary error to
   // mask: a close failure surfaces through the state-error model.
   const closeOrThrow = async () => {
+    if (cursor === undefined) return;
     try {
       await cursor.close();
     } catch (error) {
@@ -843,7 +930,7 @@ function stateIterator(cursor, transform) {
           chunk = [];
           offset = 0;
           try {
-            chunk = await cursor.nextChunk(injectedCarrier());
+            chunk = await (await openCursor()).nextChunk(injectedCarrier());
           } catch (error) {
             finished = true;
             await closeQuietly();
@@ -889,6 +976,66 @@ function stateIterator(cursor, transform) {
 }
 
 /**
+ * Read-only handle over a published single-value collection. It is independent
+ * of subscription and remains valid for the lifetime of its client.
+ */
+class PublishedValue {
+  constructor(native) {
+    this.native = native;
+  }
+
+  async get(key) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, carrier)),
+    );
+  }
+}
+
+class PublishedMap {
+  constructor(native) {
+    this.native = native;
+  }
+
+  async get(key, mapKey) {
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, mapKey, carrier)),
+    );
+  }
+
+  async getMany(key, mapKeys) {
+    const values = await stateOp((carrier) =>
+      this.native.getMany(key, mapKeys, carrier),
+    );
+    return values.map(jsonItems.decode);
+  }
+
+  has(key, mapKey) {
+    return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
+  }
+
+  entries(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
+    );
+  }
+
+  keys(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      (mapKey) => mapKey,
+    );
+  }
+
+  values(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      (entry) => jsonItems.decode(entry[1]),
+    );
+  }
+}
+
+/**
  * The native `payload` getter, which answers the raw JSON text read from the
  * wire. Captured before {@link withParsedPayload} shadows it per instance.
  * @private
@@ -927,11 +1074,13 @@ function withParsedPayload(message) {
     get() {
       if (!parsed) {
         try {
-          document = JSON.parse(rawPayload.call(this));
-        } catch (error) {
-          failure = new PermanentError(
-            `message payload is not JSON: ${error.message}`,
+          document = parseJson(
+            rawPayload.call(this),
+            PermanentError,
+            "message payload is not JSON",
           );
+        } catch (error) {
+          failure = error;
         }
         parsed = true;
       }
@@ -969,6 +1118,15 @@ function toJson(value, ErrorClass) {
     );
   }
   return json;
+}
+
+/** Parses JSON text and maps invalid input onto the caller's error class. */
+function parseJson(text, ErrorClass, context) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new ErrorClass(`${context}: ${error.message}`);
+  }
 }
 
 /**
@@ -1070,30 +1228,62 @@ function itemCodec(flavour, encode, decode) {
   });
 }
 
-/**
- * Parses a stored JSON document.
- *
- * Every document this layer writes came from `JSON.stringify`, so a parse
- * failure means a corrupt cell. It surfaces on the read that touched the cell,
- * as a permanent error: corruption is not a caller mistake and no retry
- * resolves it. A bare `SyntaxError` would carry no category at all.
- * @param {string} text - The stored document.
- * @returns {*} The parsed document.
- * @throws {PermanentStateError} If the document does not parse.
- * @private
- */
-function parseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new PermanentStateError(
-      `stored JSON document could not be parsed: ${error.message}`,
+class PublishedDeque {
+  constructor(native) {
+    this.native = native;
+  }
+
+  length(key) {
+    return stateOp((carrier) => this.native.length(key, carrier));
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  async at(key, index) {
+    if (!Number.isSafeInteger(index)) {
+      throw new TransientStateError(
+        `at: index must be a safe integer, got ${describeValue(index)}`,
+      );
+    }
+    if (index === 0) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekFront(key, carrier)),
+      );
+    }
+    if (index === -1) {
+      return jsonItems.decode(
+        await stateOp((carrier) => this.native.peekBack(key, carrier)),
+      );
+    }
+    let position = index;
+    if (position < 0) {
+      position += await this.length(key);
+      if (position < 0) return null;
+    }
+    if (position > 0xffffffff) return null;
+    return jsonItems.decode(
+      await stateOp((carrier) => this.native.get(key, position, carrier)),
+    );
+  }
+
+  values(key, direction = "forward") {
+    return stateIterator(
+      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      jsonItems.decode,
     );
   }
 }
 
 /** JSON documents cross as their text. @private */
-const jsonItems = itemCodec("Json", encodeJson, parseJson);
+const jsonItems = itemCodec("Json", encodeJson, (text) =>
+  parseJson(
+    text,
+    PermanentStateError,
+    "stored JSON document could not be parsed",
+  ),
+);
 
 /** Kafka messages cross as the `Message` object itself. @private */
 const messageItems = itemCodec("Message", requireMessage, withParsedPayload);
@@ -1598,70 +1788,18 @@ class Context {
    *   durably-registered schema (kind/payload) mismatches (rejected core-side).
    */
   state(definition) {
-    let name, kind, payload;
-    try {
-      // Read + validate the definition shape. Wrapped so a hostile definition
-      // (e.g. throwing property getters) still surfaces as a classified caller
-      // mistake rather than a raw synchronous throw.
-      ({ name, kind, payload } = definition ?? {});
-      if (typeof name !== "string" || name.length === 0) {
-        throw new TransientStateError(
-          `state: definition.name must be a non-empty string, got ${describeValue(name)}`,
-        );
-      }
-      if (kind !== "value" && kind !== "map" && kind !== "deque") {
-        throw new TransientStateError(
-          `state: unknown collection kind ${describeValue(kind)}`,
-        );
-      }
-      if (payload !== "json" && payload !== "message") {
-        throw new TransientStateError(
-          `state: unknown collection payload ${describeValue(payload)}`,
-        );
-      }
-    } catch (error) {
-      if (error instanceof EventHandlerError) throw error;
+    const access = stateDefinitionAccess.get(definition);
+    if (access === undefined) {
       throw new TransientStateError(
-        "state: the definition could not be read (malformed or hostile object)",
+        "state: definition must come from a Prosody state definition constructor",
       );
     }
-    const cacheKey = `${kind}:${payload}:${name}`;
+    const cacheKey = definition;
     const cached = this.stateHandles.get(cacheKey);
     if (cached !== undefined) return cached;
-    const message = payload === "message";
-    const items = message ? messageItems : jsonItems;
-    let handle;
-    switch (kind) {
-      case "value":
-        handle = new ValueState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageValueState(name)
-              : this.nativeContext.valueState(name),
-          ),
-          items,
-        );
-        break;
-      case "map":
-        handle = new MapState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageMapState(name)
-              : this.nativeContext.mapState(name),
-          ),
-          items,
-        );
-        break;
-      default:
-        handle = new DequeState(
-          stateSync(() =>
-            message
-              ? this.nativeContext.messageDequeState(name)
-              : this.nativeContext.dequeState(name),
-          ),
-          items,
-        );
-    }
+    const handle = stateSync(() =>
+      access.owned(this.nativeContext, definition.name),
+    );
     this.stateHandles.set(cacheKey, handle);
     return handle;
   }
@@ -1677,6 +1815,9 @@ module.exports = {
   PermanentError,
   PermanentStateError,
   ProsodyClient,
+  PublishedDeque,
+  PublishedMap,
+  PublishedValue,
   TransientError,
   TransientStateError,
   ValueState,

@@ -1,6 +1,7 @@
 use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
+use prosody::ByteSize;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
@@ -23,10 +24,10 @@ use prosody::state::descriptor::{
     MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
 };
 use prosody::state::order_codec::Utf8KeyCodec;
+use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
-use std::collections::HashSet;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -115,7 +116,7 @@ pub struct Configuration {
     /// Cassandra contact nodes (hostnames or IPs).
     pub cassandra_nodes: Option<Either<String, Vec<String>>>,
 
-    /// Cassandra keyspace to use for storing timer data.
+    /// Cassandra keyspace used for persistent Prosody data.
     pub cassandra_keyspace: Option<String>,
 
     /// Preferred Cassandra datacenter for query routing.
@@ -130,8 +131,8 @@ pub struct Configuration {
     /// Password for authenticating with Cassandra.
     pub cassandra_password: Option<String>,
 
-    /// Retention period for failed/unprocessed timer data in Cassandra in
-    /// seconds.
+    /// Retention period for persistent timer and deferral data in Cassandra,
+    /// in seconds.
     pub cassandra_retention_seconds: Option<u32>,
 
     // Scheduler configuration
@@ -186,27 +187,30 @@ pub struct Configuration {
     /// Caps exponential backoff to prevent excessively long delays.
     pub defer_max_delay_ms: Option<u32>,
 
-    /// Failure rate threshold for enabling deferral (0.0 to 1.0).
+    /// Failure rate threshold for disabling deferral (0.0 to 1.0).
     /// When exceeded within the failure window, deferral is disabled.
     pub defer_failure_threshold: Option<f64>,
 
     /// Sliding window duration (in milliseconds) for failure rate tracking.
     pub defer_failure_window_ms: Option<u32>,
 
-    /// Cache size for the deferred-retry message loader.
-    /// Controls capacity for the loader cache.
-    pub defer_cache_size: Option<u32>,
-
     /// Maximum deferred store cache entries per Cassandra defer store.
     /// Env: `PROSODY_DEFER_STORE_CACHE_SIZE`. Default: 8192.
     pub defer_store_cache_size: Option<u32>,
 
-    /// Timeout for Kafka seek operations in milliseconds.
-    pub defer_seek_timeout_ms: Option<u32>,
+    // Kafka message loader configuration
+    /// Capacity of the shared Kafka message loader cache.
+    /// Env: `PROSODY_LOADER_CACHE_SIZE`. Default: 1024.
+    pub loader_cache_size: Option<u32>,
+
+    /// Timeout for Kafka loader seek operations in milliseconds.
+    /// Env: `PROSODY_LOADER_SEEK_TIMEOUT`. Default: 30 seconds.
+    pub loader_seek_timeout_ms: Option<u32>,
 
     /// Messages to read sequentially before seeking.
     /// If next offset is within this threshold, reads rather than seeks.
-    pub defer_discard_threshold: Option<i32>,
+    /// Env: `PROSODY_LOADER_DISCARD_THRESHOLD`. Default: 100.
+    pub loader_discard_threshold: Option<u32>,
 
     // Timeout configuration
     /// Fixed timeout duration for handler execution in milliseconds.
@@ -250,10 +254,19 @@ pub struct Configuration {
     /// empty string when set.
     pub state_cache_dir: Option<String>,
 
-    /// Capacity of the in-memory keyed-state cache, in bytes. Falls back to
-    /// `PROSODY_STATE_CACHE_SIZE_BYTES`,
-    /// then to the storage-engine default. Must be a positive safe integer.
-    pub state_cache_size_bytes: Option<f64>,
+    /// Capacity of the owning keyed-state cache. Accepts a human-readable size.
+    /// Uses `PROSODY_STATE_OWNED_CACHE_SIZE` when omitted. Otherwise, the
+    /// storage engine selects its default.
+    pub state_owned_cache_size: Option<String>,
+
+    /// Capacity of the published-state read-through cache. Uses
+    /// `PROSODY_STATE_READ_CACHE_SIZE` when omitted. It then uses the owning
+    /// cache size when set, or 1 MiB when both sizes are unset.
+    pub state_read_cache_size: Option<String>,
+
+    /// Default cache policy for published-state reads. Uses
+    /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
+    pub state_read_cache: Option<ReadCacheConfiguration>,
 
     /// Delay in whole seconds between staging a provisional cell and the
     /// keyed-state recovery sweep. Every registered TTL must strictly exceed
@@ -262,13 +275,17 @@ pub struct Configuration {
     /// a whole number of seconds >= 1 when set (fractional, negative, and
     /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
+
+    /// Subsystem under which published JSON collections are advertised.
+    /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
+    pub subsystem: Option<String>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
 #[napi(object)]
 pub struct StateCollectionConfig {
-    /// The collection name. Must be non-empty and unique within the client's
-    /// definition set.
+    /// The collection name. Prosody requires it to be non-empty and unique
+    /// within the definition set.
     pub name: String,
 
     /// The collection kind: `"value"`, `"map"`, or `"deque"`.
@@ -287,10 +304,13 @@ pub struct StateCollectionConfig {
     /// once). Defaults to transactional.
     pub read_uncommitted: Option<bool>,
 
+    /// Whether other consumer groups may read this collection.
+    pub published: Option<bool>,
+
     /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
-    /// disables ordered-scan tracking). Must be a whole number in that range
-    /// (fractional, negative, and non-finite values are rejected). Invalid on
-    /// value or deque collections.
+    /// disables ordered-scan tracking). The binding rejects values that cannot
+    /// map to an unsigned integer. Prosody enforces the semantic ceiling.
+    /// Invalid on value or deque collections.
     pub keyset_limit: Option<f64>,
 
     /// Optional deque-only capacity (bounded backlog). Must be a whole number
@@ -299,6 +319,15 @@ pub struct StateCollectionConfig {
     /// identity, and freely changeable across deploys; enforced lazily on push.
     /// Invalid on value or map collections.
     pub capacity: Option<f64>,
+}
+
+/// Default cache policy for published-state reads.
+#[napi(object)]
+pub struct ReadCacheConfiguration {
+    /// Cache duration in milliseconds.
+    pub ttl_ms: Option<f64>,
+    /// Read durable storage on every operation.
+    pub disabled: Option<bool>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -424,18 +453,18 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.timer_spans(relation);
     }
 
-    if config.defer_cache_size.is_some()
-        || config.defer_seek_timeout_ms.is_some()
-        || config.defer_discard_threshold.is_some()
+    if config.loader_cache_size.is_some()
+        || config.loader_seek_timeout_ms.is_some()
+        || config.loader_discard_threshold.is_some()
     {
         let mut loader = KafkaLoaderConfiguration::builder();
-        if let Some(cache_size) = config.defer_cache_size {
+        if let Some(cache_size) = config.loader_cache_size {
             loader.cache_size(cache_size as usize);
         }
-        if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
+        if let Some(seek_timeout_ms) = config.loader_seek_timeout_ms {
             loader.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
         }
-        if let Some(discard_threshold) = config.defer_discard_threshold {
+        if let Some(discard_threshold) = config.loader_discard_threshold {
             loader.discard_threshold(i64::from(discard_threshold));
         }
         let loader = loader
@@ -720,20 +749,6 @@ fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32
     }
 }
 
-/// Validates a positive JS safe integer.
-fn positive_safe_integer(value: f64, field: &str) -> Result<NonZeroU64> {
-    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-
-    if value.is_finite() && value.fract() == 0.0 && (1.0..=MAX_SAFE_INTEGER).contains(&value) {
-        NonZeroU64::new(value as u64)
-            .ok_or_else(|| Error::from_reason(format!("{field}: must be greater than 0")))
-    } else {
-        Err(Error::from_reason(format!(
-            "{field}: must be a positive safe integer"
-        )))
-    }
-}
-
 /// Applies the shared descriptor options (TTL, commit mode) fluently.
 ///
 /// @param descriptor The descriptor to configure.
@@ -744,6 +759,7 @@ fn with_def<D: StateDescriptor>(
     descriptor: D,
     ttl_seconds: Option<u32>,
     read_uncommitted: Option<bool>,
+    published: Option<bool>,
 ) -> D {
     let mut descriptor = descriptor;
     if let Some(ttl) = ttl_seconds {
@@ -751,6 +767,9 @@ fn with_def<D: StateDescriptor>(
     }
     if read_uncommitted == Some(true) {
         descriptor = descriptor.read_uncommitted();
+    }
+    if let Some(published) = published {
+        descriptor = descriptor.published(published);
     }
     descriptor
 }
@@ -825,12 +844,6 @@ fn register_state_collection(
     index: usize,
     collection: &StateCollectionConfig,
 ) -> Result<()> {
-    if collection.name.is_empty() {
-        return Err(Error::from_reason(format!(
-            "stateCollections[{index}].name: must not be empty"
-        )));
-    }
-
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, &collection.payload)?;
 
@@ -838,7 +851,7 @@ fn register_state_collection(
         Some(value) => Some(whole_number_field(
             value,
             &format!("stateCollections[{index}].ttlSeconds"),
-            1,
+            0,
             u32::MAX,
         )?),
         None => None,
@@ -855,7 +868,7 @@ fn register_state_collection(
                 value,
                 &format!("stateCollections[{index}].keysetLimit"),
                 0,
-                4096,
+                u32::MAX,
             )?)
         }
         None => None,
@@ -871,6 +884,7 @@ fn register_state_collection(
                 value_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
@@ -878,6 +892,7 @@ fn register_state_collection(
                 map_state::<Utf8KeyCodec, JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
@@ -886,6 +901,7 @@ fn register_state_collection(
                 deque_state::<JsonPassthroughStateCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -897,6 +913,7 @@ fn register_state_collection(
                 message_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             ));
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
@@ -904,6 +921,7 @@ fn register_state_collection(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
@@ -912,6 +930,7 @@ fn register_state_collection(
                 message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
+                collection.published,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -925,34 +944,64 @@ fn register_state_collection(
 
 /// Builds the real `KeyedStateConfiguration` from the given Configuration.
 ///
-/// Registers each declared collection synchronously (before subscribe, hence
-/// resubscribe-safe), rejecting duplicate names. Field-level validation names
-/// the offending JS field; core validates the remaining rules (TTL ceiling,
-/// TTL exceeding the recovery delay, identity conflicts) at consumer build.
+/// Registers each declared collection synchronously before subscribe. Host
+/// values are checked only while mapping them into Prosody types. The normal
+/// Prosody construction path validates the resulting configuration.
 ///
 /// @param config The Configuration to build from.
 /// @returns The keyed-state configuration with every collection registered.
-/// @throws Error if a keyed-state field is invalid or a name is duplicated.
+/// @throws Error if a host value cannot be mapped.
 pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConfiguration> {
     let mut builder = KeyedStateConfiguration::builder();
 
     if let Some(dir) = &config.state_cache_dir {
-        if dir.is_empty() {
-            return Err(Error::from_reason(
-                "stateCacheDir: must not be an empty string",
-            ));
-        }
         builder.cache_dir(PathBuf::from(dir));
     }
 
     if let Some(seconds) = config.state_recovery_delay_seconds {
-        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 1, u32::MAX)?;
+        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 0, u32::MAX)?;
         builder.recovery_delay(CompactDuration::new(seconds));
     }
 
-    if let Some(bytes) = config.state_cache_size_bytes {
-        let bytes = positive_safe_integer(bytes, "stateCacheSizeBytes")?;
-        builder.cache_size_bytes(Some(bytes));
+    if let Some(size) = &config.state_owned_cache_size {
+        let size = size
+            .parse::<ByteSize>()
+            .map_err(|error| Error::from_reason(format!("stateOwnedCacheSize: {error}")))?;
+        builder.owned_cache_size(Some(size));
+    }
+
+    if let Some(size) = &config.state_read_cache_size {
+        let size = size
+            .parse::<ByteSize>()
+            .map_err(|error| Error::from_reason(format!("stateReadCacheSize: {error}")))?;
+        builder.read_cache_size(Some(size));
+    }
+
+    if let Some(cache) = &config.state_read_cache {
+        match (cache.ttl_ms, cache.disabled.unwrap_or(false)) {
+            (None, false) => {}
+            (None, true) => {
+                builder.read_cache_ttl(None);
+            }
+            (Some(milliseconds), false) => {
+                let ttl = Duration::try_from_secs_f64(milliseconds / 1_000.0).map_err(|_| {
+                    Error::from_reason("stateReadCache.ttlMs: must be a finite non-negative number")
+                })?;
+                builder.read_cache_ttl(Some(ttl));
+            }
+            (Some(_), true) => {
+                return Err(Error::from_reason(
+                    "stateReadCache: cannot set both ttlMs and disabled",
+                ));
+            }
+        }
+    }
+
+    if let Some(subsystem) = &config.subsystem {
+        builder.subsystem(Some(
+            SubsystemName::try_new(subsystem)
+                .map_err(|error| Error::from_reason(error.to_string()))?,
+        ));
     }
 
     let mut keyed = builder
@@ -960,14 +1009,7 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
         .map_err(|error| Error::from_reason(error.to_string()))?;
 
     if let Some(collections) = &config.state_collections {
-        let mut seen = HashSet::with_capacity(collections.len());
         for (index, collection) in collections.iter().enumerate() {
-            if !seen.insert(collection.name.as_str()) {
-                return Err(Error::from_reason(format!(
-                    "stateCollections[{index}].name: duplicate collection name {:?}",
-                    collection.name
-                )));
-            }
             register_state_collection(&mut keyed, index, collection)?;
         }
     }

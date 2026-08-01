@@ -146,7 +146,7 @@ fn permanent_error(message: String) -> Error {
 /// @returns The matching `Direction`.
 /// @throws Error (transient) if the token is neither `"forward"` nor
 /// `"backward"` (a caller mistake — retries, not discarded).
-fn parse_direction(direction: &str) -> napi::Result<Direction> {
+pub(crate) fn parse_direction(direction: &str) -> napi::Result<Direction> {
     match direction {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
@@ -161,7 +161,7 @@ fn parse_direction(direction: &str) -> napi::Result<Direction> {
 /// @param propagator The OpenTelemetry propagator for context extraction.
 /// @param otelContext The propagated OpenTelemetry carrier.
 /// @returns The extracted OpenTelemetry context.
-fn op_context(
+pub(crate) fn op_context(
     propagator: &TextMapCompositePropagator,
     otel_context: &HashMap<String, String>,
 ) -> opentelemetry::Context {
@@ -224,7 +224,7 @@ fn expected_message(kind: &str) -> Error {
 /// @param payload The stored document.
 /// @returns The document's JSON text.
 /// @throws Error (permanent) if the stored bytes are not valid UTF-8.
-fn json_text(payload: BinaryPayload) -> napi::Result<String> {
+pub(crate) fn json_text(payload: BinaryPayload) -> napi::Result<String> {
     String::from_utf8(payload.bytes).map_err(|error| {
         permanent_error(format!("stored JSON document is not valid UTF-8: {error}"))
     })
@@ -1127,6 +1127,36 @@ pub struct NativeStateCursor {
 
 #[napi]
 impl NativeStateCursor {
+    pub(crate) fn published_map(
+        cursor: BoxStateCursor<(String, BinaryPayload)>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::MapJson(cursor),
+            propagator,
+        }
+    }
+
+    pub(crate) fn published_map_keys(
+        cursor: BoxStateCursor<String>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::MapKey(cursor),
+            propagator,
+        }
+    }
+
+    pub(crate) fn published_deque(
+        cursor: BoxStateCursor<BinaryPayload>,
+        propagator: Arc<TextMapCompositePropagator>,
+    ) -> Self {
+        Self {
+            cursor: CursorVariant::DequeJson(cursor),
+            propagator,
+        }
+    }
+
     /// Pulls the next immediately-ready chunk of scanned items.
     ///
     /// Awaits the first item, then drains up to 255 more items only while they

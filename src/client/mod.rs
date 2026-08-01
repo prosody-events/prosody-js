@@ -2,15 +2,20 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
+use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
 use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
-use opentelemetry::propagation::TextMapPropagator;
-use prosody::Codec;
+use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::codec::{BinaryPayload, JsonBinaryCodec};
-use prosody::high_level::HighLevelClient;
-use prosody::high_level::state::ConsumerState as ProsodyConsumerState;
+use prosody::high_level::erased::{
+    ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
+};
+use prosody::propagator::new_propagator;
 use std::collections::HashMap;
+use std::result::Result as StdResult;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::select;
 use tracing::debug;
 use tracing::field::Empty;
@@ -24,7 +29,8 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: HighLevelClient<JsHandler, JsonBinaryCodec>,
+    client: SharedHighLevelClient<JsHandler, JsonBinaryCodec>,
+    propagator: Arc<TextMapCompositePropagator>,
 }
 
 #[napi]
@@ -38,20 +44,23 @@ impl NativeClient {
     pub fn new(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
         let consumer_builders = build_consumer_builders(&config)?;
-        let cassandra_config = build_cassandra_config(&config);
+        let cassandra = build_cassandra_config(&config);
 
-        let client = within_runtime_if_available(|| {
-            HighLevelClient::new(
+        let client = within_runtime_if_available(|| -> StdResult<_, String> {
+            new_erased(
                 config.mode.unwrap_or_default().into(),
                 &mut producer_config,
                 &consumer_builders,
-                &cassandra_config,
+                &cassandra,
             )
-            .map_err(Box::new)
+            .map_err(|error| error.to_string())
         })
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+        .map_err(Error::from_reason)?;
 
-        Ok(NativeClient { client })
+        Ok(NativeClient {
+            client,
+            propagator: Arc::new(new_propagator()),
+        })
     }
 
     /// Gets the current state of the consumer.
@@ -60,13 +69,74 @@ impl NativeClient {
     /// @throws Error if the operation fails
     #[napi(writable = false)]
     pub async fn consumer_state(&self) -> Result<ConsumerState> {
-        let state_view = self.client.consumer_state().await;
-        if let ProsodyConsumerState::ConfigurationFailed(err) = &*state_view {
-            return Err(Error::from_reason(format!(
-                "consumer configuration failed: {err:#}"
-            )));
+        match self.client.consumer_state().await {
+            ErasedConsumerState::Unconfigured => Ok(ConsumerState::Unconfigured),
+            ErasedConsumerState::ConfigurationFailed(error) => Err(Error::from_reason(format!(
+                "consumer configuration failed: {error}"
+            ))),
+            ErasedConsumerState::Configured(_) => Ok(ConsumerState::Configured),
+            ErasedConsumerState::Running { .. } => Ok(ConsumerState::Running),
         }
-        Ok((&*state_view).into())
+    }
+
+    /// Builds a read-only view of a published value collection.
+    #[napi(writable = false)]
+    pub async fn published_value(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedValue> {
+        let inner = self
+            .client
+            .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedValue {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published map collection.
+    #[napi(writable = false)]
+    pub async fn published_map(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedMap> {
+        let inner = self
+            .client
+            .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedMap {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published deque collection.
+    #[napi(writable = false)]
+    pub async fn published_deque(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedDeque> {
+        let inner = self
+            .client
+            .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedDeque {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 
     /// Sends a message to a specified topic.
@@ -106,10 +176,10 @@ impl NativeClient {
 
         let send_future = async {
             self.client
-                .send(topic.as_str().into(), &key, payload)
+                .send(topic.as_str().into(), key, payload)
                 .instrument(span.clone())
                 .await
-                .map_err(|e| Error::from_reason(e.to_string()))
+                .map_err(|error| Error::from_reason(error.to_string()))
         };
 
         let Some(on_abort) = maybe_abort else {
@@ -147,9 +217,7 @@ impl NativeClient {
         self.client
             .subscribe(event_handler)
             .await
-            .map_err(|e| Error::from_reason(e.to_string()))?;
-
-        Ok(())
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Gets the number of partitions assigned to the consumer.
@@ -179,7 +247,7 @@ impl NativeClient {
         self.client
             .unsubscribe()
             .await
-            .map_err(|e| Error::from_reason(e.to_string()))
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Gets the source system identifier configured for the client.
@@ -188,6 +256,19 @@ impl NativeClient {
     #[napi(getter, writable = false)]
     pub fn source_system(&self) -> &str {
         self.client.source_system()
+    }
+}
+
+fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
+    match (cache_ms, disabled.unwrap_or(false)) {
+        (Some(_), true) => Err(Error::from_reason(
+            "read cache cannot set both ttlMs and disabled",
+        )),
+        (None, true) => Ok(ErasedReadCache::Disabled),
+        (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
+            milliseconds,
+        )))),
+        (None, false) => Ok(ErasedReadCache::Inherit),
     }
 }
 
@@ -221,15 +302,4 @@ pub enum ConsumerState {
 
     /// The consumer configuration failed
     ConfigurationFailed,
-}
-
-impl<T, C: Codec> From<&ProsodyConsumerState<T, C>> for ConsumerState {
-    fn from(value: &ProsodyConsumerState<T, C>) -> Self {
-        match value {
-            ProsodyConsumerState::Unconfigured => Self::Unconfigured,
-            ProsodyConsumerState::ConfigurationFailed(_) => Self::ConfigurationFailed,
-            ProsodyConsumerState::Configured(_) => Self::Configured,
-            ProsodyConsumerState::Running { .. } => Self::Running,
-        }
-    }
 }
