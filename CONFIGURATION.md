@@ -2,6 +2,8 @@
 
 Configure via constructor options or environment variables. Options fall back to environment variables when unset.
 
+The JavaScript client reports values it cannot convert to Prosody types. Prosody validates configuration semantics when the client is built.
+
 ## Core
 
 | Option / Environment Variable                    | Description                                                               | Default         |
@@ -44,13 +46,13 @@ Configure via constructor options or environment variables. Options fall back to
 
 ## Retry
 
-When a handler fails, retry with exponential backoff:
+Retry backoff applies in pipeline and low-latency modes. `maxRetries` controls how many retries low-latency mode performs before routing the failure to `failureTopic`. Pipeline mode uses deferral and does not use this limit.
 
-| Option / Environment Variable                 | Description                       | Default |
-| --------------------------------------------- | --------------------------------- | ------- |
-| `maxRetries` / `PROSODY_MAX_RETRIES`          | Give up after this many attempts  | 3       |
-| `retryBaseMs` / `PROSODY_RETRY_BASE`          | Wait this long before first retry | 20ms    |
-| `maxRetryDelayMs` / `PROSODY_RETRY_MAX_DELAY` | Never wait longer than this       | 5m      |
+| Option / Environment Variable                 | Description                                             | Default |
+| --------------------------------------------- | ------------------------------------------------------- | ------- |
+| `maxRetries` / `PROSODY_MAX_RETRIES`          | Low-latency retries before routing to the failure topic | 3       |
+| `retryBaseMs` / `PROSODY_RETRY_BASE`          | Wait this long before first retry                       | 20ms    |
+| `maxRetryDelayMs` / `PROSODY_RETRY_MAX_DELAY` | Never wait longer than this                             | 5m      |
 
 ## Deferral (Pipeline Mode)
 

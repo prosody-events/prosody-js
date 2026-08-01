@@ -265,7 +265,7 @@ const client = new ProsodyClient({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   failureTopic: "failed-messages", // Required for low-latency mode
-  maxRetries: 3, // Give up after 3 attempts
+  maxRetries: 3, // Retry up to 3 times after the initial attempt
 });
 ```
 

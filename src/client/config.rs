@@ -116,7 +116,7 @@ pub struct Configuration {
     /// Cassandra contact nodes (hostnames or IPs).
     pub cassandra_nodes: Option<Either<String, Vec<String>>>,
 
-    /// Cassandra keyspace to use for storing timer data.
+    /// Cassandra keyspace used for persistent Prosody data.
     pub cassandra_keyspace: Option<String>,
 
     /// Preferred Cassandra datacenter for query routing.
@@ -131,8 +131,8 @@ pub struct Configuration {
     /// Password for authenticating with Cassandra.
     pub cassandra_password: Option<String>,
 
-    /// Retention period for failed/unprocessed timer data in Cassandra in
-    /// seconds.
+    /// Retention period for persistent timer and deferral data in Cassandra,
+    /// in seconds.
     pub cassandra_retention_seconds: Option<u32>,
 
     // Scheduler configuration
@@ -187,7 +187,7 @@ pub struct Configuration {
     /// Caps exponential backoff to prevent excessively long delays.
     pub defer_max_delay_ms: Option<u32>,
 
-    /// Failure rate threshold for enabling deferral (0.0 to 1.0).
+    /// Failure rate threshold for disabling deferral (0.0 to 1.0).
     /// When exceeded within the failure window, deferral is disabled.
     pub defer_failure_threshold: Option<f64>,
 
