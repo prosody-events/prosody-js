@@ -227,23 +227,21 @@ in the same commit as any API change.
 
 ## Documentation Standards
 
-**All code comments, technical documentation, READMEs, plans, commit
-messages, and PR descriptions must conform to ASD-STE100 (Simplified
-Technical English).** Apply these primary STE rules in everything you write
-for this project:
+**All written text for this project must conform to ASD-STE100 (Simplified
+Technical English). No written text is exempt.** This rule applies to
+documentation, comments, READMEs, plans, issues, reviews, chat responses,
+commit messages, PR text, and user-facing text. Apply these primary STE rules:
 
 - Use the active voice. Write instructions in the imperative.
-- Write short sentences: 20 words or fewer for instructions, 25 words or
-  fewer for descriptions.
-- Write one instruction per sentence. Keep one topic per paragraph, with a
-  maximum of six sentences.
-- Use a word with only one meaning, and use the same word for the same thing
-  everywhere.
+- Write short sentences. Use 20 words or fewer for instructions. Use 25 words
+  or fewer for descriptions.
+- Write one instruction per sentence. Keep one topic per paragraph. Use a
+  maximum of six sentences in each paragraph.
+- Use a word with only one meaning. Use the same word for the same thing.
 - Use simple verb tenses. Do not use an "-ing" form as a verb when a simple
   tense is correct.
-- Do not make a noun cluster of more than three nouns.
-- Technical names and technical verbs from this project's domain are
-  permitted. Use them consistently.
+- Do not use a noun cluster of more than three nouns.
+- Use approved technical names and technical verbs consistently.
 
 Further rules for doc comments and prose:
 
