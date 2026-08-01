@@ -195,20 +195,23 @@ pub struct Configuration {
     /// Sliding window duration (in milliseconds) for failure rate tracking.
     pub defer_failure_window_ms: Option<u32>,
 
-    /// Cache size for the deferred-retry message loader.
-    /// Controls capacity for the loader cache.
-    pub defer_cache_size: Option<u32>,
-
     /// Maximum deferred store cache entries per Cassandra defer store.
     /// Env: `PROSODY_DEFER_STORE_CACHE_SIZE`. Default: 8192.
     pub defer_store_cache_size: Option<u32>,
 
-    /// Timeout for Kafka seek operations in milliseconds.
-    pub defer_seek_timeout_ms: Option<u32>,
+    // Kafka message loader configuration
+    /// Capacity of the shared Kafka message loader cache.
+    /// Env: `PROSODY_LOADER_CACHE_SIZE`. Default: 1024.
+    pub loader_cache_size: Option<u32>,
+
+    /// Timeout for Kafka loader seek operations in milliseconds.
+    /// Env: `PROSODY_LOADER_SEEK_TIMEOUT`. Default: 30 seconds.
+    pub loader_seek_timeout_ms: Option<u32>,
 
     /// Messages to read sequentially before seeking.
     /// If next offset is within this threshold, reads rather than seeks.
-    pub defer_discard_threshold: Option<i32>,
+    /// Env: `PROSODY_LOADER_DISCARD_THRESHOLD`. Default: 100.
+    pub loader_discard_threshold: Option<u32>,
 
     // Timeout configuration
     /// Fixed timeout duration for handler execution in milliseconds.
@@ -253,12 +256,17 @@ pub struct Configuration {
     pub state_cache_dir: Option<String>,
 
     /// Capacity of the owning keyed-state cache. Accepts a human-readable size.
+    /// Uses `PROSODY_STATE_OWNED_CACHE_SIZE` when omitted. Otherwise, the
+    /// storage engine selects its default.
     pub state_owned_cache_size: Option<String>,
 
-    /// Capacity of the published-state read-through cache.
+    /// Capacity of the published-state read-through cache. Uses
+    /// `PROSODY_STATE_READ_CACHE_SIZE` when omitted. It then uses the owning
+    /// cache size when set, or 1 MiB when both sizes are unset.
     pub state_read_cache_size: Option<String>,
 
-    /// Default cache policy for published-state reads.
+    /// Default cache policy for published-state reads. Uses
+    /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
     pub state_read_cache: Option<ReadCacheConfiguration>,
 
     /// Delay in whole seconds between staging a provisional cell and the
@@ -269,7 +277,8 @@ pub struct Configuration {
     /// non-finite values are rejected).
     pub state_recovery_delay_seconds: Option<f64>,
 
-    /// Subsystem under which published keyed-state collections are advertised.
+    /// Subsystem under which published JSON collections are advertised.
+    /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
     pub subsystem: Option<String>,
 }
 
@@ -445,18 +454,18 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.timer_spans(relation);
     }
 
-    if config.defer_cache_size.is_some()
-        || config.defer_seek_timeout_ms.is_some()
-        || config.defer_discard_threshold.is_some()
+    if config.loader_cache_size.is_some()
+        || config.loader_seek_timeout_ms.is_some()
+        || config.loader_discard_threshold.is_some()
     {
         let mut loader = KafkaLoaderConfiguration::builder();
-        if let Some(cache_size) = config.defer_cache_size {
+        if let Some(cache_size) = config.loader_cache_size {
             loader.cache_size(cache_size as usize);
         }
-        if let Some(seek_timeout_ms) = config.defer_seek_timeout_ms {
+        if let Some(seek_timeout_ms) = config.loader_seek_timeout_ms {
             loader.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
         }
-        if let Some(discard_threshold) = config.defer_discard_threshold {
+        if let Some(discard_threshold) = config.loader_discard_threshold {
             loader.discard_threshold(i64::from(discard_threshold));
         }
         let loader = loader
