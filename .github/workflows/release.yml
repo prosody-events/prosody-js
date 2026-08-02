@@ -113,6 +113,11 @@ jobs:
               # Install build dependencies
               apt-get update && apt-get install -y cmake libcurl4-openssl-dev
 
+              if [ '${{ matrix.settings.target }}' = 'x86_64-unknown-linux-gnu' ]; then
+                apt-get install -y mold
+                export RUSTFLAGS='-C link-arg=-fuse-ld=mold'
+              fi
+
               # Add ARM64 target if needed
               if [ '${{ matrix.settings.target }}' = 'aarch64-unknown-linux-gnu' ]; then
                 rustup target add aarch64-unknown-linux-gnu

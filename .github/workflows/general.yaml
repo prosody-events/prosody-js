@@ -11,13 +11,32 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RUSTFLAGS: -C link-arg=-fuse-ld=mold
 permissions:
   contents: write
   pages: write
   id-token: write
 jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.rail.outputs.build }}
+      docs: ${{ steps.rail.outputs.docs }}
+      infra: ${{ steps.rail.outputs.infra }}
+      test: ${{ steps.rail.outputs.test }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plan affected work
+        id: rail
+        uses: loadingalias/cargo-rail-action@ebc8ef2740efefe2cd5c42826344a8f1213113ae # v6
+        with:
+          since: ${{ github.event_name == 'push' && github.event.before || '' }}
+
   test:
     name: Tests
+    needs: plan
+    if: needs.plan.outputs.test == 'true' || needs.plan.outputs.infra == 'true'
     runs-on: ubuntu-latest
     services:
       kafka:
@@ -53,6 +72,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install mold
+        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+        with:
+          make-default: false
+
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -79,9 +103,15 @@ jobs:
 
   fmt:
     name: Format
+    needs: plan
+    if: needs.plan.outputs.build == 'true' || needs.plan.outputs.test == 'true' || needs.plan.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up mold
+        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+        with:
+          make-default: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -97,9 +127,16 @@ jobs:
 
   dependencies:
     name: Dependencies
+    needs: plan
+    if: needs.plan.outputs.build == 'true' || needs.plan.outputs.test == 'true' || needs.plan.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install mold
+        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+        with:
+          make-default: false
 
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
@@ -119,9 +156,15 @@ jobs:
 
   docs:
     name: Documentation
+    needs: plan
+    if: needs.plan.outputs.docs == 'true' || needs.plan.outputs.build == 'true' || needs.plan.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up mold
+        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+        with:
+          make-default: false
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
