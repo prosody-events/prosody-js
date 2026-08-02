@@ -16,7 +16,6 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  RUSTFLAGS: -C link-arg=-fuse-ld=mold
 jobs:
   plan:
     name: Plan
@@ -40,11 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install mold
-        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
-        with:
-          make-default: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
