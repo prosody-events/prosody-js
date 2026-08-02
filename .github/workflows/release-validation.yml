@@ -1,0 +1,55 @@
+name: Release Build Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .dockerignore
+      - .github/docker/**
+      - .github/workflows/release.yml
+      - .github/workflows/release-validation.yml
+      - .yarn/**
+      - .yarnrc.yml
+      - Cargo.lock
+      - Cargo.toml
+      - package.json
+      - yarn.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux:
+    name: Build ${{ matrix.target.rust }} release artifact
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - rust: x86_64-unknown-linux-gnu
+            rustflags: -C link-arg=-fuse-ld=mold
+          - rust: aarch64-unknown-linux-gnu
+            rustflags: ""
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Build release artifact
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: .github/docker/linux-release.Dockerfile
+          target: artifact
+          build-args: |
+            RUST_TARGET=${{ matrix.target.rust }}
+            RUSTFLAGS=${{ matrix.target.rustflags }}
+          outputs: type=local,dest=artifacts/${{ matrix.target.rust }}
+          cache-from: type=gha,scope=linux-${{ matrix.target.rust }}
+          cache-to: type=gha,mode=max,scope=linux-${{ matrix.target.rust }}
+
