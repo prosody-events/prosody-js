@@ -77,7 +77,7 @@ aspirations — perform each one; do not merely agree with it:
   collection must have a fixed capacity bound. Every in-memory map names its
   removal path; self-draining maps are fine, but the drain is still named.
 
-**Allocation (tiger style — https://tigerstyle.dev/):**
+**Allocation and layout (tiger style — https://tigerstyle.dev/):**
 
 - No hot-path allocation that is not upfront and bounded. A steady-state path
   (per message, per timer fire, per handler call) must not allocate a buffer
@@ -91,6 +91,13 @@ aspirations — perform each one; do not merely agree with it:
   a function item, an index, or a borrow before a scratch `Vec`.
 - No amortized resize buffers on the hot path. If a reusable scratch buffer
   is unavoidable, allocate it once at construction with a fixed bound.
+- **Lay data out for the access pattern.** A hot path that scans one or two
+  fields across many entries must find those fields contiguously. Reach the
+  full record only for the entry the scan selects. An array of `Option<Arc<T>>`
+  turns a two-word decision into one heap dereference per entry, and thrashes
+  the CPU cache. Memory bandwidth is the bottleneck today, so the scan decides
+  the layout, not the record. Don't thrash the cache. False sharing counts:
+  keep atomics that different threads write off one line.
 - Simplicity is not sacrificed for this. When zero-alloc and simple genuinely
   conflict, keep it simple and leave a comment naming the allocation.
 
