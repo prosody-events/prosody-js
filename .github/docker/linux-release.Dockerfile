@@ -59,4 +59,3 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 FROM scratch AS artifact
 COPY --from=builder /output/ /
-

@@ -52,4 +52,3 @@ jobs:
           outputs: type=local,dest=artifacts/${{ matrix.target.rust }}
           cache-from: type=gha,scope=linux-${{ matrix.target.rust }}
           cache-to: type=gha,mode=max,scope=linux-${{ matrix.target.rust }}
-
