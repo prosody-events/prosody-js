@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.4.0...prosody-v0.5.0) (2026-08-05)
+
+
+### Features
+
+* expose published keyed state ([#45](https://github.com/prosody-events/prosody-js/issues/45)) ([7c99885](https://github.com/prosody-events/prosody-js/commit/7c99885a2dda835808631c1e24b7022dfce1fa42))
+
+
+### Bug Fixes
+
+* **logging:** flush OTel telemetry on environment teardown ([#42](https://github.com/prosody-events/prosody-js/issues/42)) ([482db7d](https://github.com/prosody-events/prosody-js/commit/482db7d70664054887f6b8ab1a0590415537a5b6))
+* **release:** pin published release boundary ([f3c68eb](https://github.com/prosody-events/prosody-js/commit/f3c68eb000b75d84b032dc35c269d15ef2a5f04c))
+
+
+### Performance Improvements
+
+* carry payload bytes across the boundary instead of a parsed tree ([#43](https://github.com/prosody-events/prosody-js/issues/43)) ([e8ddab8](https://github.com/prosody-events/prosody-js/commit/e8ddab85864ee6cee59653a270694411158facdd))
+
 ## [0.4.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.3.1...prosody-v0.4.0) (2026-07-21)
 
 ### Features
