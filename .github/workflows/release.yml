@@ -59,7 +59,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
             use_docker: true
-            rustflags: -C link-arg=-fuse-ld=mold
+            rustflags: -C target-cpu=x86-64-v3 -C link-arg=-fuse-ld=mold
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-latest
             use_docker: true
