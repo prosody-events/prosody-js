@@ -1,6 +1,9 @@
 //! Native read-only views over published keyed state.
 
-use crate::state::{NativeStateCursor, json_text, op_context, parse_direction};
+use crate::state::{
+    NativeJsonDequeCursor, NativeJsonMapCursor, NativeMapKeyCursor, json_text, op_context,
+    parse_direction,
+};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
@@ -113,7 +116,7 @@ impl NativePublishedMap {
         key: String,
         direction: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<NativeStateCursor> {
+    ) -> Result<NativeJsonMapCursor> {
         let direction = match parse_direction(&direction)? {
             Direction::Forward => ErasedDirection::Forward,
             Direction::Backward => ErasedDirection::Backward,
@@ -125,10 +128,10 @@ impl NativePublishedMap {
             .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
-        Ok(NativeStateCursor::published_map(
-            inner,
-            Arc::clone(&self.propagator),
-        ))
+        Ok(NativeJsonMapCursor {
+            cursor: inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 
     /// Opens an ordered key cursor.
@@ -138,7 +141,7 @@ impl NativePublishedMap {
         key: String,
         direction: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<NativeStateCursor> {
+    ) -> Result<NativeMapKeyCursor> {
         let direction = match parse_direction(&direction)? {
             Direction::Forward => ErasedDirection::Forward,
             Direction::Backward => ErasedDirection::Backward,
@@ -150,10 +153,10 @@ impl NativePublishedMap {
             .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
-        Ok(NativeStateCursor::published_map_keys(
-            inner,
-            Arc::clone(&self.propagator),
-        ))
+        Ok(NativeMapKeyCursor {
+            cursor: inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 }
 
@@ -253,7 +256,7 @@ impl NativePublishedDeque {
         key: String,
         direction: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<NativeStateCursor> {
+    ) -> Result<NativeJsonDequeCursor> {
         let direction = match parse_direction(&direction)? {
             Direction::Forward => ErasedDirection::Forward,
             Direction::Backward => ErasedDirection::Backward,
@@ -265,9 +268,9 @@ impl NativePublishedDeque {
             .with_context(context)
             .await
             .map_err(|error| read_error(&error))?;
-        Ok(NativeStateCursor::published_deque(
-            inner,
-            Arc::clone(&self.propagator),
-        ))
+        Ok(NativeJsonDequeCursor {
+            cursor: inner,
+            propagator: Arc::clone(&self.propagator),
+        })
     }
 }

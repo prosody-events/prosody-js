@@ -5,8 +5,8 @@
 //! Node.js through NAPI.
 
 use crate::state::{
-    DequeStateVariant, MapStateVariant, NativeDequeState, NativeMapState, NativeValueState,
-    ValueStateVariant, state_error,
+    NativeJsonDequeState, NativeJsonMapState, NativeJsonValueState, NativeMessageDequeState,
+    NativeMessageMapState, NativeMessageValueState, state_error,
 };
 use chrono::{DateTime, Utc};
 use napi::Error;
@@ -181,13 +181,13 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn value_state(&self, name: String) -> napi::Result<NativeValueState> {
+    pub fn value_state(&self, name: String) -> napi::Result<NativeJsonValueState> {
         let handle = self
             .context
             .value_state(&name)
             .map_err(|e| state_error(&e))?;
-        Ok(NativeValueState {
-            state: ValueStateVariant::Json(handle),
+        Ok(NativeJsonValueState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -204,10 +204,10 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn map_state(&self, name: String) -> napi::Result<NativeMapState> {
+    pub fn map_state(&self, name: String) -> napi::Result<NativeJsonMapState> {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
-        Ok(NativeMapState {
-            state: MapStateVariant::Json(handle),
+        Ok(NativeJsonMapState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -224,13 +224,13 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+    pub fn deque_state(&self, name: String) -> napi::Result<NativeJsonDequeState> {
         let handle = self
             .context
             .deque_state(&name)
             .map_err(|e| state_error(&e))?;
-        Ok(NativeDequeState {
-            state: DequeStateVariant::Json(handle),
+        Ok(NativeJsonDequeState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -246,13 +246,13 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn message_value_state(&self, name: String) -> napi::Result<NativeValueState> {
+    pub fn message_value_state(&self, name: String) -> napi::Result<NativeMessageValueState> {
         let handle = self
             .context
             .message_value_state(&name)
             .map_err(|e| state_error(&e))?;
-        Ok(NativeValueState {
-            state: ValueStateVariant::Message(handle),
+        Ok(NativeMessageValueState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -268,13 +268,13 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn message_map_state(&self, name: String) -> napi::Result<NativeMapState> {
+    pub fn message_map_state(&self, name: String) -> napi::Result<NativeMessageMapState> {
         let handle = self
             .context
             .message_map_state(&name)
             .map_err(|e| state_error(&e))?;
-        Ok(NativeMapState {
-            state: MapStateVariant::Message(handle),
+        Ok(NativeMessageMapState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -290,13 +290,13 @@ impl NativeContext {
     ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn message_deque_state(&self, name: String) -> napi::Result<NativeDequeState> {
+    pub fn message_deque_state(&self, name: String) -> napi::Result<NativeMessageDequeState> {
         let handle = self
             .context
             .message_deque_state(&name)
             .map_err(|e| state_error(&e))?;
-        Ok(NativeDequeState {
-            state: DequeStateVariant::Message(handle),
+        Ok(NativeMessageDequeState {
+            state: handle,
             propagator: Arc::clone(&self.propagator),
         })
     }

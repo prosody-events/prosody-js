@@ -1200,31 +1200,24 @@ function requireMessage(value) {
 }
 
 /**
- * Builds the item codec for one collection payload flavour.
+ * Builds the item codec for one collection payload type.
  *
- * Native names each write verb after the flavour it accepts — `setJson` versus
- * `setMessage` — so one factory covers both: `encode` prepares an item for the
- * wire and `flavour` selects the verb. The definition's payload picks a codec
- * when the handle is vended, so no operation tests the flavour again.
- * @param {string} flavour - `"Json"` or `"Message"`, the native verb suffix.
+ * The native handle has one payload type. Each write method accepts only that
+ * type.
  * @param {(item: *) => *} encode - Prepares an item for a write.
  * @param {(item: *) => *} decode - Turns a read item into what the caller asked for.
  * @returns {Readonly<object>} The frozen codec.
  * @private
  */
-function itemCodec(flavour, encode, decode) {
-  const set = `set${flavour}`;
-  const pushBack = `pushBack${flavour}`;
-  const pushFront = `pushFront${flavour}`;
+function itemCodec(encode, decode) {
   return Object.freeze({
     decode: (item) => (item === null ? null : decode(item)),
-    set: (native, item, carrier) => native[set](encode(item), carrier),
+    set: (native, item, carrier) => native.set(encode(item), carrier),
     setKey: (native, key, item, carrier) =>
-      native[set](key, encode(item), carrier),
-    pushBack: (native, item, carrier) =>
-      native[pushBack](encode(item), carrier),
+      native.set(key, encode(item), carrier),
+    pushBack: (native, item, carrier) => native.pushBack(encode(item), carrier),
     pushFront: (native, item, carrier) =>
-      native[pushFront](encode(item), carrier),
+      native.pushFront(encode(item), carrier),
   });
 }
 
@@ -1277,7 +1270,7 @@ class PublishedDeque {
 }
 
 /** JSON documents cross as their text. @private */
-const jsonItems = itemCodec("Json", encodeJson, (text) =>
+const jsonItems = itemCodec(encodeJson, (text) =>
   parseJson(
     text,
     PermanentStateError,
@@ -1286,7 +1279,7 @@ const jsonItems = itemCodec("Json", encodeJson, (text) =>
 );
 
 /** Kafka messages cross as the `Message` object itself. @private */
-const messageItems = itemCodec("Message", requireMessage, withParsedPayload);
+const messageItems = itemCodec(requireMessage, withParsedPayload);
 
 /**
  * What every keyed-state handle shares: the native handle it wraps, the item
