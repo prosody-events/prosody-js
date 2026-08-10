@@ -195,6 +195,58 @@ test("descriptors retain their owned and published access strategies", async () 
   ]);
 });
 
+test("request results preserve subsystem order and failure details", async () => {
+  const request = jest.fn().mockResolvedValue([
+    { value: { accepted: true }, error: undefined },
+    {
+      value: undefined,
+      error: {
+        kind: "handler",
+        category: "permanent",
+        message: "rejected",
+      },
+    },
+    { value: undefined, error: { kind: "timeout" } },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { request };
+
+  const results = await client.request(
+    "orders",
+    "order-1",
+    { type: "order.created" },
+    ["inventory", "billing", "email"],
+    2_000,
+    { headers: { tenant: "acme" } },
+  );
+
+  expect(results).toEqual([
+    { ok: true, value: { accepted: true } },
+    {
+      ok: false,
+      error: {
+        kind: "handler",
+        category: "permanent",
+        message: "rejected",
+      },
+    },
+    { ok: false, error: { kind: "timeout" } },
+  ]);
+  expect(request).toHaveBeenCalledWith(
+    {
+      headers: { tenant: "acme" },
+      topic: "orders",
+      key: "order-1",
+      payload: JSON.stringify({ type: "order.created" }),
+      metadata: { eventId: undefined, eventType: "order.created" },
+      subsystems: ["inventory", "billing", "email"],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
+});
+
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

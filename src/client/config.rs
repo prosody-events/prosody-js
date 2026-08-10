@@ -2,6 +2,7 @@ use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::ByteSize;
+use prosody::PeerConfiguration;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
@@ -27,10 +28,12 @@ use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
+use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tonic::transport::Endpoint;
 
 /// Configuration options for the Prosody client.
 #[napi(object)]
@@ -279,6 +282,26 @@ pub struct Configuration {
     /// Subsystem under which published JSON collections are advertised.
     /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
     pub subsystem: Option<String>,
+
+    /// Socket address for the peer gRPC listener. Uses
+    /// `PROSODY_PEER_BIND_ADDRESS` when omitted.
+    pub peer_bind_address: Option<String>,
+
+    /// gRPC connect URI that remote peers use. Uses
+    /// `PROSODY_PEER_ADVERTISED_CONNECT` when omitted.
+    pub peer_advertised_connect: Option<String>,
+
+    /// Network name used to select direct peer routes. Uses
+    /// `PROSODY_PEER_NETWORK_NAME` when omitted.
+    pub peer_network_name: Option<String>,
+
+    /// Maximum channels and peer records in each node-keyed cache. Uses
+    /// `PROSODY_PEER_CACHE_CAPACITY` when omitted.
+    pub peer_cache_capacity: Option<u32>,
+
+    /// Peer registration lease duration in seconds. Uses
+    /// `PROSODY_PEER_REGISTRATION_TTL` when omitted.
+    pub peer_registration_ttl_seconds: Option<u32>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -1034,7 +1057,37 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
         timeout: build_timeout_config(config),
         emitter: build_emitter_config(config)?,
         keyed_state: build_keyed_state_config(config)?,
+        peer: build_peer_config(config)?,
     })
+}
+
+fn build_peer_config(config: &Configuration) -> Result<PeerConfiguration> {
+    let mut builder = PeerConfiguration::builder();
+    if let Some(value) = &config.peer_bind_address {
+        builder.bind_address(
+            value
+                .parse::<SocketAddr>()
+                .map_err(|error| Error::from_reason(format!("peerBindAddress: {error}")))?,
+        );
+    }
+    if let Some(value) = &config.peer_advertised_connect {
+        builder.advertised_connect(
+            Endpoint::from_shared(value.clone())
+                .map_err(|error| Error::from_reason(format!("peerAdvertisedConnect: {error}")))?,
+        );
+    }
+    if let Some(value) = &config.peer_network_name {
+        builder.network_name(value.clone());
+    }
+    if let Some(value) = config.peer_cache_capacity {
+        builder.peer_cache_capacity(value as usize);
+    }
+    if let Some(value) = config.peer_registration_ttl_seconds {
+        builder.registration_ttl(Duration::from_secs(u64::from(value)));
+    }
+    builder
+        .build()
+        .map_err(|error| Error::from_reason(error.to_string()))
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.

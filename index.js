@@ -15,8 +15,8 @@
 
 /**
  * @typedef {Object} EventHandler
- * @property {Function} [onMessage] - Async callback function to handle incoming messages. Receives (context, message, signal).
- * @property {Function} [onTimer] - Async callback function to handle timer events. Receives (context, timer, signal).
+ * @property {Function} [onMessage] - Handles a message and returns its response.
+ * @property {Function} [onTimer] - Handles a timer and returns its response.
  */
 
 /**
@@ -266,6 +266,38 @@ class ProsodyClient {
   }
 
   /**
+   * Sends a request and waits for one response from each subsystem.
+   *
+   * @param {string} topic - The Kafka topic.
+   * @param {string} key - The message key.
+   * @param {*} payload - The JSON request payload.
+   * @param {string[]} subsystems - The subsystems that must respond.
+   * @param {number} timeoutMs - The response deadline in milliseconds.
+   * @param {{headers?: Record<string, string>, signal?: AbortSignal}} [options] - Optional headers and cancellation.
+   * @returns {Promise<Array<{ok: true, value: *}|{ok: false, error: object}>>} One result per subsystem.
+   */
+  async request(topic, key, payload, subsystems, timeoutMs, options = {}) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    const results = await this.nativeClient.request(
+      {
+        headers: options.headers ?? {},
+        topic,
+        key,
+        payload: toJson(payload, TransientError),
+        metadata: eventMetadata(payload),
+        subsystems,
+        timeoutMs,
+      },
+      carrier,
+      options.signal && onAbort(options.signal),
+    );
+    return results.map(({ value, error }) =>
+      error === undefined ? { ok: true, value } : { ok: false, error },
+    );
+  }
+
+  /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param {EventHandler} eventHandler - The event handler to process received messages and timers.
@@ -320,8 +352,8 @@ class ProsodyClient {
         if (err) throw err;
 
         const ctx = propagation.extract(otelContext.active(), carrier);
-        await otelContext.with(ctx, async () => {
-          await tracer.startActiveSpan("onMessage", async (span) => {
+        return otelContext.with(ctx, async () => {
+          return tracer.startActiveSpan("onMessage", async (span) => {
             const controller = new AbortController();
             let completed = false;
 
@@ -335,10 +367,12 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              await onMessage(
-                context,
-                withParsedPayload(message),
-                controller.signal,
+              return (
+                (await onMessage(
+                  context,
+                  withParsedPayload(message),
+                  controller.signal,
+                )) ?? null
               );
             } catch (error) {
               getCurrentLogger()?.error(
@@ -370,8 +404,8 @@ class ProsodyClient {
         if (err) throw err;
 
         const ctx = propagation.extract(otelContext.active(), carrier);
-        await otelContext.with(ctx, async () => {
-          await tracer.startActiveSpan("onTimer", async (span) => {
+        return otelContext.with(ctx, async () => {
+          return tracer.startActiveSpan("onTimer", async (span) => {
             const controller = new AbortController();
             let completed = false;
 
@@ -385,7 +419,7 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              await onTimer(context, timer, controller.signal);
+              return (await onTimer(context, timer, controller.signal)) ?? null;
             } catch (error) {
               getCurrentLogger()?.error(
                 "Timer handler error",

@@ -7,15 +7,19 @@ use napi::bindgen_prelude::{Promise, within_runtime_if_available};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use prosody::codec::{BinaryPayload, JsonBinaryCodec};
+use prosody::codec::BinaryPayload;
+use prosody::error::ErrorCategory;
 use prosody::high_level::erased::{
     ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
 };
 use prosody::propagator::new_propagator;
+use prosody::requester::ResponseError;
+use prosody::subsystem::SubsystemName;
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Handle;
 use tokio::select;
 use tracing::debug;
 use tracing::field::Empty;
@@ -29,7 +33,7 @@ mod config;
 /// consumer state.
 #[napi]
 pub struct NativeClient {
-    client: SharedHighLevelClient<JsHandler, JsonBinaryCodec>,
+    client: SharedHighLevelClient<JsHandler>,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -47,13 +51,14 @@ impl NativeClient {
         let cassandra = build_cassandra_config(&config);
 
         let client = within_runtime_if_available(|| -> StdResult<_, String> {
-            new_erased(
-                config.mode.unwrap_or_default().into(),
-                &mut producer_config,
-                &consumer_builders,
-                &cassandra,
-            )
-            .map_err(|error| error.to_string())
+            Handle::current()
+                .block_on(new_erased(
+                    config.mode.unwrap_or_default().into(),
+                    &mut producer_config,
+                    &consumer_builders,
+                    &cassandra,
+                ))
+                .map_err(|error| error.to_string())
         })
         .map_err(Error::from_reason)?;
 
@@ -201,6 +206,63 @@ impl NativeClient {
         }
     }
 
+    /// Sends one request and returns one result per subsystem.
+    #[napi(writable = false)]
+    pub async fn request(
+        &self,
+        request: NativeRequest,
+        otel_context: HashMap<String, String>,
+        maybe_abort: Option<Promise<()>>,
+    ) -> Result<Vec<NativeRequestResult>> {
+        let subsystems = request
+            .subsystems
+            .into_iter()
+            .map(|name| {
+                SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let context = self.client.propagator().extract(&otel_context);
+        let span = info_span!("javascript-request", topic = %request.topic, key = %request.key, aborted = Empty);
+        if let Err(error) = span.set_parent(context) {
+            debug!("failed to set parent span: {error:#}");
+        }
+        let payload = BinaryPayload::new(
+            request.payload.into_bytes(),
+            request.metadata.event_id,
+            request.metadata.event_type,
+        );
+        let request_future = async {
+            self.client
+                .request(
+                    request.headers.into_iter().collect(),
+                    request.topic.as_str().into(),
+                    request.key,
+                    payload,
+                    subsystems,
+                    Duration::from_millis(u64::from(request.timeout_ms)),
+                )
+                .instrument(span.clone())
+                .await
+                .map(|results| results.into_iter().map(Into::into).collect())
+                .map_err(|error| Error::from_reason(error.to_string()))
+        };
+        let Some(on_abort) = maybe_abort else {
+            let result = request_future.await;
+            span.record("aborted", false);
+            return result;
+        };
+        select! {
+            result = on_abort.into_future() => {
+                span.record("aborted", true);
+                result.map(|()| Vec::new())
+            }
+            result = request_future => {
+                span.record("aborted", false);
+                result
+            }
+        }
+    }
+
     /// Subscribes to receive messages using the provided event handler.
     ///
     /// @param eventHandler - The event handler to process received messages and
@@ -209,9 +271,9 @@ impl NativeClient {
     #[napi(
         writable = false,
         ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
-                        Message, Record<string, string>]) => Promise<void>; onTimer: (err: null | \
-                        Error, args: [NativeContext, Timer, Record<string, string>]) => \
-                        Promise<void>; isPermanent: (args: [Error]) => boolean }"
+                        Message, Record<string, string>]) => Promise<unknown>; onTimer: (err: \
+                        null | Error, args: [NativeContext, Timer, Record<string, string>]) => \
+                        Promise<unknown>; isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -269,6 +331,87 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
             milliseconds,
         )))),
         (None, false) => Ok(ErasedReadCache::Inherit),
+    }
+}
+
+/// One peer request.
+#[napi(object)]
+pub struct NativeRequest {
+    /// Kafka headers.
+    pub headers: HashMap<String, String>,
+    /// Kafka topic.
+    pub topic: String,
+    /// Message key.
+    pub key: String,
+    /// JSON payload text.
+    pub payload: String,
+    /// Event metadata read before serialization.
+    pub metadata: EventMetadata,
+    /// Subsystems that must respond.
+    pub subsystems: Vec<String>,
+    /// Response deadline in milliseconds.
+    pub timeout_ms: u32,
+}
+
+/// One request result for one subsystem.
+#[napi(object)]
+pub struct NativeRequestResult {
+    /// Successful JSON response.
+    pub value: Option<serde_json::Value>,
+    /// Response failure details.
+    pub error: Option<NativeResponseError>,
+}
+
+/// One response failure.
+#[napi(object)]
+pub struct NativeResponseError {
+    /// Failure discriminator.
+    pub kind: String,
+    /// Handler error category.
+    pub category: Option<String>,
+    /// Handler error message.
+    pub message: Option<String>,
+}
+
+impl From<StdResult<serde_json::Value, ResponseError>> for NativeRequestResult {
+    fn from(result: StdResult<serde_json::Value, ResponseError>) -> Self {
+        match result {
+            Ok(value) => Self {
+                value: Some(value),
+                error: None,
+            },
+            Err(ResponseError::Handler { category, message }) => {
+                let category = match category {
+                    ErrorCategory::Transient => "transient",
+                    ErrorCategory::Permanent => "permanent",
+                    ErrorCategory::Terminal => "terminal",
+                };
+                Self {
+                    value: None,
+                    error: Some(NativeResponseError {
+                        kind: "handler".to_owned(),
+                        category: Some(category.to_owned()),
+                        message: Some(message),
+                    }),
+                }
+            }
+            Err(ResponseError::Timeout) => Self::failed("timeout"),
+            Err(ResponseError::FormatMismatch) => Self::failed("formatMismatch"),
+            Err(ResponseError::Malformed) => Self::failed("malformed"),
+        }
+    }
+}
+
+impl NativeRequestResult {
+    fn failed(kind: &str) -> Self {
+        Self {
+            value: None,
+            error: Some(NativeResponseError {
+                kind: kind.to_owned(),
+                category: None,
+                message: None,
+            }),
+        }
     }
 }
 

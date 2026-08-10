@@ -44,6 +44,18 @@ The JavaScript client reports values it cannot convert to Prosody types. Prosody
 | ---------------------------------------- | ------------------------------- | ------- |
 | `sendTimeoutMs` / `PROSODY_SEND_TIMEOUT` | Give up sending after this long | 1s      |
 
+## Peer Requests
+
+Peer requests work with the defaults on one network. Set an advertised connect string only when another network cannot use the listener address.
+
+| Option / Environment Variable                                  | Description                                                  | Default     |
+| -------------------------------------------------------------- | ------------------------------------------------------------ | ----------- |
+| `peerBindAddress` / `PROSODY_PEER_BIND_ADDRESS`                | Socket address for the peer gRPC listener                    | `0.0.0.0:0` |
+| `peerAdvertisedConnect` / `PROSODY_PEER_ADVERTISED_CONNECT`    | gRPC connect URI that peers on another network use           | (none)      |
+| `peerNetworkName` / `PROSODY_PEER_NETWORK_NAME`                | Nonempty network name, with a maximum size of 63 UTF-8 bytes | (none)      |
+| `peerCacheCapacity` / `PROSODY_PEER_CACHE_CAPACITY`            | Maximum channels and peer records in each node-keyed cache   | 256         |
+| `peerRegistrationTtlSeconds` / `PROSODY_PEER_REGISTRATION_TTL` | Directory lease duration; use 5 through 3600 whole seconds   | 30s         |
+
 ## Retry
 
 Retry backoff applies in pipeline and low-latency modes. `maxRetries` controls how many retries low-latency mode performs before routing the failure to `failureTopic`. Pipeline mode uses deferral and does not use this limit.

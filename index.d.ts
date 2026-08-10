@@ -587,20 +587,20 @@ export interface Logger {
   trace: (message: string | undefined | null, metadata?: any) => void;
 }
 
-export interface EventHandler<P = JsonValue> {
+export interface EventHandler<P = JsonValue, R = JsonValue> {
   /**
    * Callback function to handle incoming messages.
    *
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A promise that resolves when the message has been processed.
+   * @returns The response for peer requests. An omitted response becomes JSON null.
    */
   onMessage?: (
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
-  ) => Promise<void>;
+  ) => Promise<R | void>;
 
   /**
    * Callback function to handle timers.
@@ -608,13 +608,35 @@ export interface EventHandler<P = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A promise that resolves when the timer has been processed.
+   * @returns The response for peer requests. An omitted response becomes JSON null.
    */
   onTimer?: (
     context: Context,
     timer: Timer,
     signal: AbortSignal,
-  ) => Promise<void>;
+  ) => Promise<R | void>;
+}
+
+/** The retry category for a remote handler error. */
+export type ErrorCategory = "transient" | "permanent" | "terminal";
+
+/** A subsystem response failure. */
+export type ResponseError =
+  | { kind: "handler"; category: ErrorCategory; message: string }
+  | { kind: "timeout" }
+  | { kind: "formatMismatch" }
+  | { kind: "malformed" };
+
+/** One subsystem response. */
+export type RequestResult<T> =
+  { ok: true; value: T } | { ok: false; error: ResponseError };
+
+/** Optional request metadata and cancellation. */
+export interface RequestOptions {
+  /** Kafka headers to add to the request. */
+  headers?: Readonly<Record<string, string>>;
+  /** Cancels the local wait. */
+  signal?: AbortSignal;
 }
 
 export declare class ProsodyClient {
@@ -690,13 +712,29 @@ export declare class ProsodyClient {
   ): Promise<void>;
 
   /**
+   * Sends a request and waits for one response from each subsystem.
+   *
+   * Results use the same order as `subsystems`.
+   */
+  request<R = JsonValue, P = JsonValue>(
+    topic: string,
+    key: string,
+    payload: P & JsonCompatible<P>,
+    subsystems: readonly string[],
+    timeoutMs: number,
+    options?: RequestOptions,
+  ): Promise<Array<RequestResult<R>>>;
+
+  /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param eventHandler - The event handler to process received messages and timers.
    * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
    * @throws Error if the subscription fails to establish.
    */
-  subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>;
+  subscribe<P = JsonValue, R = JsonValue>(
+    eventHandler: EventHandler<P, R>,
+  ): Promise<void>;
 
   /**
    * Unsubscribes from receiving messages and shuts down the consumer.

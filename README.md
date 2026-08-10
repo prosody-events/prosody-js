@@ -222,6 +222,37 @@ if (client.isStalled) {
 
 ## Advanced Usage
 
+### Peer Requests
+
+Peer requests collect one result from each named subsystem. The result order matches the subsystem order.
+
+Return a JSON response from each handler:
+
+```javascript
+await client.subscribe({
+  onMessage: async (_context, message) => ({ accepted: message.key }),
+});
+```
+
+Send a request without a subscription on the requester:
+
+```javascript
+const results = await client.request(
+  "orders",
+  "order-1",
+  { type: "order.created" },
+  ["inventory", "billing"],
+  2_000,
+);
+
+for (const result of results) {
+  if (result.ok) console.log(result.value);
+  else console.error(result.error);
+}
+```
+
+Each error identifies a handler failure, timeout, format mismatch, or malformed response. Handler failures also include their category and message.
+
 ### Pipeline Mode
 
 All messages must be processed. Retries indefinitely. Uses defer and monopolization detection.
@@ -956,21 +987,22 @@ your changes before merging to `main`.
 - `constructor(config: Configuration)`: Initialize a new ProsodyClient with the given configuration.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
+- `request<R, P>(topic, key, payload, subsystems, timeoutMs, options?): Promise<Array<RequestResult<R>>>`: Request one response from each subsystem.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
-- `subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>`: Subscribe using a handler whose payload type flows into `Message<P>`.
+- `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
 
 ### EventHandler
 
 Interface for handling messages and timers:
 
-- `EventHandler<P = JsonValue>` carries the application payload type through to the message callback.
-- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<void>`: Handles incoming messages
-- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events
+- `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
+- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R | void>`: Handles incoming messages.
+- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<R | void>`: Handles timer events.
 
 ### Message
 

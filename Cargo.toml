@@ -26,11 +26,14 @@ napi = { version = "3.8", features = [
 ] }
 napi-derive = "3.5"
 opentelemetry = "0.32"
-# TODO: replace this Git revision with the published Prosody release once the backend change is released.
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "1add1b742a4118142ea536b96d3dc8237ae16897", features = ["libz-static"] }
+# TODO: Use the released version after Prosody publishes peer requests.
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "2d8bae376c0480aa67e830242efa555ad66e1b94", features = [
+    "libz-static",
+] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["sync"] }
+tonic = "0.14"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.33"
 tracing-subscriber = "0.3"
