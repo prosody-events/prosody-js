@@ -22,7 +22,7 @@ ENV CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends cmake libcurl4-openssl-dev \
+    && apt-get install -y --no-install-recommends cmake libcurl4-openssl-dev protobuf-compiler \
     && if [ "${RUST_TARGET}" = 'x86_64-unknown-linux-gnu' ]; then \
          apt-get install -y --no-install-recommends mold; \
        else \
