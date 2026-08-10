@@ -231,6 +231,8 @@ impl NativeClient {
             request.metadata.event_id,
             request.metadata.event_type,
         );
+        let timeout = Duration::try_from_secs_f64(request.timeout_ms / 1_000.0)
+            .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
         let request_future = async {
             self.client
                 .request(
@@ -239,7 +241,7 @@ impl NativeClient {
                     request.key,
                     payload,
                     subsystems,
-                    Duration::from_millis(u64::from(request.timeout_ms)),
+                    timeout,
                 )
                 .instrument(span.clone())
                 .await
@@ -350,7 +352,7 @@ pub struct NativeRequest {
     /// Subsystems that must respond.
     pub subsystems: Vec<String>,
     /// Response deadline in milliseconds.
-    pub timeout_ms: u32,
+    pub timeout_ms: f64,
 }
 
 /// One request result for one subsystem.
@@ -366,11 +368,47 @@ pub struct NativeRequestResult {
 #[napi(object)]
 pub struct NativeResponseError {
     /// Failure discriminator.
-    pub kind: String,
+    pub kind: NativeResponseErrorKind,
     /// Handler error category.
-    pub category: Option<String>,
+    pub category: Option<NativeResponseErrorCategory>,
     /// Handler error message.
     pub message: Option<String>,
+}
+
+/// One response failure kind.
+#[derive(Clone, Copy)]
+#[napi(string_enum)]
+pub enum NativeResponseErrorKind {
+    #[napi(value = "handler")]
+    Handler,
+    #[napi(value = "timeout")]
+    Timeout,
+    #[napi(value = "formatMismatch")]
+    FormatMismatch,
+    #[napi(value = "malformed")]
+    Malformed,
+}
+
+/// One handler error category.
+#[derive(Clone, Copy)]
+#[napi(string_enum)]
+pub enum NativeResponseErrorCategory {
+    #[napi(value = "transient")]
+    Transient,
+    #[napi(value = "permanent")]
+    Permanent,
+    #[napi(value = "terminal")]
+    Terminal,
+}
+
+impl From<ErrorCategory> for NativeResponseErrorCategory {
+    fn from(category: ErrorCategory) -> Self {
+        match category {
+            ErrorCategory::Transient => Self::Transient,
+            ErrorCategory::Permanent => Self::Permanent,
+            ErrorCategory::Terminal => Self::Terminal,
+        }
+    }
 }
 
 impl From<StdResult<serde_json::Value, ResponseError>> for NativeRequestResult {
@@ -380,34 +418,29 @@ impl From<StdResult<serde_json::Value, ResponseError>> for NativeRequestResult {
                 value: Some(value),
                 error: None,
             },
-            Err(ResponseError::Handler { category, message }) => {
-                let category = match category {
-                    ErrorCategory::Transient => "transient",
-                    ErrorCategory::Permanent => "permanent",
-                    ErrorCategory::Terminal => "terminal",
-                };
-                Self {
-                    value: None,
-                    error: Some(NativeResponseError {
-                        kind: "handler".to_owned(),
-                        category: Some(category.to_owned()),
-                        message: Some(message),
-                    }),
-                }
+            Err(ResponseError::Handler { category, message }) => Self {
+                value: None,
+                error: Some(NativeResponseError {
+                    kind: NativeResponseErrorKind::Handler,
+                    category: Some(category.into()),
+                    message: Some(message),
+                }),
+            },
+            Err(ResponseError::Timeout) => Self::failed(NativeResponseErrorKind::Timeout),
+            Err(ResponseError::FormatMismatch) => {
+                Self::failed(NativeResponseErrorKind::FormatMismatch)
             }
-            Err(ResponseError::Timeout) => Self::failed("timeout"),
-            Err(ResponseError::FormatMismatch) => Self::failed("formatMismatch"),
-            Err(ResponseError::Malformed) => Self::failed("malformed"),
+            Err(ResponseError::Malformed) => Self::failed(NativeResponseErrorKind::Malformed),
         }
     }
 }
 
 impl NativeRequestResult {
-    fn failed(kind: &str) -> Self {
+    fn failed(kind: NativeResponseErrorKind) -> Self {
         Self {
             value: None,
             error: Some(NativeResponseError {
-                kind: kind.to_owned(),
+                kind,
                 category: None,
                 message: None,
             }),
