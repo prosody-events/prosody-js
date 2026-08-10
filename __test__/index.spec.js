@@ -516,6 +516,18 @@ describe("ProsodyClient", () => {
     });
   });
 
+  it("sends and receives an excise record", async () => {
+    await client.subscribe({
+      onExcise: async (_, message) => messageStream.push(message),
+    });
+
+    await client.excise(topic, "obsolete-key");
+    const [message] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+
+    expect(message.key).toBe("obsolete-key");
+    expect(message.payload).toBeNull();
+  });
+
   it("handles multiple messages with correct ordering", async () => {
     return tracer.startActiveSpan("test.multiple_messages", async (span) => {
       try {

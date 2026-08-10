@@ -201,6 +201,47 @@ impl NativeClient {
         }
     }
 
+    /// Sends an excise record to a specified topic.
+    #[napi(writable = false)]
+    pub async fn excise(
+        &self,
+        topic: String,
+        key: String,
+        otel_context: HashMap<String, String>,
+        maybe_abort: Option<Promise<()>>,
+    ) -> Result<()> {
+        let context = self.client.propagator().extract(&otel_context);
+        let span = info_span!("javascript-excise", %topic, %key, aborted = Empty);
+        if let Err(err) = span.set_parent(context) {
+            debug!("failed to set parent span: {err:#}");
+        }
+
+        let excise_future = async {
+            self.client
+                .excise(topic.as_str().into(), key)
+                .instrument(span.clone())
+                .await
+                .map_err(|error| Error::from_reason(error.to_string()))
+        };
+
+        let Some(on_abort) = maybe_abort else {
+            let result = excise_future.await;
+            span.record("aborted", false);
+            return result;
+        };
+
+        select! {
+            result = on_abort.into_future() => {
+                span.record("aborted", true);
+                result
+            }
+            result = excise_future => {
+                span.record("aborted", false);
+                result
+            }
+        }
+    }
+
     /// Subscribes to receive messages using the provided event handler.
     ///
     /// @param eventHandler - The event handler to process received messages and
@@ -209,9 +250,11 @@ impl NativeClient {
     #[napi(
         writable = false,
         ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
-                        Message, Record<string, string>]) => Promise<void>; onTimer: (err: null | \
-                        Error, args: [NativeContext, Timer, Record<string, string>]) => \
-                        Promise<void>; isPermanent: (args: [Error]) => boolean }"
+                        Message, Record<string, string>]) => Promise<void>; onExcise: (err: null \
+                        | Error, args: [NativeContext, Message, Record<string, string>]) => \
+                        Promise<void>; onTimer: (err: null | Error, args: [NativeContext, Timer, \
+                        Record<string, string>]) => Promise<void>; isPermanent: (args: [Error]) \
+                        => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client

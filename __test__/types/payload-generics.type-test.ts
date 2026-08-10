@@ -18,6 +18,10 @@ interface OrderPayload {
 }
 
 const orderHandler = {
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, Message<null>>>();
+  },
+
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message, Message<OrderPayload>>>();
     const orderId: string = message.payload.orderId;
@@ -34,6 +38,10 @@ const orderHandler = {
 } satisfies EventHandler<OrderPayload>;
 
 const defaultHandler = {
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, Message<null>>>();
+  },
+
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, JsonValue>>();
     // @ts-expect-error a generic JSON value has no known object fields
@@ -45,6 +53,9 @@ declare const client: ProsodyClient;
 client.subscribe(orderHandler);
 client.subscribe(defaultHandler);
 client.subscribe<OrderPayload>({
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, Message<null>>>();
+  },
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, OrderPayload>>();
   },

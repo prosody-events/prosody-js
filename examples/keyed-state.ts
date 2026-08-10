@@ -20,6 +20,10 @@ const TOTALS = map<number>("totals");
 const BACKLOG = messageDeque<OrderEvent>("backlog", { capacity: 100 });
 
 const handler = {
+  async onExcise(_context, message) {
+    console.info(`excise ${message.key}`);
+  },
+
   async onMessage(context, message) {
     const cart = context.state(CART);
     const current = (await cart.get()) ?? { items: [] };

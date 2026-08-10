@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.5.0"
-source = "git+https://github.com/prosody-events/prosody?rev=1add1b742a4118142ea536b96d3dc8237ae16897#1add1b742a4118142ea536b96d3dc8237ae16897"
+source = "git+https://github.com/prosody-events/prosody?rev=16139f9afd59a9cb63b875d29f2b849c446a700a#16139f9afd59a9cb63b875d29f2b849c446a700a"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -1843,6 +1843,7 @@ dependencies = [
  "paste",
  "pin-project",
  "portable-atomic",
+ "prosody-macros",
  "quanta",
  "quick_cache 0.7.0",
  "rand 0.10.2",
@@ -1890,6 +1891,16 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "prosody-macros"
+version = "0.5.0"
+source = "git+https://github.com/prosody-events/prosody?rev=16139f9afd59a9cb63b875d29f2b849c446a700a#16139f9afd59a9cb63b875d29f2b849c446a700a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]

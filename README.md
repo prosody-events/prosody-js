@@ -51,6 +51,10 @@ const client = new ProsodyClient({
 
 // Define a message handler
 const messageHandler = {
+  onExcise: async (context, message, signal) => {
+    console.log(`Excise key: ${message.key}`);
+  },
+
   onMessage: async (context, message, signal) => {
     // Process the received message
     console.log(`Received message: ${JSON.stringify(message)}`);
@@ -73,10 +77,17 @@ client.subscribe(messageHandler);
 
 // Send a message to a topic
 await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
+await client.excise("my-topic", "obsolete-key");
 
 // Ensure proper shutdown when done
 await client.unsubscribe();
 ```
+
+## Excise records
+
+Call `excise(topic, key)` to send a Kafka record with a key and no payload. Use this record to delete the key from compacted views.
+
+Each handler must implement `onExcise`. It receives the same arguments as `onMessage`. The message payload is `null`.
 
 ## Architecture
 
@@ -954,8 +965,8 @@ your changes before merging to `main`.
 ### ProsodyClient
 
 - `constructor(config: Configuration)`: Initialize a new ProsodyClient with the given configuration.
-- `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
-  topic.
+- `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified topic.
+- `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
@@ -970,6 +981,7 @@ Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue>` carries the application payload type through to the message callback.
 - `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<void>`: Handles incoming messages
+- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<void>`: Handles excise records
 - `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events
 
 ### Message

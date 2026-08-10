@@ -27,6 +27,7 @@ use napi_derive::napi;
 use prosody::codec::BinaryPayload;
 use prosody::consumer::Keyed;
 use prosody::consumer::message::ConsumerMessage;
+use prosody::consumer::message::Record;
 
 /// A Kafka message received from a consumer.
 #[napi]
@@ -99,8 +100,12 @@ impl Message {
     /// @throws Error if the payload is not valid UTF-8, which valid JSON always
     ///   is.
     #[napi(getter, writable = false, ts_return_type = "string")]
-    pub fn payload(&self) -> napi::Result<&str> {
-        str::from_utf8(&self.inner.payload().bytes).map_err(|error| {
+    pub fn payload(&self) -> napi::Result<Option<&str>> {
+        let payload = match self.inner.record() {
+            Record::Message(payload) => payload,
+            Record::Excise => return Ok(None),
+        };
+        str::from_utf8(&payload.bytes).map(Some).map_err(|error| {
             Error::new(
                 Status::GenericFailure,
                 format!("message payload is not valid UTF-8: {error}"),

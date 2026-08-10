@@ -16,6 +16,7 @@
 /**
  * @typedef {Object} EventHandler
  * @property {Function} [onMessage] - Async callback function to handle incoming messages. Receives (context, message, signal).
+ * @property {Function} onExcise - Async callback function to handle excise records. Receives (context, message, signal).
  * @property {Function} [onTimer] - Async callback function to handle timer events. Receives (context, timer, signal).
  */
 
@@ -266,6 +267,25 @@ class ProsodyClient {
   }
 
   /**
+   * Sends an excise record for a key.
+   *
+   * @param {string} topic - The topic name.
+   * @param {string} key - The key to delete from compacted views.
+   * @param {AbortSignal} [signal] - An optional abort signal.
+   * @returns {Promise<void>} A promise that resolves after Prosody sends the record.
+   */
+  async excise(topic, key, signal) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    await this.nativeClient.excise(
+      topic,
+      key,
+      carrier,
+      signal && onAbort(signal),
+    );
+  }
+
+  /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param {EventHandler} eventHandler - The event handler to process received messages and timers.
@@ -275,6 +295,9 @@ class ProsodyClient {
   async subscribe(eventHandler) {
     const tracer = trace.getTracer("prosody");
     const {
+      onExcise = () => {
+        throw new TypeError("EventHandler.onExcise must be a function");
+      },
       onMessage = (context, message, _signal) => {
         getCurrentLogger()?.error(
           "ProsodyClient: Received a message but no onMessage handler was " +
@@ -352,6 +375,50 @@ class ProsodyClient {
                 message: cause.message,
               });
               captureException(error, "message", {
+                topic: message.topic,
+                partition: message.partition,
+                key: message.key,
+                offset: message.offset,
+              });
+              throw error;
+            } finally {
+              completed = true;
+              span.end();
+            }
+          });
+        });
+      },
+
+      onExcise: async (err, [nativeContext, message, carrier]) => {
+        if (err) throw err;
+
+        const ctx = propagation.extract(otelContext.active(), carrier);
+        await otelContext.with(ctx, async () => {
+          await tracer.startActiveSpan("onExcise", async (span) => {
+            const controller = new AbortController();
+            let completed = false;
+
+            nativeContext.onCancel().then(() => {
+              if (!completed) {
+                span.setAttribute("cancelled", true);
+                controller.abort(new Error("excise cancelled"));
+              }
+            });
+
+            try {
+              await onExcise(
+                new Context(nativeContext),
+                message,
+                controller.signal,
+              );
+            } catch (error) {
+              const cause = error.cause ?? error;
+              span.recordException(cause);
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: cause.message,
+              });
+              captureException(error, "excise", {
                 topic: message.topic,
                 partition: message.partition,
                 key: message.key,

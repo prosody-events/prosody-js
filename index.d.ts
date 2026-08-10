@@ -588,6 +588,12 @@ export interface Logger {
 }
 
 export interface EventHandler<P = JsonValue> {
+  /** Handles an excise record. */
+  onExcise: (
+    context: Context,
+    message: Message<null>,
+    signal: AbortSignal,
+  ) => Promise<void>;
   /**
    * Callback function to handle incoming messages.
    *
@@ -688,6 +694,9 @@ export declare class ProsodyClient {
     payload: P & JsonCompatible<P>,
     signal?: AbortSignal,
   ): Promise<void>;
+
+  /** Sends an excise record for a key. */
+  excise(topic: string, key: string, signal?: AbortSignal): Promise<void>;
 
   /**
    * Subscribes to receive messages using the provided event handler.

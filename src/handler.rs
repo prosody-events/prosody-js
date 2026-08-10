@@ -63,6 +63,9 @@ pub struct NativeHandler<'a> {
     /// Note: Error parameter is automatically added by CalleeHandled=true
     pub on_message: Function<'a, MessageHandlerArgs, Promise<()>>,
 
+    /// A function to call when an excise record arrives.
+    pub on_excise: Function<'a, MessageHandlerArgs, Promise<()>>,
+
     /// A function to be called when a timer fires.
     ///
     /// @param context - A Context object representing the timer processing
@@ -90,6 +93,15 @@ pub struct NativeHandler<'a> {
 /// contains an OpenTelemetry propagator for distributed tracing.
 struct JsHandlerInner {
     on_message: ThreadsafeFunction<
+        MessageHandlerArgs,
+        Promise<()>,
+        MessageHandlerArgs,
+        Status,
+        true,
+        false,
+        HANDLE_QUEUE_SIZE,
+    >,
+    on_excise: ThreadsafeFunction<
         MessageHandlerArgs,
         Promise<()>,
         MessageHandlerArgs,
@@ -153,6 +165,13 @@ impl JsHandler {
             .max_queue_size()
             .build()?;
 
+        let on_excise = event_handler
+            .on_excise
+            .build_threadsafe_function()
+            .callee_handled()
+            .max_queue_size()
+            .build()?;
+
         let on_timer = event_handler
             .on_timer
             .build_threadsafe_function()
@@ -169,6 +188,7 @@ impl JsHandler {
         Ok(Self {
             inner: Arc::new(JsHandlerInner {
                 on_message,
+                on_excise,
                 on_timer,
                 is_permanent,
                 propagator: Arc::new(new_propagator()),
@@ -230,12 +250,17 @@ impl FromNapiValue for JsHandler {
             .get("onTimer")?
             .ok_or_else(|| Error::from_reason("onTimer property missing"))?;
 
+        let on_excise = obj
+            .get("onExcise")?
+            .ok_or_else(|| Error::from_reason("onExcise property missing"))?;
+
         let is_permanent = obj
             .get("isPermanent")?
             .ok_or_else(|| Error::from_reason("isPermanent property missing"))?;
 
         let native_handler = NativeHandler {
             on_message,
+            on_excise,
             on_timer,
             is_permanent,
         };
@@ -300,6 +325,37 @@ impl FallibleHandler for JsHandler {
                 error!(error = %error, "message handler error");
                 Err(self.categorize_error(error).await?)
             }
+        }
+    }
+
+    async fn on_excise<C>(
+        &self,
+        context: C,
+        message: ConsumerMessage<Self::Payload>,
+        _demand_type: DemandType,
+    ) -> Result<(), Self::Error>
+    where
+        C: EventContext<Payload = Self::Payload>,
+    {
+        let span = message.span();
+        let native_context =
+            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+        let mut carrier = HashMap::with_capacity(2);
+        self.inner
+            .propagator
+            .inject_context(&span.context(), &mut carrier);
+
+        let result = self
+            .inner
+            .on_excise
+            .call_async(Ok((native_context, Message::new(message), carrier)))
+            .instrument(span.clone())
+            .await?
+            .await;
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => Err(self.categorize_error(error).await?),
         }
     }
 
