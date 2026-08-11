@@ -75,6 +75,7 @@ impl NativeClient {
     #[napi(writable = false)]
     pub async fn consumer_state(&self) -> Result<ConsumerState> {
         match self.client.consumer_state().await {
+            ErasedConsumerState::ShutDown => Ok(ConsumerState::ShutDown),
             ErasedConsumerState::Unconfigured => Ok(ConsumerState::Unconfigured),
             ErasedConsumerState::ConfigurationFailed(error) => Err(Error::from_reason(format!(
                 "consumer configuration failed: {error}"
@@ -314,6 +315,19 @@ impl NativeClient {
             .map_err(|error| Error::from_reason(error.to_string()))
     }
 
+    /// Shuts down the client and all its services.
+    ///
+    /// @returns A promise that resolves when shutdown is complete
+    /// @throws Error if shutdown fails
+    #[napi(writable = false)]
+    pub async fn shutdown(&self) -> Result<()> {
+        self.client
+            .clone()
+            .shutdown()
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))
+    }
+
     /// Gets the source system identifier configured for the client.
     ///
     /// @returns The source system identifier
@@ -467,6 +481,9 @@ pub struct EventMetadata {
 #[derive(Debug)]
 #[napi(string_enum)]
 pub enum ConsumerState {
+    /// The client is shut down
+    ShutDown,
+
     /// The consumer is not yet configured
     Unconfigured,
 

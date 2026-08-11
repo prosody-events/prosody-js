@@ -455,6 +455,16 @@ class ProsodyClient {
   async unsubscribe() {
     await this.nativeClient.unsubscribe();
   }
+
+  /**
+   * Shuts down the client and all its services.
+   *
+   * @returns {Promise<void>} A promise that resolves when shutdown is complete.
+   * @throws {Error} If shutdown fails.
+   */
+  async shutdown() {
+    await this.nativeClient.shutdown();
+  }
 }
 
 // napi-rs can only surface rejections whose value is an object, function, or

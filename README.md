@@ -74,8 +74,8 @@ client.subscribe(messageHandler);
 // Send a message to a topic
 await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
 
-// Ensure proper shutdown when done
-await client.unsubscribe();
+// Shut down all client services when done
+await client.shutdown();
 ```
 
 ## Architecture
@@ -834,11 +834,10 @@ Strategies for achieving idempotence:
 
 ### Proper Shutdown
 
-Always unsubscribe from topics before exiting your application:
+Shut down the client before your application exits:
 
 ```javascript
-// Ensure proper shutdown
-await client.unsubscribe();
+await client.shutdown();
 ```
 
 This ensures:
@@ -870,7 +869,7 @@ async function main() {
   const shutdownPromise = new Promise((resolve) => {
     const shutdown = async (signal) => {
       console.log(`Received ${signal}. Initiating shutdown...`);
-      await client.unsubscribe();
+      await client.shutdown();
       resolve();
     };
 
@@ -994,7 +993,8 @@ your changes before merging to `main`.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
-- `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
+- `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
+- `shutdown(): Promise<void>`: Stop the consumer and all client services.
 
 ### EventHandler
 

@@ -380,8 +380,8 @@ describe("ProsodyClient", () => {
   };
 
   // Builds a client with the canonical state collections registered against the
-  // per-test topic, and reassigns the outer `client` so afterEach unsubscribes
-  // it. maxConcurrency >= 2 so the async-bridging test can observe interleaving.
+  // per-test topic. It replaces `client`, which afterEach shuts down.
+  // maxConcurrency >= 2 so the async-bridging test can observe interleaving.
   const makeStateClient = () =>
     new ProsodyClient({
       bootstrapServers: BOOTSTRAP_SERVERS,
@@ -450,8 +450,8 @@ describe("ProsodyClient", () => {
 
   afterEach(async () => {
     try {
-      if (client && (await client.consumerState()) === ConsumerState.Running) {
-        await client.unsubscribe();
+      if (client && (await client.consumerState()) !== ConsumerState.ShutDown) {
+        await client.shutdown();
       }
     } catch (err) {
       console.error("Error during client cleanup:", err);
@@ -2143,7 +2143,7 @@ describe("ProsodyClient", () => {
       const probeKeys = [0, 1, 2, 3, 4].map((i) => `probe-${nonce()}-${i}`);
       for (const k of probeKeys) await client.send(topic, k, { probe: true });
       const probes = await waitForMessages(probeStream, 5, MESSAGE_TIMEOUT);
-      await client.unsubscribe();
+      await client.shutdown();
 
       const seen = {};
       let keyA = null;

@@ -743,6 +743,14 @@ export declare class ProsodyClient {
    * @throws Error if the unsubscribe operation fails.
    */
   unsubscribe(): Promise<void>;
+
+  /**
+   * Shuts down the client and all its services.
+   *
+   * @returns A promise that resolves when shutdown is complete.
+   * @throws Error if shutdown fails.
+   */
+  shutdown(): Promise<void>;
 }
 
 /** Per-collection cache override for published reads. */
