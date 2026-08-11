@@ -1,5 +1,8 @@
 const { Readable } = require("stream");
 const { EventEmitter } = require("events");
+
+process.env.PROSODY_PEER_BIND_ADDRESS ??= "127.0.0.1:0";
+
 const {
   ConsumerState,
   Context,

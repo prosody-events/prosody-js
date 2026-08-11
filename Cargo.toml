@@ -27,7 +27,7 @@ napi = { version = "3.8", features = [
 napi-derive = "3.5"
 opentelemetry = "0.32"
 # TODO: Use the released version after Prosody publishes peer requests.
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "d7723988716d9fa1e02163283f9aff87064d66db", features = [
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "661e3dd181348065af2ce44da7553160f8861154", features = [
     "libz-static",
 ] }
 serde_json = "1.0"
