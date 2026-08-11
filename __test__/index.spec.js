@@ -1,8 +1,6 @@
 const { Readable } = require("stream");
 const { EventEmitter } = require("events");
 
-process.env.PROSODY_PEER_BIND_ADDRESS = "127.0.0.1:0";
-
 const {
   ConsumerState,
   Context,
@@ -396,6 +394,7 @@ describe("ProsodyClient", () => {
       cassandraKeyspace: CASSANDRA_KEYSPACE,
       stateCollections: STATE_COLLECTIONS,
       maxConcurrency: 4,
+      peerBindAddress: "127.0.0.1:0",
     });
 
   const sendTestMessage = async (key = "timer-test-key") => {
@@ -438,6 +437,7 @@ describe("ProsodyClient", () => {
           mode: Mode.Pipeline,
           cassandraNodes: CASSANDRA_NODES,
           cassandraKeyspace: CASSANDRA_KEYSPACE,
+          peerBindAddress: "127.0.0.1:0",
         });
         break;
       } catch (err) {
