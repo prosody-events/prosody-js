@@ -99,7 +99,7 @@ impl Message {
     ///
     /// @throws Error if the payload is not valid UTF-8, which valid JSON always
     ///   is.
-    #[napi(getter, writable = false, ts_return_type = "string")]
+    #[napi(getter, writable = false)]
     pub fn payload(&self) -> napi::Result<Option<&str>> {
         let payload = match self.inner.record() {
             Record::Message(payload) => payload,
