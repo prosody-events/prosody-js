@@ -16,7 +16,7 @@
 /**
  * @typedef {Object} EventHandler
  * @property {Function} [onMessage] - Handles a message and returns its response.
- * @property {Function} [onTimer] - Handles a timer and returns its response.
+ * @property {Function} [onTimer] - Handles a timer.
  */
 
 /**

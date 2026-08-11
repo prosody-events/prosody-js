@@ -608,7 +608,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns The response for peer requests. An omitted response becomes JSON null.
+   * @returns A JSON result. Timer results are not peer responses.
    */
   onTimer?: (
     context: Context,
