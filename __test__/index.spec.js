@@ -449,12 +449,8 @@ describe("ProsodyClient", () => {
   });
 
   afterEach(async () => {
-    try {
-      if (client && (await client.consumerState()) !== ConsumerState.ShutDown) {
-        await client.shutdown();
-      }
-    } catch (err) {
-      console.error("Error during client cleanup:", err);
+    if (client && (await client.consumerState()) !== ConsumerState.ShutDown) {
+      await client.shutdown();
     }
 
     try {
@@ -1220,19 +1216,17 @@ describe("ProsodyClient", () => {
   });
 
   describe("configuration validation", () => {
-    it("accepts valid messageSpans and timerSpans values", () => {
-      expect(
-        () =>
-          new ProsodyClient({
-            bootstrapServers: BOOTSTRAP_SERVERS,
-            groupId: GROUP_NAME,
-            sourceSystem: SOURCE_NAME,
-            subscribedTopics: "test-topic",
-            mock: true,
-            messageSpans: "child",
-            timerSpans: "follows_from",
-          }),
-      ).not.toThrow();
+    it("accepts valid messageSpans and timerSpans values", async () => {
+      const configured = new ProsodyClient({
+        bootstrapServers: BOOTSTRAP_SERVERS,
+        groupId: GROUP_NAME,
+        sourceSystem: SOURCE_NAME,
+        subscribedTopics: "test-topic",
+        mock: true,
+        messageSpans: "child",
+        timerSpans: "follows_from",
+      });
+      await configured.shutdown();
     });
 
     it("rejects invalid messageSpans with field name in error", () => {
@@ -2554,6 +2548,7 @@ describe("keyed state (unit)", () => {
 // at client construction (mock:true), so an invalid definition THROWS from the
 // constructor with the offending field named in the message.
 describe("keyed state configuration validation", () => {
+  const clients = [];
   const makeConfig = (overrides) => ({
     bootstrapServers: BOOTSTRAP_SERVERS,
     groupId: GROUP_NAME,
@@ -2563,11 +2558,14 @@ describe("keyed state configuration validation", () => {
     ...overrides,
   });
 
-  // A valid mock:true client spins up a mock cluster that logs its startup
-  // asynchronously; drain it before teardown so the log does not fire after the
-  // test module is torn down (mirrors the ProsodyClient afterAll drain).
-  afterAll(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+  const makeClient = (config) => {
+    const client = new ProsodyClient(config);
+    clients.push(client);
+    return client;
+  };
+
+  afterEach(async () => {
+    await Promise.all(clients.splice(0).map((client) => client.shutdown()));
   });
 
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
@@ -2622,12 +2620,9 @@ describe("keyed state configuration validation", () => {
 
   // keysetLimit 0 disables ordered-scan tracking and is a valid whole number.
   it("accepts keysetLimit of zero", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
-        ),
-    ).not.toThrow();
+    makeClient(
+      makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
+    );
   });
 
   it("rejects keysetLimit on a non-map collection", () => {
@@ -2669,17 +2664,14 @@ describe("keyed state configuration validation", () => {
   );
 
   it("accepts a positive capacity on both deque flavours", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [
-              deque("d", { capacity: 100 }),
-              messageDeque("md", { capacity: 100 }),
-            ],
-          }),
-        ),
-    ).not.toThrow();
+    makeClient(
+      makeConfig({
+        stateCollections: [
+          deque("d", { capacity: 100 }),
+          messageDeque("md", { capacity: 100 }),
+        ],
+      }),
+    );
   });
 
   it("rejects an unknown kind token", () => {
@@ -2726,9 +2718,6 @@ describe("keyed state configuration validation", () => {
   );
 
   it("accepts the full canonical collection set", () => {
-    expect(
-      () =>
-        new ProsodyClient(makeConfig({ stateCollections: STATE_COLLECTIONS })),
-    ).not.toThrow();
+    makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
   });
 });
