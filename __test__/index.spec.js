@@ -449,7 +449,7 @@ describe("ProsodyClient", () => {
   });
 
   afterEach(async () => {
-    if (client && (await client.consumerState()) !== ConsumerState.ShutDown) {
+    if (client && (await client.consumerState()) !== ConsumerState.Shutdown) {
       await client.shutdown();
     }
 

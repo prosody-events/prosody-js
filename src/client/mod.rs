@@ -75,7 +75,7 @@ impl NativeClient {
     #[napi(writable = false)]
     pub async fn consumer_state(&self) -> Result<ConsumerState> {
         match self.client.consumer_state().await {
-            ErasedConsumerState::ShutDown => Ok(ConsumerState::ShutDown),
+            ErasedConsumerState::Shutdown => Ok(ConsumerState::Shutdown),
             ErasedConsumerState::Unconfigured => Ok(ConsumerState::Unconfigured),
             ErasedConsumerState::ConfigurationFailed(error) => Err(Error::from_reason(format!(
                 "consumer configuration failed: {error}"
@@ -482,7 +482,7 @@ pub struct EventMetadata {
 #[napi(string_enum)]
 pub enum ConsumerState {
     /// The client is shut down
-    ShutDown,
+    Shutdown,
 
     /// The consumer is not yet configured
     Unconfigured,
