@@ -1774,6 +1774,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c913ac17a6c451661ee255f4625d143e51647ae78ebd969b75e41c4442f4fe47"
+
+[[package]]
 name = "opentelemetry_sdk"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,7 +1992,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.5.0"
-source = "git+https://github.com/prosody-events/prosody?rev=95f6e60bd1dfd83975753ba8ece1cde468c01bb1#95f6e60bd1dfd83975753ba8ece1cde468c01bb1"
+source = "git+https://github.com/prosody-events/prosody?rev=4968118b7761d9eed6291c8384fc7e0053eede5a#4968118b7761d9eed6291c8384fc7e0053eede5a"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -2014,6 +2020,7 @@ dependencies = [
  "nohash-hasher",
  "opentelemetry",
  "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "parking_lot",
  "parse-size",
@@ -2079,7 +2086,7 @@ dependencies = [
 [[package]]
 name = "prosody-macros"
 version = "0.5.0"
-source = "git+https://github.com/prosody-events/prosody?rev=95f6e60bd1dfd83975753ba8ece1cde468c01bb1#95f6e60bd1dfd83975753ba8ece1cde468c01bb1"
+source = "git+https://github.com/prosody-events/prosody?rev=4968118b7761d9eed6291c8384fc7e0053eede5a#4968118b7761d9eed6291c8384fc7e0053eede5a"
 dependencies = [
  "proc-macro2",
  "quote",
