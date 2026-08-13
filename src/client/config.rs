@@ -4,7 +4,7 @@ use napi_derive::napi;
 use prosody::ByteSize;
 use prosody::PeerConfiguration;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
-use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
+use prosody::codec::{JsonBinaryCodec, JsonBinaryMessageCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
@@ -295,7 +295,7 @@ pub struct Configuration {
     /// `PROSODY_PEER_NETWORK_NAME` when omitted.
     pub peer_network_name: Option<String>,
 
-    /// Maximum channels and peer records in each node-keyed cache. Uses
+    /// Maximum channels and peer records in each peer cache. Uses
     /// `PROSODY_PEER_CACHE_CAPACITY` when omitted.
     pub peer_cache_capacity: Option<u32>,
 
@@ -852,10 +852,10 @@ fn parse_capacity(
 
 /// Validates one collection and registers its descriptor.
 ///
-/// Message collections monomorphize over `KafkaLoader<JsonBinaryCodec>`. Their
-/// stored identity is loader-independent (the message ref codec and resolver
-/// carry fixed `"message-ref"` identifiers), so this matches the identity the
-/// erased vend path asserts using the session's own loader.
+/// Message collections monomorphize over `KafkaLoader<JsonBinaryMessageCodec>`.
+/// Their stored identity is loader-independent (the message ref codec and
+/// resolver carry fixed `"message-ref"` identifiers), so this matches the
+/// identity the erased vend path asserts using the session's own loader.
 ///
 /// @param keyed The keyed-state configuration to register into.
 /// @param index The collection's index in `stateCollections`.
@@ -904,7 +904,7 @@ fn register_state_collection(
     match (kind, payload) {
         (CollectionKind::Value, CollectionPayload::Json) => {
             let _ = keyed.register(with_def(
-                value_state::<JsonPassthroughStateCodec>(name),
+                value_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -912,7 +912,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
             let descriptor = with_def(
-                map_state::<Utf8KeyCodec, JsonPassthroughStateCodec>(name),
+                map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -921,7 +921,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
             let mut descriptor = with_def(
-                deque_state::<JsonPassthroughStateCodec>(name),
+                deque_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -933,7 +933,7 @@ fn register_state_collection(
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
-                message_state::<KafkaLoader<JsonBinaryCodec>>(name),
+                message_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -941,7 +941,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
-                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -950,7 +950,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let mut descriptor = with_def(
-                message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
+                message_deque_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,

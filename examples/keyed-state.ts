@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   });
 
   await client.subscribe(handler);
-  await client.unsubscribe();
+  await client.shutdown();
 }
 
 void main();

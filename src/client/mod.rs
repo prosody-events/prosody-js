@@ -246,8 +246,10 @@ impl NativeClient {
                 )
                 .instrument(span.clone())
                 .await
-                .map(|results| results.into_iter().map(Into::into).collect())
-                .map_err(|error| Error::from_reason(error.to_string()))
+                .map_err(|error| Error::from_reason(error.to_string()))?
+                .into_iter()
+                .map(NativeRequestResult::try_from)
+                .collect()
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;
@@ -373,7 +375,7 @@ pub struct NativeRequest {
 #[napi(object)]
 pub struct NativeRequestResult {
     /// Successful JSON response.
-    pub value: Option<serde_json::Value>,
+    pub value: Option<String>,
     /// Response failure details.
     pub error: Option<NativeResponseError>,
 }
@@ -425,11 +427,15 @@ impl From<ErrorCategory> for NativeResponseErrorCategory {
     }
 }
 
-impl From<StdResult<serde_json::Value, ResponseError>> for NativeRequestResult {
-    fn from(result: StdResult<serde_json::Value, ResponseError>) -> Self {
-        match result {
+impl TryFrom<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
+    type Error = Error;
+
+    fn try_from(result: StdResult<BinaryPayload, ResponseError>) -> Result<Self> {
+        Ok(match result {
             Ok(value) => Self {
-                value: Some(value),
+                value: Some(String::from_utf8(value.bytes).map_err(|error| {
+                    Error::from_reason(format!("response is not valid UTF-8: {error}"))
+                })?),
                 error: None,
             },
             Err(ResponseError::Handler { category, message }) => Self {
@@ -445,7 +451,7 @@ impl From<StdResult<serde_json::Value, ResponseError>> for NativeRequestResult {
                 Self::failed(NativeResponseErrorKind::FormatMismatch)
             }
             Err(ResponseError::Malformed) => Self::failed(NativeResponseErrorKind::Malformed),
-        }
+        })
     }
 }
 

@@ -15,13 +15,13 @@ use napi::threadsafe_function::ThreadsafeFunction;
 use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
-use prosody::codec::{BinaryPayload, JsonBinaryCodec, JsonCodec};
+use prosody::codec::BinaryPayload;
 use prosody::consumer::DemandType;
 use prosody::consumer::event_context::EventContext;
 use prosody::consumer::message::ConsumerMessage;
 use prosody::consumer::middleware::FallibleHandler;
 use prosody::error::{ClassifyError, ErrorCategory};
-use prosody::high_level::{ClientHandler, Codecs};
+use prosody::high_level::{ClientHandler, JsonBinaryCodecs};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
@@ -62,7 +62,7 @@ pub struct NativeHandler<'a> {
     /// resolves when the message has been processed
     ///
     /// Note: Error parameter is automatically added by CalleeHandled=true
-    pub on_message: Function<'a, MessageHandlerArgs, Promise<serde_json::Value>>,
+    pub on_message: Function<'a, MessageHandlerArgs, Promise<String>>,
 
     /// A function to be called when a timer fires.
     ///
@@ -73,7 +73,7 @@ pub struct NativeHandler<'a> {
     /// timer has been processed
     ///
     /// Note: Error parameter is automatically added by CalleeHandled=true
-    pub on_timer: Function<'a, TimerHandlerArgs, Promise<serde_json::Value>>,
+    pub on_timer: Function<'a, TimerHandlerArgs, Promise<String>>,
 
     /// Function that determines whether an error is permanent.
     ///
@@ -92,7 +92,7 @@ pub struct NativeHandler<'a> {
 struct JsHandlerInner {
     on_message: ThreadsafeFunction<
         MessageHandlerArgs,
-        Promise<serde_json::Value>,
+        Promise<String>,
         MessageHandlerArgs,
         Status,
         true,
@@ -101,7 +101,7 @@ struct JsHandlerInner {
     >,
     on_timer: ThreadsafeFunction<
         TimerHandlerArgs,
-        Promise<serde_json::Value>,
+        Promise<String>,
         TimerHandlerArgs,
         Status,
         true,
@@ -247,7 +247,7 @@ impl FromNapiValue for JsHandler {
 
 impl FallibleHandler for JsHandler {
     type Error = JsHandlerError;
-    type Output = serde_json::Value;
+    type Output = BinaryPayload;
     type Payload = BinaryPayload;
 
     /// Processes a message by calling the JavaScript callback.
@@ -295,7 +295,11 @@ impl FallibleHandler for JsHandler {
         match result {
             Ok(output) => {
                 debug!("message processed successfully");
-                Ok(output)
+                Ok(BinaryPayload::new(
+                    output.into_bytes(),
+                    None::<String>,
+                    None::<String>,
+                ))
             }
             Err(error) => {
                 error!(error = %error, "message handler error");
@@ -327,7 +331,11 @@ impl FallibleHandler for JsHandler {
     {
         // Only process application timers; internal timers are handled by middleware
         if trigger.timer_type != TimerType::Application {
-            return Ok(serde_json::Value::Null);
+            return Ok(BinaryPayload::new(
+                b"null".to_vec(),
+                None::<String>,
+                None::<String>,
+            ));
         }
 
         let span = trigger.span();
@@ -353,7 +361,11 @@ impl FallibleHandler for JsHandler {
         match result {
             Ok(output) => {
                 debug!("timer processed successfully");
-                Ok(output)
+                Ok(BinaryPayload::new(
+                    output.into_bytes(),
+                    None::<String>,
+                    None::<String>,
+                ))
             }
             Err(error) => {
                 error!(error = %error, "timer handler error");
@@ -372,7 +384,7 @@ impl FallibleHandler for JsHandler {
 }
 
 impl ClientHandler for JsHandler {
-    type Codecs = Codecs<JsonBinaryCodec, JsonCodec>;
+    type Codecs = JsonBinaryCodecs;
 }
 
 /// Represents errors that can occur during JavaScript handler execution.

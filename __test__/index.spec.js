@@ -198,7 +198,7 @@ test("descriptors retain their owned and published access strategies", async () 
 
 test("request results preserve subsystem order and failure details", async () => {
   const request = jest.fn().mockResolvedValue([
-    { value: { accepted: true }, error: undefined },
+    { value: JSON.stringify({ accepted: true }), error: undefined },
     {
       value: undefined,
       error: {

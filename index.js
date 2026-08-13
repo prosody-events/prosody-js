@@ -293,7 +293,12 @@ class ProsodyClient {
       options.signal && onAbort(options.signal),
     );
     return results.map(({ value, error }) =>
-      error === undefined ? { ok: true, value } : { ok: false, error },
+      error === undefined
+        ? {
+            ok: true,
+            value: parseJson(value, TransientError, "response is malformed"),
+          }
+        : { ok: false, error },
     );
   }
 
@@ -367,12 +372,13 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              return (
+              return toJson(
                 (await onMessage(
                   context,
                   withParsedPayload(message),
                   controller.signal,
-                )) ?? null
+                )) ?? null,
+                TransientError,
               );
             } catch (error) {
               getCurrentLogger()?.error(
@@ -419,7 +425,10 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              return (await onTimer(context, timer, controller.signal)) ?? null;
+              return toJson(
+                (await onTimer(context, timer, controller.signal)) ?? null,
+                TransientError,
+              );
             } catch (error) {
               getCurrentLogger()?.error(
                 "Timer handler error",
