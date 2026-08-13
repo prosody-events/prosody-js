@@ -170,12 +170,23 @@ function setLoggerIfUnset(logger) {
  */
 class ProsodyClient {
   /**
-   * Creates a new ProsodyClient instance.
-   *
-   * @param {Configuration} config - The configuration options for the client.
+   * Use {@link ProsodyClient.create}.
+   * @private
    */
-  constructor(config) {
-    this.nativeClient = new NativeClient(config);
+  constructor() {
+    throw new TypeError("Use await ProsodyClient.create(config)");
+  }
+
+  /**
+   * Creates a Prosody client without blocking the Node.js event loop.
+   *
+   * @param {Configuration} config - The client configuration.
+   * @returns {Promise<ProsodyClient>} The initialized client.
+   */
+  static async create(config) {
+    const client = Object.create(ProsodyClient.prototype);
+    client.nativeClient = await NativeClient.create(config);
+    return client;
   }
 
   /**
@@ -292,14 +303,15 @@ class ProsodyClient {
       carrier,
       options.signal && onAbort(options.signal),
     );
-    return results.map(({ value, error }) =>
-      error === undefined
-        ? {
-            ok: true,
-            value: parseJson(value, TransientError, "response is malformed"),
-          }
-        : { ok: false, error },
-    );
+    return results.map(({ value, error }) => {
+      if (error !== undefined) return { ok: false, error };
+
+      try {
+        return { ok: true, value: JSON.parse(value) };
+      } catch {
+        return { ok: false, error: { kind: "malformed" } };
+      }
+    });
   }
 
   /**
@@ -378,7 +390,7 @@ class ProsodyClient {
                   withParsedPayload(message),
                   controller.signal,
                 )) ?? null,
-                TransientError,
+                PermanentError,
               );
             } catch (error) {
               getCurrentLogger()?.error(
@@ -427,7 +439,7 @@ class ProsodyClient {
               const context = new Context(nativeContext);
               return toJson(
                 (await onTimer(context, timer, controller.signal)) ?? null,
-                TransientError,
+                PermanentError,
               );
             } catch (error) {
               getCurrentLogger()?.error(
@@ -456,7 +468,7 @@ class ProsodyClient {
   }
 
   /**
-   * Unsubscribes from receiving messages and shuts down the consumer.
+   * Stops the consumer. You can subscribe again later.
    *
    * @returns {Promise<void>} A promise that resolves when the unsubscribe operation is complete.
    * @throws {Error} If the unsubscribe operation fails.
@@ -472,7 +484,8 @@ class ProsodyClient {
    * @throws {Error} If shutdown fails.
    */
   async shutdown() {
-    await this.nativeClient.shutdown();
+    this.shutdownPromise ??= this.nativeClient.shutdown();
+    await this.shutdownPromise;
   }
 }
 

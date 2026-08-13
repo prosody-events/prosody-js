@@ -640,12 +640,14 @@ export interface RequestOptions {
 }
 
 export declare class ProsodyClient {
+  private constructor();
+
   /**
-   * Creates a new ProsodyClient instance.
+   * Creates a Prosody client without blocking the Node.js event loop.
    *
    * @param config - The configuration options for the client.
    */
-  constructor(config: Configuration);
+  static create(config: Configuration): Promise<ProsodyClient>;
 
   /**
    * Gets the current state of the consumer.
@@ -737,7 +739,7 @@ export declare class ProsodyClient {
   ): Promise<void>;
 
   /**
-   * Unsubscribes from receiving messages and shuts down the consumer.
+   * Stops the consumer. You can subscribe again later.
    *
    * @returns A promise that resolves when the unsubscribe operation is complete.
    * @throws Error if the unsubscribe operation fails.

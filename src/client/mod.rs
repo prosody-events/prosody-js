@@ -3,7 +3,7 @@ use crate::client::config::{
 };
 use crate::handler::JsHandler;
 use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
-use napi::bindgen_prelude::{Promise, within_runtime_if_available};
+use napi::bindgen_prelude::Promise;
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio::select;
 use tracing::debug;
 use tracing::field::Empty;
@@ -44,23 +43,20 @@ impl NativeClient {
     /// @param config - The configuration for the client
     /// @throws Error if the client creation fails
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    #[napi(constructor, writable = false)]
-    pub fn new(config: Configuration) -> Result<Self> {
+    #[napi(factory, writable = false)]
+    pub async fn create(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config);
         let consumer_builders = build_consumer_builders(&config)?;
         let cassandra = build_cassandra_config(&config);
 
-        let client = within_runtime_if_available(|| -> StdResult<_, String> {
-            Handle::current()
-                .block_on(new_erased(
-                    config.mode.unwrap_or_default().into(),
-                    &mut producer_config,
-                    &consumer_builders,
-                    &cassandra,
-                ))
-                .map_err(|error| error.to_string())
-        })
-        .map_err(Error::from_reason)?;
+        let client = new_erased(
+            config.mode.unwrap_or_default().into(),
+            &mut producer_config,
+            &consumer_builders,
+            &cassandra,
+        )
+        .await
+        .map_err(|error| Error::from_reason(error.to_string()))?;
 
         Ok(NativeClient {
             client,
@@ -235,7 +231,8 @@ impl NativeClient {
         let timeout = Duration::try_from_secs_f64(request.timeout_ms / 1_000.0)
             .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
         let request_future = async {
-            self.client
+            let results = self
+                .client
                 .request(
                     request.headers.into_iter().collect(),
                     request.topic.as_str().into(),
@@ -246,10 +243,8 @@ impl NativeClient {
                 )
                 .instrument(span.clone())
                 .await
-                .map_err(|error| Error::from_reason(error.to_string()))?
-                .into_iter()
-                .map(NativeRequestResult::try_from)
-                .collect()
+                .map_err(|error| Error::from_reason(error.to_string()))?;
+            Ok(results.into_iter().map(NativeRequestResult::from).collect())
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;
@@ -259,7 +254,10 @@ impl NativeClient {
         select! {
             result = on_abort.into_future() => {
                 span.record("aborted", true);
-                result.map(|()| Vec::new())
+                match result {
+                    Err(error) => Err(error),
+                    Ok(()) => Err(Error::from_reason("abort signal resolved without aborting")),
+                }
             }
             result = request_future => {
                 span.record("aborted", false);
@@ -427,16 +425,15 @@ impl From<ErrorCategory> for NativeResponseErrorCategory {
     }
 }
 
-impl TryFrom<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
-    type Error = Error;
-
-    fn try_from(result: StdResult<BinaryPayload, ResponseError>) -> Result<Self> {
-        Ok(match result {
-            Ok(value) => Self {
-                value: Some(String::from_utf8(value.bytes).map_err(|error| {
-                    Error::from_reason(format!("response is not valid UTF-8: {error}"))
-                })?),
-                error: None,
+impl From<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
+    fn from(result: StdResult<BinaryPayload, ResponseError>) -> Self {
+        match result {
+            Ok(value) => match String::from_utf8(value.bytes) {
+                Ok(value) => Self {
+                    value: Some(value),
+                    error: None,
+                },
+                Err(_) => Self::failed(NativeResponseErrorKind::Malformed),
             },
             Err(ResponseError::Handler { category, message }) => Self {
                 value: None,
@@ -451,7 +448,7 @@ impl TryFrom<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
                 Self::failed(NativeResponseErrorKind::FormatMismatch)
             }
             Err(ResponseError::Malformed) => Self::failed(NativeResponseErrorKind::Malformed),
-        })
+        }
     }
 }
 
