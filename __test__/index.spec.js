@@ -2578,6 +2578,17 @@ describe("keyed state configuration validation", () => {
     await Promise.all(clients.splice(0).map((client) => client.shutdown()));
   });
 
+  it("ignores peer configuration in mock mode", async () => {
+    await makeClient(
+      makeConfig({
+        peerBindAddress: "not a socket address",
+        peerAdvertisedConnect: "not a URI",
+        peerCacheCapacity: 0,
+        peerRegistrationTtlSeconds: 0,
+      }),
+    );
+  });
+
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
   // whole-number guard instead of being truncated toward zero by a u32
   // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
