@@ -45,4 +45,14 @@ async function request(): Promise<void> {
   }
 }
 
+client.subscribe<{ id: string }, { accepted: boolean }>({
+  onMessage: () => ({ accepted: true }),
+  onTimer: async () => ({ accepted: false }),
+});
+
+client.subscribe({
+  // @ts-expect-error Date is not a JSON response.
+  onMessage: () => new Date(),
+});
+
 void request;

@@ -209,35 +209,26 @@ test("descriptors retain their owned and published access strategies", async () 
 
 test("request results preserve subsystem order and failure details", async () => {
   const request = jest.fn().mockResolvedValue([
-    { value: JSON.stringify({ accepted: true }), error: undefined },
+    JSON.stringify({ accepted: true }),
     {
-      value: undefined,
-      error: {
-        kind: "handler",
-        category: "permanent",
-        handlerMessage: "rejected",
-        message: "handler failed: rejected",
-      },
+      kind: "handler",
+      category: "permanent",
+      handlerMessage: "rejected",
+      message: "handler failed: rejected",
     },
     {
-      value: undefined,
-      error: {
-        kind: "timeout",
-        message: "no response arrived before the deadline",
-      },
+      kind: "timeout",
+      message: "no response arrived before the deadline",
     },
     {
-      value: undefined,
-      error: {
-        kind: "formatMismatch",
-        message: "the responder answered in another format",
-      },
+      kind: "formatMismatch",
+      message: "the responder answered in another format",
     },
     {
-      value: undefined,
-      error: { kind: "malformed", message: "the response did not decode" },
+      kind: "malformed",
+      message: "the response did not decode",
     },
-    { value: "{", error: undefined },
+    "{",
   ]);
   const client = Object.create(ProsodyClient.prototype);
   client.nativeClient = { request };

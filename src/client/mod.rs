@@ -3,7 +3,7 @@ use crate::client::config::{
 };
 use crate::handler::JsHandler;
 use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
-use napi::bindgen_prelude::Promise;
+use napi::bindgen_prelude::{Either, Promise};
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
@@ -210,7 +210,7 @@ impl NativeClient {
         request: NativeRequest,
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
-    ) -> Result<Vec<NativeRequestResult>> {
+    ) -> Result<Vec<Either<String, NativeResponseError>>> {
         let subsystems = request
             .subsystems
             .into_iter()
@@ -244,7 +244,7 @@ impl NativeClient {
                 .instrument(span.clone())
                 .await
                 .map_err(|error| Error::from_reason(error.to_string()))?;
-            Ok(results.into_iter().map(NativeRequestResult::from).collect())
+            Ok(results.into_iter().map(native_result).collect())
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;
@@ -274,9 +274,9 @@ impl NativeClient {
     #[napi(
         writable = false,
         ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
-                        Message, Record<string, string>]) => Promise<unknown>; onTimer: (err: \
-                        null | Error, args: [NativeContext, Timer, Record<string, string>]) => \
-                        Promise<unknown>; isPermanent: (args: [Error]) => boolean }"
+                        Message, Record<string, string>]) => Promise<string>; onTimer: (err: null \
+                        | Error, args: [NativeContext, Timer, Record<string, string>]) => \
+                        Promise<string>; isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -369,15 +369,6 @@ pub struct NativeRequest {
     pub timeout_ms: f64,
 }
 
-/// One request result for one subsystem.
-#[napi(object)]
-pub struct NativeRequestResult {
-    /// Successful JSON response.
-    pub value: Option<String>,
-    /// Response failure details.
-    pub error: Option<NativeResponseError>,
-}
-
 /// One response failure.
 #[napi(object)]
 pub struct NativeResponseError {
@@ -427,43 +418,35 @@ impl From<ErrorCategory> for NativeResponseErrorCategory {
     }
 }
 
-impl From<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
-    fn from(result: StdResult<BinaryPayload, ResponseError>) -> Self {
-        match result {
-            Ok(value) => match String::from_utf8(value.bytes) {
-                Ok(value) => Self {
-                    value: Some(value),
-                    error: None,
-                },
-                Err(_) => Self::failed(ResponseError::Malformed),
-            },
-            Err(error) => Self::failed(error),
-        }
+fn native_result(
+    result: StdResult<BinaryPayload, ResponseError>,
+) -> Either<String, NativeResponseError> {
+    match result {
+        Ok(value) => match String::from_utf8(value.bytes) {
+            Ok(value) => Either::A(value),
+            Err(_) => Either::B(native_error(ResponseError::Malformed)),
+        },
+        Err(error) => Either::B(native_error(error)),
     }
 }
 
-impl NativeRequestResult {
-    fn failed(error: ResponseError) -> Self {
-        let message = error.to_string();
-        let (kind, category, handler_message) = match error {
-            ResponseError::Handler { category, message } => (
-                NativeResponseErrorKind::Handler,
-                Some(category.into()),
-                Some(message),
-            ),
-            ResponseError::Timeout => (NativeResponseErrorKind::Timeout, None, None),
-            ResponseError::FormatMismatch => (NativeResponseErrorKind::FormatMismatch, None, None),
-            ResponseError::Malformed => (NativeResponseErrorKind::Malformed, None, None),
-        };
-        Self {
-            value: None,
-            error: Some(NativeResponseError {
-                kind,
-                category,
-                message,
-                handler_message,
-            }),
-        }
+fn native_error(error: ResponseError) -> NativeResponseError {
+    let message = error.to_string();
+    let (kind, category, handler_message) = match error {
+        ResponseError::Handler { category, message } => (
+            NativeResponseErrorKind::Handler,
+            Some(category.into()),
+            Some(message),
+        ),
+        ResponseError::Timeout => (NativeResponseErrorKind::Timeout, None, None),
+        ResponseError::FormatMismatch => (NativeResponseErrorKind::FormatMismatch, None, None),
+        ResponseError::Malformed => (NativeResponseErrorKind::Malformed, None, None),
+    };
+    NativeResponseError {
+        kind,
+        category,
+        message,
+        handler_message,
     }
 }
 

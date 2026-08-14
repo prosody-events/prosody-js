@@ -306,11 +306,11 @@ class ProsodyClient {
       carrier,
       options.signal && onAbort(options.signal),
     );
-    return results.map(({ value, error }) => {
-      if (error !== undefined) return responseError(error);
+    return results.map((result) => {
+      if (typeof result !== "string") return responseError(result);
 
       try {
-        return JSON.parse(value);
+        return JSON.parse(result);
       } catch (cause) {
         return new MalformedResponseError(cause.message, { cause });
       }

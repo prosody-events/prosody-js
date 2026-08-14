@@ -56,6 +56,9 @@ export type JsonCompatible<T> = T extends JsonPrimitive
         ? { readonly [Key in keyof T]: JsonCompatible<T[Key]> }
         : never;
 
+/** A value that a handler can return now or through a promise. */
+export type MaybePromise<T> = T | PromiseLike<T>;
+
 /**
  * Represents a message consumed from a Kafka topic.
  *
@@ -614,7 +617,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
-  ) => Promise<R | void>;
+  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
 
   /**
    * Callback function to handle timers.
@@ -628,7 +631,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
     context: Context,
     timer: Timer,
     signal: AbortSignal,
-  ) => Promise<R | void>;
+  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
 }
 
 /** The retry category for a remote handler error. */
