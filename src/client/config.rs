@@ -28,7 +28,7 @@ use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -1062,15 +1062,6 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
 }
 
 fn build_peer_config(config: &Configuration) -> Result<PeerConfiguration> {
-    if config.mock == Some(true) {
-        return Ok(PeerConfiguration {
-            bind_address: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
-            advertised_connect: None,
-            network_name: None,
-            peer_cache_capacity: 1,
-            registration_ttl: Duration::from_secs(1),
-        });
-    }
     let mut builder = PeerConfiguration::builder();
     if let Some(value) = &config.peer_bind_address {
         builder.bind_address(

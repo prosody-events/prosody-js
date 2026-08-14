@@ -621,7 +621,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
 export type ErrorCategory = "transient" | "permanent" | "terminal";
 
 /** A failure from one requested subsystem. */
-export abstract class ResponseError extends Error {
+export class ResponseError extends Error {
   constructor(message?: string, options?: ErrorOptions);
 }
 
