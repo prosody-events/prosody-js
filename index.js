@@ -38,15 +38,18 @@ const {
 } = require("@opentelemetry/api");
 
 const {
+  AdminClient,
   Message: NativeMessage,
   Mode,
   NativeClient,
   ConsumerState,
   NativeContext,
   initialize,
+  flushTelemetry,
   loggerIsSet,
   setLogger: setLoggerInternal,
   setLoggerIfUnset: setLoggerIfUnsetInternal,
+  shutdownTelemetry,
 } = require("./bindings");
 
 let _sentry = undefined;
@@ -1910,6 +1913,7 @@ class Context {
 }
 
 module.exports = {
+  AdminClient,
   ConsumerState,
   Context,
   DequeState,
@@ -1932,6 +1936,7 @@ module.exports = {
   ValueState,
   deque,
   getCurrentLogger,
+  flushTelemetry,
   initialize,
   isStateError,
   loggerIsSet,
@@ -1942,6 +1947,7 @@ module.exports = {
   permanent,
   setLogger,
   setLoggerIfUnset,
+  shutdownTelemetry,
   transient,
   value,
 };

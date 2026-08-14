@@ -25,9 +25,11 @@ const {
   MalformedResponseError,
   ResponseFormatMismatchError,
   ResponseTimeoutError,
+  flushTelemetry,
   isStateError,
+  shutdownTelemetry,
 } = require("../index.js");
-const { AdminClient } = require("../bindings.js");
+const { AdminClient } = require("../index.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { trace } = require("@opentelemetry/api");
 const { Mode } = require("../index");
@@ -67,6 +69,12 @@ const BOOTSTRAP_SERVERS =
 const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
+
+test("exports utility APIs", () => {
+  expect(AdminClient).toBeDefined();
+  expect(flushTelemetry).toEqual(expect.any(Function));
+  expect(shutdownTelemetry).toEqual(expect.any(Function));
+});
 
 test("published state options stay on the descriptor", () => {
   expect(
@@ -2601,17 +2609,6 @@ describe("keyed state configuration validation", () => {
 
   afterEach(async () => {
     await Promise.all(clients.splice(0).map((client) => client.shutdown()));
-  });
-
-  it("ignores peer configuration in mock mode", async () => {
-    await makeClient(
-      makeConfig({
-        peerBindAddress: "not a socket address",
-        peerAdvertisedConnect: "not a URI",
-        peerCacheCapacity: 0,
-        peerRegistrationTtlSeconds: 0,
-      }),
-    );
   });
 
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the

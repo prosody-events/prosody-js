@@ -778,6 +778,8 @@ OTEL_SERVICE_NAME=my-service-name
 For more information on these and other OpenTelemetry environment variables, refer to
 the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration).
 
+Call `flushTelemetry()` to export pending telemetry. Call `shutdownTelemetry()` before the process exits.
+
 ### Using Tracing in Your Application
 
 After initializing tracing, you can define spans in your application, and they will be properly propagated through
@@ -1023,6 +1025,17 @@ your changes before merging to `main`.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
 - `shutdown(): Promise<void>`: Stop the consumer and all client services.
+
+### AdminClient
+
+- `new AdminClient(bootstrapServers)`: Create an admin client for the specified Kafka servers.
+- `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
+- `deleteTopic(name)`: Delete a Kafka topic.
+
+### Telemetry lifecycle
+
+- `flushTelemetry()`: Export pending telemetry.
+- `shutdownTelemetry()`: Export pending telemetry and stop its providers.
 
 ### EventHandler
 

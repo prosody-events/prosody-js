@@ -5,6 +5,7 @@
  */
 
 import type {
+  AdminClient,
   Configuration,
   ConsumerState,
   Message as NativeMessage,
@@ -13,7 +14,20 @@ import type {
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, ReadCacheConfiguration, Timer, Mode };
+export {
+  AdminClient,
+  Configuration,
+  ConsumerState,
+  ReadCacheConfiguration,
+  Timer,
+  Mode,
+};
+
+/** Exports all pending telemetry data. */
+export function flushTelemetry(): void;
+
+/** Stops the global telemetry providers after they export pending data. */
+export function shutdownTelemetry(): void;
 
 /** A primitive value representable in JSON. */
 export type JsonPrimitive = null | boolean | number | string;
