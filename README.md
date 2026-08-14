@@ -280,7 +280,9 @@ For example, a successful inventory handler prints `inventory: { accepted: "orde
 
 Each array element is a JSON response or a JavaScript `Error`. Its type identifies the failure.
 
-Handler errors keep their category and original handler text. Every error uses Prosody's message.
+Core errors use Prosody's message. Handler errors also keep their category and original text.
+
+Local JSON errors keep the JavaScript decoder as their cause.
 
 ### Pipeline Mode
 
