@@ -249,11 +249,7 @@ await client.subscribe({
 Send a request without a subscription on the requester:
 
 ```javascript
-const {
-  HandlerResponseError,
-  ResponseError,
-  ResponseTimeoutError,
-} = require("@prosody-events/prosody");
+const { ResponseError } = require("@prosody-events/prosody");
 
 const subsystems = ["inventory", "billing"];
 const results = await client.request(
@@ -266,17 +262,18 @@ const results = await client.request(
 
 for (const [index, result] of results.entries()) {
   const subsystem = subsystems[index];
-  if (result instanceof ResponseTimeoutError)
-    console.error(`${subsystem}: timed out`);
-  else if (result instanceof HandlerResponseError)
-    console.error(`${subsystem}: ${result.category}: ${result.handlerMessage}`);
-  else if (result instanceof ResponseError)
+  if (result instanceof ResponseError)
     console.error(`${subsystem}: ${result.message}`);
   else console.log(`${subsystem}:`, result);
 }
 ```
 
-For example, a successful inventory handler prints `inventory: { accepted: "order-1" }`.
+The example can print these results:
+
+```text
+inventory: { accepted: 'order-1' }
+billing: no response arrived before the deadline
+```
 
 Each array element is a JSON response or a JavaScript `Error`. Its type identifies the failure.
 
