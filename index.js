@@ -482,6 +482,7 @@ class ProsodyClient {
 
   /**
    * Shuts down the client and all its services.
+   * Concurrent and repeated calls await the same shutdown operation.
    *
    * @returns {Promise<void>} A promise that resolves when shutdown is complete.
    * @throws {Error} If shutdown fails.

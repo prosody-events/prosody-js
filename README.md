@@ -1024,7 +1024,7 @@ your changes before merging to `main`.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
-- `shutdown(): Promise<void>`: Stop the consumer and all client services.
+- `shutdown(): Promise<void>`: Stop all client services. Concurrent and repeated calls await the same operation.
 
 ### AdminClient
 
