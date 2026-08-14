@@ -285,7 +285,7 @@ class ProsodyClient {
    * @param {string[]} subsystems - The subsystems that must respond.
    * @param {number} timeoutMs - The response deadline in milliseconds.
    * @param {{headers?: Record<string, string>, signal?: AbortSignal}} [options] - Optional headers and cancellation.
-   * @returns {Promise<Array<{ok: true, value: *}|{ok: false, error: object}>>} One result per subsystem.
+   * @returns {Promise<Array<*|ResponseError>>} One response or error per subsystem.
    */
   async request(topic, key, payload, subsystems, timeoutMs, options = {}) {
     const carrier = {};
@@ -304,12 +304,12 @@ class ProsodyClient {
       options.signal && onAbort(options.signal),
     );
     return results.map(({ value, error }) => {
-      if (error !== undefined) return { ok: false, error };
+      if (error !== undefined) return responseError(error);
 
       try {
-        return { ok: true, value: JSON.parse(value) };
-      } catch {
-        return { ok: false, error: { kind: "malformed" } };
+        return JSON.parse(value);
+      } catch (cause) {
+        return new MalformedResponseError(cause.message, { cause });
       }
     });
   }
@@ -560,6 +560,51 @@ class PermanentError extends EventHandlerError {
    */
   get isPermanent() {
     return true;
+  }
+}
+
+/** A failure from one requested subsystem. */
+class ResponseError extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = this.constructor.name;
+  }
+}
+
+/** The remote handler returned a classified error. */
+class HandlerResponseError extends ResponseError {
+  constructor(category, handlerMessage, message) {
+    super(message);
+    this.category = category;
+    this.handlerMessage = handlerMessage;
+  }
+}
+
+/** No response arrived before the deadline. */
+class ResponseTimeoutError extends ResponseError {}
+
+/** The responder used another response format. */
+class ResponseFormatMismatchError extends ResponseError {}
+
+/** The response payload did not decode. */
+class MalformedResponseError extends ResponseError {}
+
+function responseError(error) {
+  switch (error.kind) {
+    case "handler":
+      return new HandlerResponseError(
+        error.category,
+        error.handlerMessage,
+        error.message,
+      );
+    case "timeout":
+      return new ResponseTimeoutError(error.message);
+    case "formatMismatch":
+      return new ResponseFormatMismatchError(error.message);
+    case "malformed":
+      return new MalformedResponseError(error.message);
+    default:
+      return new ResponseError(error.message);
   }
 }
 
@@ -1869,6 +1914,8 @@ module.exports = {
   Context,
   DequeState,
   EventHandlerError,
+  HandlerResponseError,
+  MalformedResponseError,
   MapState,
   Mode,
   PermanentError,
@@ -1879,6 +1926,9 @@ module.exports = {
   PublishedValue,
   TransientError,
   TransientStateError,
+  ResponseError,
+  ResponseFormatMismatchError,
+  ResponseTimeoutError,
   ValueState,
   deque,
   getCurrentLogger,

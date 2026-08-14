@@ -620,16 +620,29 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
 /** The retry category for a remote handler error. */
 export type ErrorCategory = "transient" | "permanent" | "terminal";
 
-/** A subsystem response failure. */
-export type ResponseError =
-  | { kind: "handler"; category: ErrorCategory; message: string }
-  | { kind: "timeout" }
-  | { kind: "formatMismatch" }
-  | { kind: "malformed" };
+/** A failure from one requested subsystem. */
+export abstract class ResponseError extends Error {
+  constructor(message?: string, options?: ErrorOptions);
+}
+
+/** The remote handler returned a classified error. */
+export class HandlerResponseError extends ResponseError {
+  constructor(category: ErrorCategory, handlerMessage: string, message: string);
+  readonly category: ErrorCategory;
+  readonly handlerMessage: string;
+}
+
+/** No response arrived before the deadline. */
+export class ResponseTimeoutError extends ResponseError {}
+
+/** The responder used another response format. */
+export class ResponseFormatMismatchError extends ResponseError {}
+
+/** The response payload did not decode. */
+export class MalformedResponseError extends ResponseError {}
 
 /** One subsystem response. */
-export type RequestResult<T> =
-  { ok: true; value: T } | { ok: false; error: ResponseError };
+export type RequestResult<T> = T | ResponseError;
 
 /** Optional request metadata and cancellation. */
 export interface RequestOptions {

@@ -385,8 +385,10 @@ pub struct NativeResponseError {
     pub kind: NativeResponseErrorKind,
     /// Handler error category.
     pub category: Option<NativeResponseErrorCategory>,
-    /// Handler error message.
-    pub message: Option<String>,
+    /// Rust error display text.
+    pub message: String,
+    /// Original handler error text.
+    pub handler_message: Option<String>,
 }
 
 /// One response failure kind.
@@ -433,33 +435,33 @@ impl From<StdResult<BinaryPayload, ResponseError>> for NativeRequestResult {
                     value: Some(value),
                     error: None,
                 },
-                Err(_) => Self::failed(NativeResponseErrorKind::Malformed),
+                Err(_) => Self::failed(ResponseError::Malformed),
             },
-            Err(ResponseError::Handler { category, message }) => Self {
-                value: None,
-                error: Some(NativeResponseError {
-                    kind: NativeResponseErrorKind::Handler,
-                    category: Some(category.into()),
-                    message: Some(message),
-                }),
-            },
-            Err(ResponseError::Timeout) => Self::failed(NativeResponseErrorKind::Timeout),
-            Err(ResponseError::FormatMismatch) => {
-                Self::failed(NativeResponseErrorKind::FormatMismatch)
-            }
-            Err(ResponseError::Malformed) => Self::failed(NativeResponseErrorKind::Malformed),
+            Err(error) => Self::failed(error),
         }
     }
 }
 
 impl NativeRequestResult {
-    fn failed(kind: NativeResponseErrorKind) -> Self {
+    fn failed(error: ResponseError) -> Self {
+        let message = error.to_string();
+        let (kind, category, handler_message) = match error {
+            ResponseError::Handler { category, message } => (
+                NativeResponseErrorKind::Handler,
+                Some(category.into()),
+                Some(message),
+            ),
+            ResponseError::Timeout => (NativeResponseErrorKind::Timeout, None, None),
+            ResponseError::FormatMismatch => (NativeResponseErrorKind::FormatMismatch, None, None),
+            ResponseError::Malformed => (NativeResponseErrorKind::Malformed, None, None),
+        };
         Self {
             value: None,
             error: Some(NativeResponseError {
                 kind,
-                category: None,
-                message: None,
+                category,
+                message,
+                handler_message,
             }),
         }
     }

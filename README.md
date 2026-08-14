@@ -232,11 +232,11 @@ if (client.isStalled) {
 
 ### Peer Requests
 
-Peer requests collect one result from each named subsystem. The result order matches the subsystem order.
+Peer requests collect one result from each named subsystem. Results follow the subsystem order.
 
-Do not await a request from a handler for the same key and subsystem. The request cannot finish until that handler returns.
+Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
 
-Prosody now uses handler return values as request results. Ensure that each handler return value has a JSON representation.
+Message handler return values become request results. Each return value must have a JSON representation.
 
 Return a JSON response from each message handler:
 
@@ -249,21 +249,38 @@ await client.subscribe({
 Send a request without a subscription on the requester:
 
 ```javascript
+const {
+  HandlerResponseError,
+  ResponseError,
+  ResponseTimeoutError,
+} = require("@prosody-events/prosody");
+
+const subsystems = ["inventory", "billing"];
 const results = await client.request(
   "orders",
   "order-1",
   { type: "order.created" },
-  ["inventory", "billing"],
+  subsystems,
   2_000,
 );
 
-for (const result of results) {
-  if (result.ok) console.log(result.value);
-  else console.error(result.error);
+for (const [index, result] of results.entries()) {
+  const subsystem = subsystems[index];
+  if (result instanceof ResponseTimeoutError)
+    console.error(`${subsystem}: timed out`);
+  else if (result instanceof HandlerResponseError)
+    console.error(`${subsystem}: ${result.category}: ${result.handlerMessage}`);
+  else if (result instanceof ResponseError)
+    console.error(`${subsystem}: ${result.message}`);
+  else console.log(`${subsystem}:`, result);
 }
 ```
 
-Each error identifies a handler failure, timeout, format mismatch, or malformed response. Handler failures also include their category and message.
+For example, a successful inventory handler prints `inventory: { accepted: "order-1" }`.
+
+Each array element is a JSON response or a JavaScript `Error`. Its type identifies the failure.
+
+Handler errors keep their category and original handler text. Every error uses Prosody's message.
 
 ### Pipeline Mode
 

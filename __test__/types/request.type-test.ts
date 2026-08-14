@@ -1,5 +1,10 @@
 import {
+  HandlerResponseError,
+  MalformedResponseError,
   ProsodyClient,
+  ResponseError,
+  ResponseFormatMismatchError,
+  ResponseTimeoutError,
   type ErrorCategory,
   type RequestResult,
 } from "../../index";
@@ -26,11 +31,17 @@ async function request(): Promise<void> {
   >();
 
   const result = results[0];
-  if (result?.ok) {
-    assertTrue<Equal<typeof result.value, { total: number }>>();
-  } else if (result?.error.kind === "handler") {
-    assertTrue<Equal<typeof result.error.category, ErrorCategory>>();
-    assertTrue<Equal<typeof result.error.message, string>>();
+  if (result instanceof HandlerResponseError) {
+    assertTrue<Equal<typeof result.category, ErrorCategory>>();
+    assertTrue<Equal<typeof result.handlerMessage, string>>();
+  } else if (result instanceof ResponseTimeoutError) {
+    assertTrue<Equal<typeof result, ResponseTimeoutError>>();
+  } else if (result instanceof ResponseFormatMismatchError) {
+    assertTrue<Equal<typeof result, ResponseFormatMismatchError>>();
+  } else if (result instanceof MalformedResponseError) {
+    assertTrue<Equal<typeof result, MalformedResponseError>>();
+  } else if (!(result instanceof ResponseError) && result !== undefined) {
+    assertTrue<Equal<typeof result, { total: number }>>();
   }
 }
 

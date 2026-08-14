@@ -21,6 +21,10 @@ const {
   PublishedDeque,
   PermanentStateError,
   TransientStateError,
+  HandlerResponseError,
+  MalformedResponseError,
+  ResponseFormatMismatchError,
+  ResponseTimeoutError,
   isStateError,
 } = require("../index.js");
 const { AdminClient } = require("../bindings.js");
@@ -203,10 +207,28 @@ test("request results preserve subsystem order and failure details", async () =>
       error: {
         kind: "handler",
         category: "permanent",
-        message: "rejected",
+        handlerMessage: "rejected",
+        message: "handler failed: rejected",
       },
     },
-    { value: undefined, error: { kind: "timeout" } },
+    {
+      value: undefined,
+      error: {
+        kind: "timeout",
+        message: "no response arrived before the deadline",
+      },
+    },
+    {
+      value: undefined,
+      error: {
+        kind: "formatMismatch",
+        message: "the responder answered in another format",
+      },
+    },
+    {
+      value: undefined,
+      error: { kind: "malformed", message: "the response did not decode" },
+    },
     { value: "{", error: undefined },
   ]);
   const client = Object.create(ProsodyClient.prototype);
@@ -216,24 +238,22 @@ test("request results preserve subsystem order and failure details", async () =>
     "orders",
     "order-1",
     { type: "order.created" },
-    ["inventory", "billing", "email", "shipping"],
+    ["inventory", "billing", "email", "shipping", "crm", "search"],
     2_000,
     { headers: { tenant: "acme" } },
   );
 
-  expect(results).toEqual([
-    { ok: true, value: { accepted: true } },
-    {
-      ok: false,
-      error: {
-        kind: "handler",
-        category: "permanent",
-        message: "rejected",
-      },
-    },
-    { ok: false, error: { kind: "timeout" } },
-    { ok: false, error: { kind: "malformed" } },
-  ]);
+  expect(results[0]).toEqual({ accepted: true });
+  expect(results[1]).toMatchObject({
+    category: "permanent",
+    handlerMessage: "rejected",
+    message: "handler failed: rejected",
+  });
+  expect(results[1]).toBeInstanceOf(HandlerResponseError);
+  expect(results[2]).toBeInstanceOf(ResponseTimeoutError);
+  expect(results[3]).toBeInstanceOf(ResponseFormatMismatchError);
+  expect(results[4]).toBeInstanceOf(MalformedResponseError);
+  expect(results[5]).toBeInstanceOf(MalformedResponseError);
   expect(request).toHaveBeenCalledWith(
     {
       headers: { tenant: "acme" },
@@ -241,7 +261,14 @@ test("request results preserve subsystem order and failure details", async () =>
       key: "order-1",
       payload: JSON.stringify({ type: "order.created" }),
       metadata: { eventId: undefined, eventType: "order.created" },
-      subsystems: ["inventory", "billing", "email", "shipping"],
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
       timeoutMs: 2_000,
     },
     expect.any(Object),
@@ -1261,10 +1288,8 @@ describe("ProsodyClient", () => {
       MESSAGE_TIMEOUT,
     );
 
-    expect(result).toMatchObject({
-      ok: false,
-      error: { kind: "handler", category: "permanent" },
-    });
+    expect(result).toBeInstanceOf(HandlerResponseError);
+    expect(result).toMatchObject({ category: "permanent" });
   });
 
   // Live keyed-state FFI scenarios (Appendix 1). Each test registers the
