@@ -21,19 +21,18 @@ mimalloc = { version = "0.1", features = ["local_dynamic_tls", "v2"] }
 napi = { version = "3.8", features = [
     "async",
     "chrono_date",
-    "napi9",
+    "napi10",
     "serde-json",
 ] }
 napi-derive = "3.5"
 opentelemetry = "0.32"
 # TODO: Use the released version after Prosody publishes peer requests.
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "da1665d5b82cfd1c60f418bc7ac3bc5899d2f95e", features = [
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "b75eb22dbf86ffbfe26e6f51b6700c751dc76d54", features = [
     "libz-static",
 ] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["sync"] }
-tonic = "0.14"
 tracing = { version = "0.1", features = ["log-always"] }
 tracing-opentelemetry = "0.33"
 tracing-subscriber = "0.3"

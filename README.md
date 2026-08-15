@@ -983,7 +983,7 @@ Prosody uses an automated release process managed by GitHub Actions. Here's an o
    - Windows build for x64.
    - macOS build for aarch64 (Apple Silicon).
 
-4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 20 and 22.
+4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 24.
 
 5. **Artifact Upload**: Each build job uploads its artifacts (Node.js native addons) to GitHub Actions.
 

@@ -3,6 +3,7 @@ use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::ByteSize;
 use prosody::PeerConfiguration;
+use prosody::PeerEndpoint;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::codec::{JsonBinaryCodec, JsonBinaryMessageCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
@@ -33,7 +34,6 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use tonic::transport::Endpoint;
 
 /// Configuration options for the Prosody client.
 #[napi(object)]
@@ -1072,7 +1072,7 @@ fn build_peer_config(config: &Configuration) -> Result<PeerConfiguration> {
     }
     if let Some(value) = &config.peer_advertised_connect {
         builder.advertised_connect(
-            Endpoint::from_shared(value.clone())
+            PeerEndpoint::try_from(value.clone())
                 .map_err(|error| Error::from_reason(format!("peerAdvertisedConnect: {error}")))?,
         );
     }
