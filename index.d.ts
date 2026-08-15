@@ -746,6 +746,7 @@ export declare class ProsodyClient {
    * Sends a request and waits for one response from each subsystem.
    *
    * The map contains one outcome for each accepted subsystem.
+   * @throws Error if the request cannot produce the complete result map.
    */
   request<R = JsonValue>(
     topic: string,

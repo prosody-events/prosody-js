@@ -287,6 +287,7 @@ class ProsodyClient {
    * @param {*} payload - The JSON request payload.
    * @param {{subsystems: readonly string[], timeoutMs: number, headers?: Readonly<Record<string, string>>, signal?: AbortSignal}} options - Request policy.
    * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
+   * @throws {Error} If the request cannot produce the complete result map.
    */
   async request(topic, key, payload, options) {
     const carrier = {};

@@ -234,6 +234,10 @@ if (client.isStalled) {
 
 Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
+Do not rely on map iteration order.
+
+Prosody rejects the request if it cannot produce the complete result map.
+
 Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
 
 Message handler return values become successful request outcomes. Each return value must have a JSON representation.
