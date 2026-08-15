@@ -611,7 +611,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns The response for subsystem requests. An omitted response becomes JSON null.
+   * @returns The response for requests. An omitted response becomes JSON null.
    */
   onMessage?: (
     context: Context,

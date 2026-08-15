@@ -355,7 +355,7 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
     }
 }
 
-/// One subsystem request.
+/// One request.
 #[napi(object)]
 pub struct NativeRequest {
     /// Kafka headers.
