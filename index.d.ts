@@ -662,14 +662,12 @@ export type ResponseError =
   | { readonly kind: "formatMismatch"; readonly message: string }
   | { readonly kind: "malformedResponse"; readonly message: string };
 
-/** Request targets, deadline, metadata, and cancellation. */
+/** Request targets, deadline, and cancellation. */
 export interface RequestOptions {
   /** The subsystems that must respond. */
   readonly subsystems: readonly string[];
   /** The response deadline in milliseconds. */
   readonly timeoutMs: number;
-  /** Kafka headers to add to the request. */
-  readonly headers?: Readonly<Record<string, string>>;
   /** Cancels the local wait. */
   readonly signal?: AbortSignal;
 }
@@ -761,6 +759,13 @@ export declare class ProsodyClient {
     topic: string,
     key: string,
     payload: JsonValue,
+    options: RequestOptions,
+  ): Promise<ReadonlyMap<string, Outcome<R>>>;
+
+  /** Sends an excise request and waits for one response from each subsystem. */
+  requestExcise<R = JsonValue>(
+    topic: string,
+    key: string,
     options: RequestOptions,
   ): Promise<ReadonlyMap<string, Outcome<R>>>;
 

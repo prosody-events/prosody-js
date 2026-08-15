@@ -243,6 +243,8 @@ if (client.isStalled) {
 
 Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
+Use `requestExcise` to send an excise record and collect the same outcome type.
+
 Do not rely on map iteration order.
 
 Prosody rejects the request if it cannot produce the complete result map.

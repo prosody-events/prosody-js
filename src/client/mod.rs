@@ -274,7 +274,7 @@ impl NativeClient {
             let results = self
                 .client
                 .request(
-                    request.headers.into_iter().collect(),
+                    Vec::new(),
                     request.topic.as_str().into(),
                     request.key,
                     payload,
@@ -291,6 +291,60 @@ impl NativeClient {
                     outcome: native_outcome(result),
                 })
                 .collect())
+        };
+        let Some(on_abort) = maybe_abort else {
+            let result = request_future.await;
+            span.record("aborted", false);
+            return result;
+        };
+        select! {
+            result = on_abort.into_future() => {
+                span.record("aborted", true);
+                match result {
+                    Err(error) => Err(error),
+                    Ok(()) => Err(Error::from_reason("abort signal resolved without aborting")),
+                }
+            }
+            result = request_future => {
+                span.record("aborted", false);
+                result
+            }
+        }
+    }
+
+    /// Sends one excise request and returns one outcome per subsystem.
+    #[napi(writable = false)]
+    pub async fn request_excise(
+        &self,
+        request: NativeExciseRequest,
+        otel_context: HashMap<String, String>,
+        maybe_abort: Option<Promise<()>>,
+    ) -> Result<Vec<NativeSubsystemOutcome>> {
+        let subsystems = request
+            .subsystems
+            .into_iter()
+            .map(|name| SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string())))
+            .collect::<Result<Vec<_>>>()?;
+        let context = self.client.propagator().extract(&otel_context);
+        let span = info_span!("javascript-request-excise", topic = %request.topic, key = %request.key, aborted = Empty);
+        if let Err(error) = span.set_parent(context) {
+            debug!("failed to set parent span: {error:#}");
+        }
+        let timeout = Duration::try_from_secs_f64(request.timeout_ms / 1_000.0)
+            .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
+        let request_future = async {
+            let results = self.client.request_excise(
+                Vec::new(),
+                request.topic.as_str().into(),
+                request.key,
+                subsystems,
+                timeout,
+            ).instrument(span.clone()).await
+                .map_err(|error| Error::from_reason(error.to_string()))?;
+            Ok(results.into_iter().map(|(subsystem, result)| NativeSubsystemOutcome {
+                subsystem: subsystem.to_string(),
+                outcome: native_outcome(result),
+            }).collect())
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;
@@ -401,8 +455,6 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
 /// One subsystem request.
 #[napi(object)]
 pub struct NativeRequest {
-    /// Kafka headers.
-    pub headers: HashMap<String, String>,
     /// Kafka topic.
     pub topic: String,
     /// Message key.
@@ -411,6 +463,19 @@ pub struct NativeRequest {
     pub payload: String,
     /// Event metadata read before serialization.
     pub metadata: EventMetadata,
+    /// Subsystems that must respond.
+    pub subsystems: Vec<String>,
+    /// Response deadline in milliseconds.
+    pub timeout_ms: f64,
+}
+
+/// One excise subsystem request.
+#[napi(object)]
+pub struct NativeExciseRequest {
+    /// Kafka topic.
+    pub topic: String,
+    /// Message key.
+    pub key: String,
     /// Subsystems that must respond.
     pub subsystems: Vec<String>,
     /// Response deadline in milliseconds.

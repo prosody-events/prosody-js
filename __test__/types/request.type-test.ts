@@ -16,9 +16,16 @@ async function request(): Promise<void> {
     {
       subsystems: ["billing"],
       timeoutMs: 2_000,
-      headers: { tenant: "acme" },
     },
   );
+  const exciseResults = await client.requestExcise<{ total: number }>(
+    "orders",
+    "order-1",
+    { subsystems: ["billing"], timeoutMs: 2_000 },
+  );
+  assertTrue<
+    Equal<typeof exciseResults, ReadonlyMap<string, Outcome<{ total: number }>>>
+  >();
   assertTrue<
     Equal<typeof results, ReadonlyMap<string, Outcome<{ total: number }>>>
   >();

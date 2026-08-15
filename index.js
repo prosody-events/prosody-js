@@ -305,7 +305,7 @@ class ProsodyClient {
    * @param {string} topic - The Kafka topic.
    * @param {string} key - The message key.
    * @param {*} payload - The JSON request payload.
-   * @param {{subsystems: readonly string[], timeoutMs: number, headers?: Readonly<Record<string, string>>, signal?: AbortSignal}} options - Request policy.
+   * @param {{subsystems: readonly string[], timeoutMs: number, signal?: AbortSignal}} options - Request policy.
    * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
    * @throws {Error} If the request cannot produce the complete result map.
    */
@@ -314,11 +314,30 @@ class ProsodyClient {
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.request(
       {
-        headers: options.headers ?? {},
         topic,
         key,
         payload: toJson(payload, TransientError),
         metadata: eventMetadata(payload),
+        subsystems: options.subsystems,
+        timeoutMs: options.timeoutMs,
+      },
+      carrier,
+      options.signal && onAbort(options.signal),
+    );
+    const outcomes = new Map();
+    for (const { subsystem, outcome } of results)
+      outcomes.set(subsystem, responseOutcome(outcome));
+    return outcomes;
+  }
+
+  /** Sends an excise request and waits for one response from each subsystem. */
+  async requestExcise(topic, key, options) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    const results = await this.nativeClient.requestExcise(
+      {
+        topic,
+        key,
         subsystems: options.subsystems,
         timeoutMs: options.timeoutMs,
       },
