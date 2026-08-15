@@ -21,10 +21,6 @@ const {
   PublishedDeque,
   PermanentStateError,
   TransientStateError,
-  HandlerResponseError,
-  MalformedResponseError,
-  ResponseFormatMismatchError,
-  ResponseTimeoutError,
   flushTelemetry,
   isStateError,
   shutdownTelemetry,
@@ -207,28 +203,38 @@ test("descriptors retain their owned and published access strategies", async () 
   ]);
 });
 
-test("request results preserve subsystem order and failure details", async () => {
+test("request maps native subsystem outcomes", async () => {
   const request = jest.fn().mockResolvedValue([
-    JSON.stringify({ accepted: true }),
     {
-      kind: "handler",
-      category: "permanent",
-      handlerMessage: "rejected",
-      message: "handler failed: rejected",
+      subsystem: "inventory",
+      outcome: JSON.stringify({ accepted: true }),
     },
     {
-      kind: "timeout",
-      message: "no response arrived before the deadline",
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
     },
     {
-      kind: "formatMismatch",
-      message: "the responder answered in another format",
+      subsystem: "email",
+      outcome: {
+        kind: "timeout",
+        message: "no response arrived before the deadline",
+      },
     },
     {
-      kind: "malformed",
-      message: "the response did not decode",
+      subsystem: "shipping",
+      outcome: {
+        kind: "formatMismatch",
+        message: "the responder answered in another format",
+      },
     },
-    "{",
+    {
+      subsystem: "crm",
+      outcome: {
+        kind: "malformedResponse",
+        message: "the response did not decode",
+      },
+    },
+    { subsystem: "search", outcome: "{" },
   ]);
   const client = Object.create(ProsodyClient.prototype);
   client.nativeClient = { request };
@@ -237,22 +243,32 @@ test("request results preserve subsystem order and failure details", async () =>
     "orders",
     "order-1",
     { type: "order.created" },
-    ["inventory", "billing", "email", "shipping", "crm", "search"],
-    2_000,
-    { headers: { tenant: "acme" } },
+    {
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
+      timeoutMs: 2_000,
+      headers: { tenant: "acme" },
+    },
   );
 
-  expect(results[0]).toEqual({ accepted: true });
-  expect(results[1]).toMatchObject({
-    category: "permanent",
-    handlerMessage: "rejected",
-    message: "handler failed: rejected",
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { accepted: true },
   });
-  expect(results[1]).toBeInstanceOf(HandlerResponseError);
-  expect(results[2]).toBeInstanceOf(ResponseTimeoutError);
-  expect(results[3]).toBeInstanceOf(ResponseFormatMismatchError);
-  expect(results[4]).toBeInstanceOf(MalformedResponseError);
-  expect(results[5]).toBeInstanceOf(MalformedResponseError);
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(results.get("email").error.kind).toBe("timeout");
+  expect(results.get("shipping").error.kind).toBe("formatMismatch");
+  expect(results.get("crm").error.kind).toBe("malformedResponse");
+  expect(results.get("search").error.kind).toBe("malformedResponse");
   expect(request).toHaveBeenCalledWith(
     {
       headers: { tenant: "acme" },
@@ -1276,19 +1292,20 @@ describe("ProsodyClient", () => {
     });
   });
 
-  it("classifies a handler result conversion failure as permanent", async () => {
+  it("returns a handler failure when a result cannot encode", async () => {
     await client.subscribe({ onMessage: async () => 1n });
 
-    const [result] = await client.request(
+    const results = await client.request(
       topic,
       "order-1",
       { type: "order.created" },
-      ["inventory"],
-      MESSAGE_TIMEOUT,
+      { subsystems: ["inventory"], timeoutMs: MESSAGE_TIMEOUT },
     );
 
-    expect(result).toBeInstanceOf(HandlerResponseError);
-    expect(result).toMatchObject({ category: "permanent" });
+    expect(results.get("inventory")).toMatchObject({
+      ok: false,
+      error: { kind: "handler" },
+    });
   });
 
   // Live keyed-state FFI scenarios (Appendix 1). Each test registers the

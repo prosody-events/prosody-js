@@ -8,7 +8,6 @@ use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::codec::BinaryPayload;
-use prosody::error::ErrorCategory;
 use prosody::high_level::erased::{
     ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
 };
@@ -203,14 +202,14 @@ impl NativeClient {
         }
     }
 
-    /// Sends one request and returns one result per subsystem.
+    /// Sends one request and returns one outcome per subsystem.
     #[napi(writable = false)]
     pub async fn request(
         &self,
         request: NativeRequest,
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
-    ) -> Result<Vec<Either<String, NativeResponseError>>> {
+    ) -> Result<Vec<NativeSubsystemOutcome>> {
         let subsystems = request
             .subsystems
             .into_iter()
@@ -244,7 +243,13 @@ impl NativeClient {
                 .instrument(span.clone())
                 .await
                 .map_err(|error| Error::from_reason(error.to_string()))?;
-            Ok(results.into_iter().map(native_result).collect())
+            Ok(results
+                .into_iter()
+                .map(|(subsystem, result)| NativeSubsystemOutcome {
+                    subsystem: subsystem.to_string(),
+                    outcome: native_outcome(result),
+                })
+                .collect())
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;
@@ -350,7 +355,7 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
     }
 }
 
-/// One peer request.
+/// One subsystem request.
 #[napi(object)]
 pub struct NativeRequest {
     /// Kafka headers.
@@ -374,12 +379,17 @@ pub struct NativeRequest {
 pub struct NativeResponseError {
     /// Failure discriminator.
     pub kind: NativeResponseErrorKind,
-    /// Handler error category.
-    pub category: Option<NativeResponseErrorCategory>,
-    /// Rust error display text.
+    /// Failure text.
     pub message: String,
-    /// Original handler error text.
-    pub handler_message: Option<String>,
+}
+
+/// One subsystem and its outcome.
+#[napi(object)]
+pub struct NativeSubsystemOutcome {
+    /// Canonical subsystem name.
+    pub subsystem: String,
+    /// Encoded response or failure.
+    pub outcome: Either<String, NativeResponseError>,
 }
 
 /// One response failure kind.
@@ -392,33 +402,11 @@ pub enum NativeResponseErrorKind {
     Timeout,
     #[napi(value = "formatMismatch")]
     FormatMismatch,
-    #[napi(value = "malformed")]
+    #[napi(value = "malformedResponse")]
     Malformed,
 }
 
-/// One handler error category.
-#[derive(Clone, Copy)]
-#[napi(string_enum)]
-pub enum NativeResponseErrorCategory {
-    #[napi(value = "transient")]
-    Transient,
-    #[napi(value = "permanent")]
-    Permanent,
-    #[napi(value = "terminal")]
-    Terminal,
-}
-
-impl From<ErrorCategory> for NativeResponseErrorCategory {
-    fn from(category: ErrorCategory) -> Self {
-        match category {
-            ErrorCategory::Transient => Self::Transient,
-            ErrorCategory::Permanent => Self::Permanent,
-            ErrorCategory::Terminal => Self::Terminal,
-        }
-    }
-}
-
-fn native_result(
+fn native_outcome(
     result: StdResult<BinaryPayload, ResponseError>,
 ) -> Either<String, NativeResponseError> {
     match result {
@@ -431,23 +419,22 @@ fn native_result(
 }
 
 fn native_error(error: ResponseError) -> NativeResponseError {
-    let message = error.to_string();
-    let (kind, category, handler_message) = match error {
-        ResponseError::Handler { category, message } => (
-            NativeResponseErrorKind::Handler,
-            Some(category.into()),
-            Some(message),
+    let (kind, message) = match error {
+        ResponseError::Handler { message } => (NativeResponseErrorKind::Handler, message),
+        ResponseError::Timeout => (
+            NativeResponseErrorKind::Timeout,
+            ResponseError::Timeout.to_string(),
         ),
-        ResponseError::Timeout => (NativeResponseErrorKind::Timeout, None, None),
-        ResponseError::FormatMismatch => (NativeResponseErrorKind::FormatMismatch, None, None),
-        ResponseError::Malformed => (NativeResponseErrorKind::Malformed, None, None),
+        ResponseError::FormatMismatch => (
+            NativeResponseErrorKind::FormatMismatch,
+            ResponseError::FormatMismatch.to_string(),
+        ),
+        ResponseError::Malformed => (
+            NativeResponseErrorKind::Malformed,
+            ResponseError::Malformed.to_string(),
+        ),
     };
-    NativeResponseError {
-        kind,
-        category,
-        message,
-        handler_message,
-    }
+    NativeResponseError { kind, message }
 }
 
 /// Event metadata read off a payload before it was serialized.

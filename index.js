@@ -285,12 +285,10 @@ class ProsodyClient {
    * @param {string} topic - The Kafka topic.
    * @param {string} key - The message key.
    * @param {*} payload - The JSON request payload.
-   * @param {string[]} subsystems - The subsystems that must respond.
-   * @param {number} timeoutMs - The response deadline in milliseconds.
-   * @param {{headers?: Record<string, string>, signal?: AbortSignal}} [options] - Optional headers and cancellation.
-   * @returns {Promise<Array<*|ResponseError>>} One response or error per subsystem.
+   * @param {{subsystems: readonly string[], timeoutMs: number, headers?: Readonly<Record<string, string>>, signal?: AbortSignal}} options - Request policy.
+   * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
    */
-  async request(topic, key, payload, subsystems, timeoutMs, options = {}) {
+  async request(topic, key, payload, options) {
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.request(
@@ -300,21 +298,16 @@ class ProsodyClient {
         key,
         payload: toJson(payload, TransientError),
         metadata: eventMetadata(payload),
-        subsystems,
-        timeoutMs,
+        subsystems: options.subsystems,
+        timeoutMs: options.timeoutMs,
       },
       carrier,
       options.signal && onAbort(options.signal),
     );
-    return results.map((result) => {
-      if (typeof result !== "string") return responseError(result);
-
-      try {
-        return JSON.parse(result);
-      } catch (cause) {
-        return new MalformedResponseError(cause.message, { cause });
-      }
-    });
+    const outcomes = new Map();
+    for (const { subsystem, outcome } of results)
+      outcomes.set(subsystem, responseOutcome(outcome));
+    return outcomes;
   }
 
   /**
@@ -567,48 +560,16 @@ class PermanentError extends EventHandlerError {
   }
 }
 
-/** A failure from one requested subsystem. */
-class ResponseError extends Error {
-  constructor(message, options) {
-    super(message, options);
-    this.name = this.constructor.name;
-  }
-}
+function responseOutcome(outcome) {
+  if (typeof outcome !== "string") return { ok: false, error: outcome };
 
-/** The remote handler returned a classified error. */
-class HandlerResponseError extends ResponseError {
-  constructor(category, handlerMessage, message) {
-    super(message);
-    this.category = category;
-    this.handlerMessage = handlerMessage;
-  }
-}
-
-/** No response arrived before the deadline. */
-class ResponseTimeoutError extends ResponseError {}
-
-/** The responder used another response format. */
-class ResponseFormatMismatchError extends ResponseError {}
-
-/** The response payload did not decode. */
-class MalformedResponseError extends ResponseError {}
-
-function responseError(error) {
-  switch (error.kind) {
-    case "handler":
-      return new HandlerResponseError(
-        error.category,
-        error.handlerMessage,
-        error.message,
-      );
-    case "timeout":
-      return new ResponseTimeoutError(error.message);
-    case "formatMismatch":
-      return new ResponseFormatMismatchError(error.message);
-    case "malformed":
-      return new MalformedResponseError(error.message);
-    default:
-      return new ResponseError(error.message);
+  try {
+    return { ok: true, value: JSON.parse(outcome) };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: { kind: "malformedResponse", message: cause.message },
+    };
   }
 }
 
@@ -1919,8 +1880,6 @@ module.exports = {
   Context,
   DequeState,
   EventHandlerError,
-  HandlerResponseError,
-  MalformedResponseError,
   MapState,
   Mode,
   PermanentError,
@@ -1931,9 +1890,6 @@ module.exports = {
   PublishedValue,
   TransientError,
   TransientStateError,
-  ResponseError,
-  ResponseFormatMismatchError,
-  ResponseTimeoutError,
   ValueState,
   deque,
   getCurrentLogger,

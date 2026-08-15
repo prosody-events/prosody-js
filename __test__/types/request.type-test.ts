@@ -1,13 +1,4 @@
-import {
-  HandlerResponseError,
-  MalformedResponseError,
-  ProsodyClient,
-  ResponseError,
-  ResponseFormatMismatchError,
-  ResponseTimeoutError,
-  type ErrorCategory,
-  type RequestResult,
-} from "../../index";
+import { ProsodyClient, type Outcome, type ResponseError } from "../../index";
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -22,26 +13,21 @@ async function request(): Promise<void> {
     "orders",
     "order-1",
     { type: "order.created" },
-    ["billing"],
-    2_000,
-    { headers: { tenant: "acme" } },
+    {
+      subsystems: ["billing"],
+      timeoutMs: 2_000,
+      headers: { tenant: "acme" },
+    },
   );
   assertTrue<
-    Equal<(typeof results)[number], RequestResult<{ total: number }>>
+    Equal<typeof results, ReadonlyMap<string, Outcome<{ total: number }>>>
   >();
 
-  const result = results[0];
-  if (result instanceof HandlerResponseError) {
-    assertTrue<Equal<typeof result.category, ErrorCategory>>();
-    assertTrue<Equal<typeof result.handlerMessage, string>>();
-  } else if (result instanceof ResponseTimeoutError) {
-    assertTrue<Equal<typeof result, ResponseTimeoutError>>();
-  } else if (result instanceof ResponseFormatMismatchError) {
-    assertTrue<Equal<typeof result, ResponseFormatMismatchError>>();
-  } else if (result instanceof MalformedResponseError) {
-    assertTrue<Equal<typeof result, MalformedResponseError>>();
-  } else if (!(result instanceof ResponseError) && result !== undefined) {
-    assertTrue<Equal<typeof result, { total: number }>>();
+  const outcome = results.get("billing");
+  if (outcome?.ok) {
+    assertTrue<Equal<typeof outcome.value, { total: number }>>();
+  } else if (outcome) {
+    assertTrue<Equal<typeof outcome.error, ResponseError>>();
   }
 }
 

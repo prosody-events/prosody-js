@@ -230,13 +230,13 @@ if (client.isStalled) {
 
 ## Advanced Usage
 
-### Peer Requests
+### Subsystem Requests
 
-Peer requests collect one result from each named subsystem. Results follow the subsystem order.
+Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
 Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
 
-Message handler return values become request results. Each return value must have a JSON representation.
+Message handler return values become successful request outcomes. Each return value must have a JSON representation.
 
 Return a JSON response from each message handler:
 
@@ -249,22 +249,17 @@ await client.subscribe({
 Send a request without a subscription on the requester:
 
 ```javascript
-const { ResponseError } = require("@prosody-events/prosody");
-
 const subsystems = ["inventory", "billing"];
 const results = await client.request(
   "orders",
   "order-1",
   { type: "order.created" },
-  subsystems,
-  2_000,
+  { subsystems, timeoutMs: 2_000 },
 );
 
-for (const [index, result] of results.entries()) {
-  const subsystem = subsystems[index];
-  if (result instanceof ResponseError)
-    console.error(`${subsystem}: ${result.message}`);
-  else console.log(`${subsystem}:`, result);
+for (const [subsystem, outcome] of results) {
+  if (outcome.ok) console.log(`${subsystem}:`, outcome.value);
+  else console.error(`${subsystem}: ${outcome.error.message}`);
 }
 ```
 
@@ -275,11 +270,9 @@ inventory: { accepted: 'order-1' }
 billing: no response arrived before the deadline
 ```
 
-Each array element is a JSON response or a JavaScript `Error`. Its type identifies the failure.
+Each map value is a `Success` or `Failure`. Each failure contains one typed response error.
 
-Core errors use Prosody's message. Handler errors also keep their category and original text.
-
-Local JSON errors keep the JavaScript decoder as their cause.
+Each response error has one message.
 
 ### Pipeline Mode
 
@@ -1016,7 +1009,7 @@ your changes before merging to `main`.
 - `ProsodyClient.create(config: Configuration): Promise<ProsodyClient>`: Initialize a client without blocking the Node.js event loop.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
-- `request<R, P>(topic, key, payload, subsystems, timeoutMs, options?): Promise<Array<RequestResult<R>>>`: Request one response from each subsystem.
+- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Request one response from each subsystem.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.

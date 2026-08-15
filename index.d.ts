@@ -611,7 +611,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns The response for peer requests. An omitted response becomes JSON null.
+   * @returns The response for subsystem requests. An omitted response becomes JSON null.
    */
   onMessage?: (
     context: Context,
@@ -625,7 +625,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A JSON result. Timer results are not peer responses.
+   * @returns A JSON result. Timer results are not request responses.
    */
   onTimer?: (
     context: Context,
@@ -634,39 +634,38 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
   ) => MaybePromise<(R & JsonCompatible<R>) | void>;
 }
 
-/** The retry category for a remote handler error. */
-export type ErrorCategory = "transient" | "permanent" | "terminal";
-
-/** A failure from one requested subsystem. */
-export class ResponseError extends Error {
-  constructor(message?: string, options?: ErrorOptions);
+/** One successful subsystem outcome. */
+export interface Success<T> {
+  readonly ok: true;
+  readonly value: T;
 }
 
-/** The remote handler returned a classified error. */
-export class HandlerResponseError extends ResponseError {
-  constructor(category: ErrorCategory, handlerMessage: string, message: string);
-  readonly category: ErrorCategory;
-  readonly handlerMessage: string;
+/** One failed subsystem outcome. */
+export interface Failure {
+  readonly ok: false;
+  readonly error: ResponseError;
 }
 
-/** No response arrived before the deadline. */
-export class ResponseTimeoutError extends ResponseError {}
+/** One subsystem outcome. */
+export type Outcome<T> = Success<T> | Failure;
 
-/** The responder used another response format. */
-export class ResponseFormatMismatchError extends ResponseError {}
+/** One subsystem failure. */
+export type ResponseError =
+  | { readonly kind: "handler"; readonly message: string }
+  | { readonly kind: "timeout"; readonly message: string }
+  | { readonly kind: "formatMismatch"; readonly message: string }
+  | { readonly kind: "malformedResponse"; readonly message: string };
 
-/** The response payload did not decode. */
-export class MalformedResponseError extends ResponseError {}
-
-/** One subsystem response. */
-export type RequestResult<T> = T | ResponseError;
-
-/** Optional request metadata and cancellation. */
+/** Request targets, deadline, metadata, and cancellation. */
 export interface RequestOptions {
+  /** The subsystems that must respond. */
+  readonly subsystems: readonly string[];
+  /** The response deadline in milliseconds. */
+  readonly timeoutMs: number;
   /** Kafka headers to add to the request. */
-  headers?: Readonly<Record<string, string>>;
+  readonly headers?: Readonly<Record<string, string>>;
   /** Cancels the local wait. */
-  signal?: AbortSignal;
+  readonly signal?: AbortSignal;
 }
 
 export declare class ProsodyClient {
@@ -746,16 +745,14 @@ export declare class ProsodyClient {
   /**
    * Sends a request and waits for one response from each subsystem.
    *
-   * Results use the same order as `subsystems`.
+   * The map contains one outcome for each accepted subsystem.
    */
-  request<R = JsonValue, P = JsonValue>(
+  request<R = JsonValue>(
     topic: string,
     key: string,
-    payload: P & JsonCompatible<P>,
-    subsystems: readonly string[],
-    timeoutMs: number,
-    options?: RequestOptions,
-  ): Promise<Array<RequestResult<R>>>;
+    payload: JsonValue,
+    options: RequestOptions,
+  ): Promise<ReadonlyMap<string, Outcome<R>>>;
 
   /**
    * Subscribes to receive messages using the provided event handler.
