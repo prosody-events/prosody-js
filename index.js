@@ -504,10 +504,8 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              return toJson(
-                (await onTimer(context, timer, controller.signal)) ?? null,
-                PermanentError,
-              );
+              await onTimer(context, timer, controller.signal);
+              return "null";
             } catch (error) {
               getCurrentLogger()?.error(
                 "Timer handler error",

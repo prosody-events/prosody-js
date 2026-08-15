@@ -34,7 +34,7 @@ async function request(): Promise<void> {
 client.subscribe<{ id: string }, { accepted: boolean }>({
   onMessage: () => ({ accepted: true }),
   onExcise: () => ({ accepted: true }),
-  onTimer: async () => ({ accepted: false }),
+  onTimer: async () => {},
 });
 
 client.subscribe({

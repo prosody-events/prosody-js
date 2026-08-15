@@ -631,13 +631,13 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A JSON result. Timer results are not request responses.
+   * @returns No value.
    */
   onTimer?: (
     context: Context,
     timer: Timer,
     signal: AbortSignal,
-  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+  ) => MaybePromise<void>;
 }
 
 /** One successful subsystem outcome. */
