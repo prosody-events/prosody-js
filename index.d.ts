@@ -5,6 +5,7 @@
  */
 
 import type {
+  AdminClient,
   Configuration,
   ConsumerState,
   Message as NativeMessage,
@@ -13,7 +14,20 @@ import type {
   Timer,
 } from "./bindings";
 
-export { Configuration, ConsumerState, ReadCacheConfiguration, Timer, Mode };
+export {
+  AdminClient,
+  Configuration,
+  ConsumerState,
+  ReadCacheConfiguration,
+  Timer,
+  Mode,
+};
+
+/** Exports all pending telemetry data. */
+export function flushTelemetry(): void;
+
+/** Stops the global telemetry providers after they export pending data. */
+export function shutdownTelemetry(): void;
 
 /** A primitive value representable in JSON. */
 export type JsonPrimitive = null | boolean | number | string;
@@ -41,6 +55,9 @@ export type JsonCompatible<T> = T extends JsonPrimitive
       : T extends object
         ? { readonly [Key in keyof T]: JsonCompatible<T[Key]> }
         : never;
+
+/** A value that a handler can return now or through a promise. */
+export type MaybePromise<T> = T | PromiseLike<T>;
 
 /**
  * Represents a message consumed from a Kafka topic.
@@ -587,26 +604,26 @@ export interface Logger {
   trace: (message: string | undefined | null, metadata?: any) => void;
 }
 
-export interface EventHandler<P = JsonValue> {
+export interface EventHandler<P = JsonValue, R = JsonValue> {
   /** Handles an excise record. */
   onExcise: (
     context: Context,
     message: Message<null>,
     signal: AbortSignal,
-  ) => Promise<void>;
+  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
   /**
    * Callback function to handle incoming messages.
    *
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A promise that resolves when the message has been processed.
+   * @returns The response for subsystem requests. An omitted response becomes JSON null.
    */
   onMessage?: (
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
-  ) => Promise<void>;
+  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
 
   /**
    * Callback function to handle timers.
@@ -614,22 +631,58 @@ export interface EventHandler<P = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A promise that resolves when the timer has been processed.
+   * @returns A JSON result. Timer results are not request responses.
    */
   onTimer?: (
     context: Context,
     timer: Timer,
     signal: AbortSignal,
-  ) => Promise<void>;
+  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+}
+
+/** One successful subsystem outcome. */
+export interface Success<T> {
+  readonly ok: true;
+  readonly value: T;
+}
+
+/** One failed subsystem outcome. */
+export interface Failure {
+  readonly ok: false;
+  readonly error: ResponseError;
+}
+
+/** One subsystem outcome. */
+export type Outcome<T> = Success<T> | Failure;
+
+/** One subsystem failure. */
+export type ResponseError =
+  | { readonly kind: "handler"; readonly message: string }
+  | { readonly kind: "timeout"; readonly message: string }
+  | { readonly kind: "formatMismatch"; readonly message: string }
+  | { readonly kind: "malformedResponse"; readonly message: string };
+
+/** Request targets, deadline, metadata, and cancellation. */
+export interface RequestOptions {
+  /** The subsystems that must respond. */
+  readonly subsystems: readonly string[];
+  /** The response deadline in milliseconds. */
+  readonly timeoutMs: number;
+  /** Kafka headers to add to the request. */
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Cancels the local wait. */
+  readonly signal?: AbortSignal;
 }
 
 export declare class ProsodyClient {
+  private constructor();
+
   /**
-   * Creates a new ProsodyClient instance.
+   * Creates a Prosody client without blocking the Node.js event loop.
    *
    * @param config - The configuration options for the client.
    */
-  constructor(config: Configuration);
+  static create(config: Configuration): Promise<ProsodyClient>;
 
   /**
    * Gets the current state of the consumer.
@@ -699,21 +752,45 @@ export declare class ProsodyClient {
   excise(topic: string, key: string, signal?: AbortSignal): Promise<void>;
 
   /**
+   * Sends a request and waits for one response from each subsystem.
+   *
+   * The map contains one outcome for each accepted subsystem.
+   * @throws Error if the request cannot produce the complete result map.
+   */
+  request<R = JsonValue>(
+    topic: string,
+    key: string,
+    payload: JsonValue,
+    options: RequestOptions,
+  ): Promise<ReadonlyMap<string, Outcome<R>>>;
+
+  /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param eventHandler - The event handler to process received messages and timers.
    * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
    * @throws Error if the subscription fails to establish.
    */
-  subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>;
+  subscribe<P = JsonValue, R = JsonValue>(
+    eventHandler: EventHandler<P, R>,
+  ): Promise<void>;
 
   /**
-   * Unsubscribes from receiving messages and shuts down the consumer.
+   * Stops the consumer. You can subscribe again later.
    *
    * @returns A promise that resolves when the unsubscribe operation is complete.
    * @throws Error if the unsubscribe operation fails.
    */
   unsubscribe(): Promise<void>;
+
+  /**
+   * Shuts down the client and all its services.
+   * Concurrent and repeated calls await the same shutdown operation.
+   *
+   * @returns A promise that resolves when shutdown is complete.
+   * @throws Error if shutdown fails.
+   */
+  shutdown(): Promise<void>;
 }
 
 /** Per-collection cache override for published reads. */

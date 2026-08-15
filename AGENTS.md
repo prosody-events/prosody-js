@@ -121,7 +121,7 @@ aspirations — perform each one; do not merely agree with it:
 
 **Redesign hygiene:**
 
-When a design is replaced, remove *all* of it in the same change —
+When a design is replaced, remove _all_ of it in the same change —
 half-deleted designs are where bloat and bug re-introduction live:
 
 - Sweep the old design's vocabulary from every doc comment, type definition,

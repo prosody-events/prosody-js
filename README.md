@@ -30,57 +30,63 @@ projects compiled by the repository typecheck.
 
 ## Quick Start
 
+Run each example in an asynchronous function unless the example defines one.
+
 ```javascript
 const { ProsodyClient } = require("@prosody-events/prosody");
 
-// Initialize the client with Kafka bootstrap servers, consumer group, and topics
-const client = new ProsodyClient({
-  // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
-  bootstrapServers: "localhost:9092",
+async function main() {
+  // Initialize the client with Kafka bootstrap servers, consumer group, and topics
+  const client = await ProsodyClient.create({
+    // Bootstrap servers should normally be set using the PROSODY_BOOTSTRAP_SERVERS environment variable
+    bootstrapServers: "localhost:9092",
 
-  // To allow loopbacks, sourceSystem must be different from groupId.
-  // Normally, sourceSystem is omitted and defaults to groupId.
-  sourceSystem: "my-application-source",
+    // To allow loopbacks, sourceSystem must be different from groupId.
+    // Normally, sourceSystem is omitted and defaults to groupId.
+    sourceSystem: "my-application-source",
 
-  // groupId should be set to the name of your application
-  groupId: "my-consumer-group",
+    // groupId should be set to the name of your application
+    groupId: "my-consumer-group",
 
-  // Topics the client should subscribe to
-  subscribedTopics: "my-topic",
-});
+    // Topics the client should subscribe to
+    subscribedTopics: "my-topic",
+  });
 
-// Define a message handler
-const messageHandler = {
-  onExcise: async (context, message, signal) => {
-    console.log(`Excise key: ${message.key}`);
-  },
+  // Define a message handler
+  const messageHandler = {
+    onExcise: async (context, message, signal) => {
+      console.log(`Excise key: ${message.key}`);
+    },
 
-  onMessage: async (context, message, signal) => {
-    // Process the received message
-    console.log(`Received message: ${JSON.stringify(message)}`);
+    onMessage: async (context, message, signal) => {
+      // Process the received message
+      console.log(`Received message: ${JSON.stringify(message)}`);
 
-    // Schedule a timer for delayed processing
-    if (message.payload.scheduleFollowup) {
-      const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
-      await context.schedule(followupTime);
-    }
-  },
+      // Schedule a timer for delayed processing
+      if (message.payload.scheduleFollowup) {
+        const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
+        await context.schedule(followupTime);
+      }
+    },
 
-  onTimer: async (context, timer, signal) => {
-    // Handle timer firing
-    console.log(`Timer fired for key: ${timer.key} at ${timer.time}`);
-  },
-};
+    onTimer: async (context, timer, signal) => {
+      // Handle timer firing
+      console.log(`Timer fired for key: ${timer.key} at ${timer.time}`);
+    },
+  };
 
-// Subscribe to messages using the message handler
-client.subscribe(messageHandler);
+  // Subscribe to messages using the message handler
+  await client.subscribe(messageHandler);
 
-// Send a message to a topic
-await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
-await client.excise("my-topic", "obsolete-key");
+  // Send a message to a topic
+  await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
+  await client.excise("my-topic", "obsolete-key");
 
-// Ensure proper shutdown when done
-await client.unsubscribe();
+  // Shut down all client services when done
+  await client.shutdown();
+}
+
+main().catch(console.error);
 ```
 
 ## Excise records
@@ -127,7 +133,7 @@ When the timer fires, reload the message from Kafka and retry.
 
 ```javascript
 // Configure defer behavior
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   deferEnabled: true, // Enable deferral (default: true)
@@ -149,7 +155,7 @@ with a transient error, routing them through defer.
 
 ```javascript
 // Configure monopolization detection
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   monopolizationEnabled: true, // Enable detection (default: true)
@@ -163,7 +169,7 @@ const client = new ProsodyClient({
 Handlers are automatically cancelled if they exceed a deadline:
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   timeoutMs: 30000, // Cancel after 30 seconds
@@ -180,6 +186,8 @@ For the complete configuration reference, see [CONFIGURATION.md](CONFIGURATION.m
 
 Constructor options take precedence. Unset options use environment variables, then library defaults.
 
+Client construction is asynchronous. Replace `new ProsodyClient(config)` with `await ProsodyClient.create(config)`.
+
 ## Liveness and Readiness Probes
 
 Prosody includes a built-in probe server for consumer-based applications that provides health check endpoints. The probe
@@ -194,7 +202,7 @@ server is tied to the consumer's lifecycle and offers two main endpoints:
 Configure the probe server using either the client constructor:
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   probePort: 8000, // Set to null to disable
@@ -231,6 +239,54 @@ if (client.isStalled) {
 }
 ```
 
+## Subsystem Requests
+
+Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
+
+Do not rely on map iteration order.
+
+Prosody rejects the request if it cannot produce the complete result map.
+
+Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
+
+Message handler return values become successful request outcomes. Each return value must have a JSON representation.
+
+Return a JSON response from each message handler:
+
+```javascript
+await client.subscribe({
+  onMessage: async (_context, message) => ({ accepted: message.key }),
+});
+```
+
+Send a request without a subscription on the requester:
+
+```javascript
+const subsystems = ["inventory", "billing"];
+const results = await client.request(
+  "orders",
+  "order-1",
+  { type: "order.created" },
+  { subsystems, timeoutMs: 2_000 },
+);
+
+for (const [subsystem, outcome] of results) {
+  if (outcome.ok) console.log(`${subsystem}:`, outcome.value);
+  else console.error(`${subsystem}: ${outcome.error.message}`);
+}
+```
+
+The example can print these results:
+
+```text
+inventory: { accepted: 'order-1' }
+billing: no response arrived before the deadline
+```
+
+Each map value is a `Success` or `Failure`. Each failure contains one typed response error.
+
+Each response error has one message.
+
 ## Advanced Usage
 
 ### Pipeline Mode
@@ -255,7 +311,7 @@ Kafka → Deduplication → Retry → Defer → Monopolization → Shutdown → 
 | Telemetry      | Emits handler lifecycle events                    |
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   mode: Mode.Pipeline, // Default mode
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
@@ -271,7 +327,7 @@ Tries a few times, then routes failures to a dead letter topic.
 - Use when you need to keep moving and can reprocess failures later
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   mode: Mode.LowLatency,
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
@@ -289,7 +345,7 @@ Logs failures and moves on.
 - Use for development or when message loss is acceptable
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   mode: Mode.BestEffort,
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
@@ -303,7 +359,7 @@ of events:
 
 ```javascript
 // Process only events with types starting with "user." or "account."
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   allowedEvents: ["user.", "account."],
@@ -339,7 +395,7 @@ Prosody prevents processing loops in distributed systems by tracking the source 
 
 ```javascript
 // Consumer and producer in one application
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-service",
   sourceSystem: "my-service-producer", // Must differ from groupId to allow loopbacks; defaults to groupId
   subscribedTopics: "my-topic",
@@ -396,7 +452,7 @@ await client.send("my-topic", "key2", {
 To invalidate all previously recorded dedup entries (forcing reprocessing of messages), change the version:
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
   idempotenceVersion: "2", // Changing this invalidates all previously recorded entries
@@ -469,7 +525,7 @@ PROSODY_CASSANDRA_NODES=localhost:9042  # Required for timer persistence
 Or programmatically when creating the client:
 
 ```javascript
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   bootstrapServers: "localhost:9092",
   groupId: "my-application",
   subscribedTopics: "my-topic",
@@ -481,7 +537,7 @@ For testing, you can use mock mode to avoid Cassandra dependency:
 
 ```javascript
 // Mock mode for testing (timers work but aren't persisted)
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   bootstrapServers: "localhost:9092",
   groupId: "my-application",
   subscribedTopics: "my-topic",
@@ -511,7 +567,7 @@ class MyHandler {
   }
 }
 
-const client = new ProsodyClient(config);
+const client = await ProsodyClient.create(config);
 client.subscribe(new MyHandler());
 ```
 
@@ -536,7 +592,7 @@ const messageHandler = {
   },
 };
 
-const client = new ProsodyClient(config);
+const client = await ProsodyClient.create(config);
 client.subscribe(messageHandler);
 ```
 
@@ -561,7 +617,7 @@ Published state lets another client read a JSON value, map, or deque without sub
 
 ```js
 const CURRENT_ORDER = value("current-order", { published: true });
-const owner = new ProsodyClient({
+const owner = await ProsodyClient.create({
   ...config,
   subsystem: "checkout",
   stateCollections: [CURRENT_ORDER],
@@ -590,7 +646,7 @@ Declare each collection once, register it on the client, and ask the event conte
 ```typescript
 const COUNT = value<number>("count", { ttlSeconds: 30 * 24 * 60 * 60 });
 
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   ...config,
   stateCollections: [COUNT],
 });
@@ -730,6 +786,8 @@ OTEL_SERVICE_NAME=my-service-name
 For more information on these and other OpenTelemetry environment variables, refer to
 the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration).
 
+Call `flushTelemetry()` to export pending telemetry. Call `shutdownTelemetry()` before the process exits.
+
 ### Using Tracing in Your Application
 
 After initializing tracing, you can define spans in your application, and they will be properly propagated through
@@ -741,7 +799,7 @@ const opentelemetry = require("@opentelemetry/api");
 
 const tracer = opentelemetry.trace.getTracer("my-service-name");
 
-const client = new ProsodyClient({
+const client = await ProsodyClient.create({
   groupId: "my-consumer-group",
   subscribedTopics: "my-topic",
 });
@@ -814,11 +872,10 @@ Strategies for achieving idempotence:
 
 ### Proper Shutdown
 
-Always unsubscribe from topics before exiting your application:
+Shut down the client before your application exits:
 
 ```javascript
-// Ensure proper shutdown
-await client.unsubscribe();
+await client.shutdown();
 ```
 
 This ensures:
@@ -833,7 +890,7 @@ Implement shutdown handling in your application:
 const { ProsodyClient } = require("@prosody-events/prosody");
 
 async function main() {
-  const client = new ProsodyClient({
+  const client = await ProsodyClient.create({
     groupId: "my-consumer-group",
     subscribedTopics: "my-topic",
   });
@@ -850,7 +907,7 @@ async function main() {
   const shutdownPromise = new Promise((resolve) => {
     const shutdown = async (signal) => {
       console.log(`Received ${signal}. Initiating shutdown...`);
-      await client.unsubscribe();
+      await client.shutdown();
       resolve();
     };
 
@@ -934,7 +991,7 @@ Prosody uses an automated release process managed by GitHub Actions. Here's an o
    - Windows build for x64.
    - macOS build for aarch64 (Apple Silicon).
 
-4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 20 and 22.
+4. **Testing**: The built binaries are tested on Linux (x86_64 and aarch64) with Node.js 24.
 
 5. **Artifact Upload**: Each build job uploads its artifacts (Node.js native addons) to GitHub Actions.
 
@@ -964,25 +1021,39 @@ your changes before merging to `main`.
 
 ### ProsodyClient
 
-- `constructor(config: Configuration)`: Initialize a new ProsodyClient with the given configuration.
-- `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified topic.
+- `ProsodyClient.create(config: Configuration): Promise<ProsodyClient>`: Initialize a client without blocking the Node.js event loop.
+- `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
+  topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
+- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Request one response from each subsystem.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
-- `subscribe<P = JsonValue>(eventHandler: EventHandler<P>): Promise<void>`: Subscribe using a handler whose payload type flows into `Message<P>`.
-- `unsubscribe(): Promise<void>`: Unsubscribe from messages and shut down the consumer.
+- `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
+- `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
+- `shutdown(): Promise<void>`: Stop all client services. Concurrent and repeated calls await the same operation.
+
+### AdminClient
+
+- `new AdminClient(bootstrapServers)`: Create an admin client for the specified Kafka servers.
+- `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
+- `deleteTopic(name)`: Delete a Kafka topic.
+
+### Telemetry lifecycle
+
+- `flushTelemetry()`: Export pending telemetry.
+- `shutdownTelemetry()`: Export pending telemetry and stop its providers.
 
 ### EventHandler
 
 Interface for handling messages and timers:
 
-- `EventHandler<P = JsonValue>` carries the application payload type through to the message callback.
-- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<void>`: Handles incoming messages
-- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<void>`: Handles excise records
-- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events
+- `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
+- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R | void>`: Handles incoming messages.
+- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<R | void>`: Handles excise records.
+- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<R | void>`: Handles timer events.
 
 ### Message
 

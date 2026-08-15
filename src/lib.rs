@@ -27,6 +27,7 @@ mod handler;
 /// Module for managing logging operations and integration with JavaScript
 /// logging.
 mod logging;
+pub use logging::{flush_telemetry, shutdown_telemetry};
 
 /// Module dealing with message-related functionality and structures.
 mod message;

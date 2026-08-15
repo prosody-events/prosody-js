@@ -6,12 +6,14 @@
 
 use crate::logging::js::JsLogger;
 use crate::logging::swappable::SwappableLogger;
-use napi::Env;
 use napi::bindgen_prelude::Function;
 use napi::bindgen_prelude::within_runtime_if_available;
+use napi::{Env, Error};
 use napi_derive::napi;
-use prosody::tracing::flush_telemetry;
-use prosody::tracing::initialize_tracing;
+use prosody::tracing::{
+    flush_telemetry as core_flush_telemetry, initialize_tracing,
+    shutdown_telemetry as core_shutdown_telemetry,
+};
 use serde_json::Value;
 use std::sync::{LazyLock, Once};
 use tracing::error;
@@ -70,7 +72,7 @@ pub fn initialize(env: Env) {
             // Telemetry is process-global, while Node can destroy one worker
             // environment before its siblings. Flush here without shutting
             // down their shared export pipeline.
-            if let Err(error) = flush_telemetry() {
+            if let Err(error) = core_flush_telemetry() {
                 error!("failed to flush telemetry: {error:#}");
             }
             LOGGER.shutdown_logger();
@@ -78,6 +80,28 @@ pub fn initialize(env: Env) {
             error!("failed to attach environment cleanup hook: {error:#}");
         }
     });
+}
+
+/// Exports all pending telemetry data.
+///
+/// # Errors
+///
+/// Returns an error if an exporter cannot flush its pending data.
+#[napi]
+pub fn flush_telemetry() -> napi::Result<()> {
+    core_flush_telemetry().map_err(|error| Error::from_reason(error.to_string()))
+}
+
+/// Stops the global telemetry providers after they export pending data.
+///
+/// Call this function only when the Node.js process no longer needs telemetry.
+///
+/// # Errors
+///
+/// Returns an error if a provider cannot stop.
+#[napi]
+pub fn shutdown_telemetry() -> napi::Result<()> {
+    core_shutdown_telemetry().map_err(|error| Error::from_reason(error.to_string()))
 }
 
 /// Checks if a logger has been set in the logging system.

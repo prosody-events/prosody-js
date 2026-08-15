@@ -47,7 +47,7 @@ const handler = {
 } satisfies EventHandler<OrderEvent>;
 
 async function main(): Promise<void> {
-  const client = new ProsodyClient({
+  const client = await ProsodyClient.create({
     mock: true,
     groupId: "keyed-state-example",
     subscribedTopics: "orders",
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   });
 
   await client.subscribe(handler);
-  await client.unsubscribe();
+  await client.shutdown();
 }
 
 void main();
