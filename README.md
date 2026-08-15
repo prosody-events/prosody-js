@@ -228,9 +228,7 @@ if (client.isStalled) {
 }
 ```
 
-## Advanced Usage
-
-### Subsystem Requests
+## Subsystem Requests
 
 Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
@@ -277,6 +275,8 @@ billing: no response arrived before the deadline
 Each map value is a `Success` or `Failure`. Each failure contains one typed response error.
 
 Each response error has one message.
+
+## Advanced Usage
 
 ### Pipeline Mode
 
