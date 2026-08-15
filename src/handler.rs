@@ -21,6 +21,7 @@ use prosody::consumer::event_context::EventContext;
 use prosody::consumer::message::ConsumerMessage;
 use prosody::consumer::middleware::FallibleHandler;
 use prosody::error::{ClassifyError, ErrorCategory};
+use prosody::high_level::{ClientHandler, JsonBinaryCodecs};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
@@ -61,7 +62,7 @@ pub struct NativeHandler<'a> {
     /// resolves when the message has been processed
     ///
     /// Note: Error parameter is automatically added by CalleeHandled=true
-    pub on_message: Function<'a, MessageHandlerArgs, Promise<()>>,
+    pub on_message: Function<'a, MessageHandlerArgs, Promise<String>>,
 
     /// A function to be called when a timer fires.
     ///
@@ -72,7 +73,7 @@ pub struct NativeHandler<'a> {
     /// timer has been processed
     ///
     /// Note: Error parameter is automatically added by CalleeHandled=true
-    pub on_timer: Function<'a, TimerHandlerArgs, Promise<()>>,
+    pub on_timer: Function<'a, TimerHandlerArgs, Promise<String>>,
 
     /// Function that determines whether an error is permanent.
     ///
@@ -91,7 +92,7 @@ pub struct NativeHandler<'a> {
 struct JsHandlerInner {
     on_message: ThreadsafeFunction<
         MessageHandlerArgs,
-        Promise<()>,
+        Promise<String>,
         MessageHandlerArgs,
         Status,
         true,
@@ -100,7 +101,7 @@ struct JsHandlerInner {
     >,
     on_timer: ThreadsafeFunction<
         TimerHandlerArgs,
-        Promise<()>,
+        Promise<String>,
         TimerHandlerArgs,
         Status,
         true,
@@ -246,7 +247,7 @@ impl FromNapiValue for JsHandler {
 
 impl FallibleHandler for JsHandler {
     type Error = JsHandlerError;
-    type Output = ();
+    type Output = BinaryPayload;
     type Payload = BinaryPayload;
 
     /// Processes a message by calling the JavaScript callback.
@@ -266,7 +267,7 @@ impl FallibleHandler for JsHandler {
         context: C,
         message: ConsumerMessage<Self::Payload>,
         _demand_type: DemandType,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
@@ -292,9 +293,13 @@ impl FallibleHandler for JsHandler {
             .await;
 
         match result {
-            Ok(()) => {
+            Ok(output) => {
                 debug!("message processed successfully");
-                Ok(())
+                Ok(BinaryPayload::new(
+                    output.into_bytes(),
+                    None::<String>,
+                    None::<String>,
+                ))
             }
             Err(error) => {
                 error!(error = %error, "message handler error");
@@ -320,13 +325,17 @@ impl FallibleHandler for JsHandler {
         context: C,
         trigger: Trigger,
         _demand_type: DemandType,
-    ) -> Result<(), Self::Error>
+    ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
         // Only process application timers; internal timers are handled by middleware
         if trigger.timer_type != TimerType::Application {
-            return Ok(());
+            return Ok(BinaryPayload::new(
+                b"null".to_vec(),
+                None::<String>,
+                None::<String>,
+            ));
         }
 
         let span = trigger.span();
@@ -350,9 +359,13 @@ impl FallibleHandler for JsHandler {
             .await;
 
         match result {
-            Ok(()) => {
+            Ok(output) => {
                 debug!("timer processed successfully");
-                Ok(())
+                Ok(BinaryPayload::new(
+                    output.into_bytes(),
+                    None::<String>,
+                    None::<String>,
+                ))
             }
             Err(error) => {
                 error!(error = %error, "timer handler error");
@@ -368,6 +381,10 @@ impl FallibleHandler for JsHandler {
     async fn shutdown(self) {
         // No cleanup required - JavaScript handles resource cleanup via GC
     }
+}
+
+impl ClientHandler for JsHandler {
+    type Codecs = JsonBinaryCodecs;
 }
 
 /// Represents errors that can occur during JavaScript handler execution.

@@ -2,8 +2,10 @@ use napi::bindgen_prelude::Null;
 use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::ByteSize;
+use prosody::PeerConfiguration;
+use prosody::PeerEndpoint;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
-use prosody::codec::{JsonBinaryCodec, JsonPassthroughStateCodec};
+use prosody::codec::{JsonBinaryCodec, JsonBinaryMessageCodec};
 use prosody::consumer::ConsumerConfigurationBuilder;
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::SpanRelation;
@@ -27,6 +29,7 @@ use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use prosody::timers::duration::CompactDuration;
+use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -279,6 +282,26 @@ pub struct Configuration {
     /// Subsystem under which published JSON collections are advertised.
     /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
     pub subsystem: Option<String>,
+
+    /// Socket address for the peer gRPC listener. Uses
+    /// `PROSODY_PEER_BIND_ADDRESS` when omitted.
+    pub peer_bind_address: Option<String>,
+
+    /// gRPC connect URI that remote peers use. Uses
+    /// `PROSODY_PEER_ADVERTISED_CONNECT` when omitted.
+    pub peer_advertised_connect: Option<String>,
+
+    /// Network name used to select direct peer routes. Uses
+    /// `PROSODY_PEER_NETWORK_NAME` when omitted.
+    pub peer_network_name: Option<String>,
+
+    /// Maximum channels and peer records in each peer cache. Uses
+    /// `PROSODY_PEER_CACHE_CAPACITY` when omitted.
+    pub peer_cache_capacity: Option<u32>,
+
+    /// Peer registration lease duration in seconds. Uses
+    /// `PROSODY_PEER_REGISTRATION_TTL` when omitted.
+    pub peer_registration_ttl_seconds: Option<u32>,
 }
 
 /// Declares one keyed-state collection to register before subscribe.
@@ -829,10 +852,10 @@ fn parse_capacity(
 
 /// Validates one collection and registers its descriptor.
 ///
-/// Message collections monomorphize over `KafkaLoader<JsonBinaryCodec>`. Their
-/// stored identity is loader-independent (the message ref codec and resolver
-/// carry fixed `"message-ref"` identifiers), so this matches the identity the
-/// erased vend path asserts using the session's own loader.
+/// Message collections monomorphize over `KafkaLoader<JsonBinaryMessageCodec>`.
+/// Their stored identity is loader-independent (the message ref codec and
+/// resolver carry fixed `"message-ref"` identifiers), so this matches the
+/// identity the erased vend path asserts using the session's own loader.
 ///
 /// @param keyed The keyed-state configuration to register into.
 /// @param index The collection's index in `stateCollections`.
@@ -881,7 +904,7 @@ fn register_state_collection(
     match (kind, payload) {
         (CollectionKind::Value, CollectionPayload::Json) => {
             let _ = keyed.register(with_def(
-                value_state::<JsonPassthroughStateCodec>(name),
+                value_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -889,7 +912,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Json) => {
             let descriptor = with_def(
-                map_state::<Utf8KeyCodec, JsonPassthroughStateCodec>(name),
+                map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -898,7 +921,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Json) => {
             let mut descriptor = with_def(
-                deque_state::<JsonPassthroughStateCodec>(name),
+                deque_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -910,7 +933,7 @@ fn register_state_collection(
         }
         (CollectionKind::Value, CollectionPayload::Message) => {
             let _ = keyed.register(with_def(
-                message_state::<KafkaLoader<JsonBinaryCodec>>(name),
+                message_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -918,7 +941,7 @@ fn register_state_collection(
         }
         (CollectionKind::Map, CollectionPayload::Message) => {
             let descriptor = with_def(
-                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryCodec>>(name),
+                message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -927,7 +950,7 @@ fn register_state_collection(
         }
         (CollectionKind::Deque, CollectionPayload::Message) => {
             let mut descriptor = with_def(
-                message_deque_state::<KafkaLoader<JsonBinaryCodec>>(name),
+                message_deque_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
@@ -1034,7 +1057,37 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
         timeout: build_timeout_config(config),
         emitter: build_emitter_config(config)?,
         keyed_state: build_keyed_state_config(config)?,
+        peer: build_peer_config(config)?,
     })
+}
+
+fn build_peer_config(config: &Configuration) -> Result<PeerConfiguration> {
+    let mut builder = PeerConfiguration::builder();
+    if let Some(value) = &config.peer_bind_address {
+        builder.bind_address(
+            value
+                .parse::<SocketAddr>()
+                .map_err(|error| Error::from_reason(format!("peerBindAddress: {error}")))?,
+        );
+    }
+    if let Some(value) = &config.peer_advertised_connect {
+        builder.advertised_connect(
+            PeerEndpoint::try_from(value.clone())
+                .map_err(|error| Error::from_reason(format!("peerAdvertisedConnect: {error}")))?,
+        );
+    }
+    if let Some(value) = &config.peer_network_name {
+        builder.network_name(value.clone());
+    }
+    if let Some(value) = config.peer_cache_capacity {
+        builder.peer_cache_capacity(value as usize);
+    }
+    if let Some(value) = config.peer_registration_ttl_seconds {
+        builder.registration_ttl(Duration::from_secs(u64::from(value)));
+    }
+    builder
+        .build()
+        .map_err(|error| Error::from_reason(error.to_string()))
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.

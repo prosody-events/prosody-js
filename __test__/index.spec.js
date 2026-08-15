@@ -1,5 +1,6 @@
 const { Readable } = require("stream");
 const { EventEmitter } = require("events");
+
 const {
   ConsumerState,
   Context,
@@ -20,9 +21,11 @@ const {
   PublishedDeque,
   PermanentStateError,
   TransientStateError,
+  flushTelemetry,
   isStateError,
+  shutdownTelemetry,
 } = require("../index.js");
-const { AdminClient } = require("../bindings.js");
+const { AdminClient } = require("../index.js");
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { trace } = require("@opentelemetry/api");
 const { Mode } = require("../index");
@@ -63,6 +66,12 @@ const CASSANDRA_NODES = process.env.PROSODY_CASSANDRA_NODES || "localhost:9042";
 const CASSANDRA_KEYSPACE =
   process.env.PROSODY_CASSANDRA_KEYSPACE || "prosody_test";
 
+test("exports utility APIs", () => {
+  expect(AdminClient).toBeDefined();
+  expect(flushTelemetry).toEqual(expect.any(Function));
+  expect(shutdownTelemetry).toEqual(expect.any(Function));
+});
+
 test("published state options stay on the descriptor", () => {
   expect(
     value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
@@ -78,16 +87,15 @@ test("published state options stay on the descriptor", () => {
 test.each([
   { stateReadCache: { disabled: true, ttlMs: 1 } },
   { stateReadCacheSize: "0" },
-])("rejects invalid published read cache config %p", (options) => {
-  expect(
-    () =>
-      new ProsodyClient({
-        mock: true,
-        groupId: GROUP_NAME,
-        bootstrapServers: [BOOTSTRAP_SERVERS],
-        ...options,
-      }),
-  ).toThrow(/stateReadCache/);
+])("rejects invalid published read cache config %p", async (options) => {
+  await expect(
+    ProsodyClient.create({
+      mock: true,
+      groupId: GROUP_NAME,
+      bootstrapServers: [BOOTSTRAP_SERVERS],
+      ...options,
+    }),
+  ).rejects.toThrow(/stateReadCache/);
 });
 
 test("published state uses the owned read method names", async () => {
@@ -193,6 +201,94 @@ test("descriptors retain their owned and published access strategies", async () 
     ["messageMapState", "message-map"],
     ["messageDequeState", "message-deque"],
   ]);
+});
+
+test("request maps native subsystem outcomes", async () => {
+  const request = jest.fn().mockResolvedValue([
+    {
+      subsystem: "inventory",
+      outcome: JSON.stringify({ accepted: true }),
+    },
+    {
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
+    },
+    {
+      subsystem: "email",
+      outcome: {
+        kind: "timeout",
+        message: "no response arrived before the deadline",
+      },
+    },
+    {
+      subsystem: "shipping",
+      outcome: {
+        kind: "formatMismatch",
+        message: "the responder answered in another format",
+      },
+    },
+    {
+      subsystem: "crm",
+      outcome: {
+        kind: "malformedResponse",
+        message: "the response did not decode",
+      },
+    },
+    { subsystem: "search", outcome: "{" },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { request };
+
+  const results = await client.request(
+    "orders",
+    "order-1",
+    { type: "order.created" },
+    {
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
+      timeoutMs: 2_000,
+      headers: { tenant: "acme" },
+    },
+  );
+
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { accepted: true },
+  });
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(results.get("email").error.kind).toBe("timeout");
+  expect(results.get("shipping").error.kind).toBe("formatMismatch");
+  expect(results.get("crm").error.kind).toBe("malformedResponse");
+  expect(results.get("search").error.kind).toBe("malformedResponse");
+  expect(request).toHaveBeenCalledWith(
+    {
+      headers: { tenant: "acme" },
+      topic: "orders",
+      key: "order-1",
+      payload: JSON.stringify({ type: "order.created" }),
+      metadata: { eventId: undefined, eventType: "order.created" },
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
 });
 
 // Helper functions
@@ -327,10 +423,10 @@ describe("ProsodyClient", () => {
   };
 
   // Builds a client with the canonical state collections registered against the
-  // per-test topic, and reassigns the outer `client` so afterEach unsubscribes
-  // it. maxConcurrency >= 2 so the async-bridging test can observe interleaving.
+  // per-test topic. It replaces `client`, which afterEach shuts down.
+  // maxConcurrency >= 2 so the async-bridging test can observe interleaving.
   const makeStateClient = () =>
-    new ProsodyClient({
+    ProsodyClient.create({
       bootstrapServers: BOOTSTRAP_SERVERS,
       groupId: GROUP_NAME,
       sourceSystem: SOURCE_NAME,
@@ -341,6 +437,7 @@ describe("ProsodyClient", () => {
       cassandraKeyspace: CASSANDRA_KEYSPACE,
       stateCollections: STATE_COLLECTIONS,
       maxConcurrency: 4,
+      peerBindAddress: "127.0.0.1:0",
     });
 
   const sendTestMessage = async (key = "timer-test-key") => {
@@ -372,34 +469,24 @@ describe("ProsodyClient", () => {
     topic = generateTopicName();
     await admin.createTopic(topic, 4, 1);
 
-    for (let i = 0; i < 5; i++) {
-      try {
-        client = new ProsodyClient({
-          bootstrapServers: BOOTSTRAP_SERVERS,
-          groupId: GROUP_NAME,
-          sourceSystem: SOURCE_NAME,
-          subscribedTopics: topic,
-          probePort: null,
-          mode: Mode.Pipeline,
-          cassandraNodes: CASSANDRA_NODES,
-          cassandraKeyspace: CASSANDRA_KEYSPACE,
-        });
-        break;
-      } catch (err) {
-        if (i >= 4) throw err;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-    }
+    client = await ProsodyClient.create({
+      bootstrapServers: BOOTSTRAP_SERVERS,
+      groupId: GROUP_NAME,
+      sourceSystem: SOURCE_NAME,
+      subscribedTopics: topic,
+      probePort: null,
+      mode: Mode.Pipeline,
+      cassandraNodes: CASSANDRA_NODES,
+      cassandraKeyspace: CASSANDRA_KEYSPACE,
+      subsystem: "inventory",
+      peerBindAddress: "127.0.0.1:0",
+    });
     messageStream = createMessageStream();
   });
 
   afterEach(async () => {
-    try {
-      if (client && (await client.consumerState()) === ConsumerState.Running) {
-        await client.unsubscribe();
-      }
-    } catch (err) {
-      console.error("Error during client cleanup:", err);
+    if (client && (await client.consumerState()) !== ConsumerState.Shutdown) {
+      await client.shutdown();
     }
 
     try {
@@ -1165,47 +1252,59 @@ describe("ProsodyClient", () => {
   });
 
   describe("configuration validation", () => {
-    it("accepts valid messageSpans and timerSpans values", () => {
-      expect(
-        () =>
-          new ProsodyClient({
-            bootstrapServers: BOOTSTRAP_SERVERS,
-            groupId: GROUP_NAME,
-            sourceSystem: SOURCE_NAME,
-            subscribedTopics: "test-topic",
-            mock: true,
-            messageSpans: "child",
-            timerSpans: "follows_from",
-          }),
-      ).not.toThrow();
+    it("accepts valid messageSpans and timerSpans values", async () => {
+      const configured = await ProsodyClient.create({
+        bootstrapServers: BOOTSTRAP_SERVERS,
+        groupId: GROUP_NAME,
+        sourceSystem: SOURCE_NAME,
+        subscribedTopics: "test-topic",
+        mock: true,
+        messageSpans: "child",
+        timerSpans: "follows_from",
+      });
+      await configured.shutdown();
     });
 
-    it("rejects invalid messageSpans with field name in error", () => {
-      expect(
-        () =>
-          new ProsodyClient({
-            bootstrapServers: BOOTSTRAP_SERVERS,
-            groupId: GROUP_NAME,
-            sourceSystem: SOURCE_NAME,
-            subscribedTopics: "test-topic",
-            mock: true,
-            messageSpans: "invalid",
-          }),
-      ).toThrow(/message_spans/);
+    it("rejects invalid messageSpans with field name in error", async () => {
+      await expect(
+        ProsodyClient.create({
+          bootstrapServers: BOOTSTRAP_SERVERS,
+          groupId: GROUP_NAME,
+          sourceSystem: SOURCE_NAME,
+          subscribedTopics: "test-topic",
+          mock: true,
+          messageSpans: "invalid",
+        }),
+      ).rejects.toThrow(/message_spans/);
     });
 
-    it("rejects invalid timerSpans with field name in error", () => {
-      expect(
-        () =>
-          new ProsodyClient({
-            bootstrapServers: BOOTSTRAP_SERVERS,
-            groupId: GROUP_NAME,
-            sourceSystem: SOURCE_NAME,
-            subscribedTopics: "test-topic",
-            mock: true,
-            timerSpans: "invalid",
-          }),
-      ).toThrow(/timer_spans/);
+    it("rejects invalid timerSpans with field name in error", async () => {
+      await expect(
+        ProsodyClient.create({
+          bootstrapServers: BOOTSTRAP_SERVERS,
+          groupId: GROUP_NAME,
+          sourceSystem: SOURCE_NAME,
+          subscribedTopics: "test-topic",
+          mock: true,
+          timerSpans: "invalid",
+        }),
+      ).rejects.toThrow(/timer_spans/);
+    });
+  });
+
+  it("returns a handler failure when a result cannot encode", async () => {
+    await client.subscribe({ onMessage: async () => 1n });
+
+    const results = await client.request(
+      topic,
+      "order-1",
+      { type: "order.created" },
+      { subsystems: ["inventory"], timeoutMs: MESSAGE_TIMEOUT },
+    );
+
+    expect(results.get("inventory")).toMatchObject({
+      ok: false,
+      error: { kind: "handler" },
     });
   });
 
@@ -1231,7 +1330,7 @@ describe("ProsodyClient", () => {
         arr: [1, "x", null],
         nested: { z: [true, 2] },
       };
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
@@ -1262,7 +1361,7 @@ describe("ProsodyClient", () => {
     it("map marshals keys (incl. unicode) and values, and entries() yields pairs", async () => {
       const K = nonce();
       const entriesIn = { k1: 1, café: 9, "😀": 7 };
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
@@ -1314,7 +1413,7 @@ describe("ProsodyClient", () => {
     it("reads several keys at once, giving one array entry per key", async () => {
       const K = nonce();
       const missing = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
@@ -1354,7 +1453,7 @@ describe("ProsodyClient", () => {
       const Dfull = nonce();
       const Dempty = nonce();
       const items = ["a", { v: 1 }, [2, "😀"]];
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const d = ctx.state(STATE_DEFS.backlog);
@@ -1405,7 +1504,7 @@ describe("ProsodyClient", () => {
     // payload equal to the original.
     it("messageValue stores the handled message and reads it back intact", async () => {
       const MK = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const lm = ctx.state(STATE_DEFS.lastMsg);
@@ -1457,7 +1556,7 @@ describe("ProsodyClient", () => {
     // round-trips the full Message.
     it("messageDeque round-trips the full message through push/at/scan", async () => {
       const MD = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const dl = ctx.state(STATE_DEFS.msgLog);
@@ -1505,7 +1604,7 @@ describe("ProsodyClient", () => {
     // unexercised) and the distinct messageMapState vend + conversion branch.
     it("messageMap round-trips the full message under string keys across events", async () => {
       const MM = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const mi = ctx.state(STATE_DEFS.msgIndex);
@@ -1600,7 +1699,7 @@ describe("ProsodyClient", () => {
     it("commit floor survives a failed attempt and is visible on retry", async () => {
       const V = nonce();
       let attempt = 0;
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           attempt += 1;
@@ -1624,7 +1723,7 @@ describe("ProsodyClient", () => {
     it("rollback discards uncommitted writes back to the committed floor", async () => {
       const A = nonce();
       const B = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
@@ -1653,7 +1752,7 @@ describe("ProsodyClient", () => {
     // BoxMapState commit/rollback branch (C5a/C5b only reach ValueState). A
     // committed entry survives a rollback that discards a later uncommitted one.
     it("map commit floor survives a rollback of later uncommitted writes", async () => {
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
@@ -1694,7 +1793,7 @@ describe("ProsodyClient", () => {
       const bad = nonce();
       let attempt = 0;
       let leaked = null;
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           attempt += 1;
@@ -1731,7 +1830,7 @@ describe("ProsodyClient", () => {
     it("a context leaked across a failed attempt cannot bind a working handle", async () => {
       let attempt = 0;
       let leakedCtx = null;
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           attempt += 1;
@@ -1768,7 +1867,7 @@ describe("ProsodyClient", () => {
     it("a handle leaked past a successful handler rejects transient", async () => {
       const K = nonce();
       let leaked = null;
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           try {
@@ -1809,7 +1908,7 @@ describe("ProsodyClient", () => {
     // assertion is the fake-cursor unit test). A follow-up op succeeds.
     it("breaking out of a scan leaves the collection usable", async () => {
       const K = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
@@ -1835,7 +1934,7 @@ describe("ProsodyClient", () => {
 
     // C8a — binding an unregistered name rejects PermanentStateError at vend.
     it("binding an unregistered collection name throws PermanentStateError", async () => {
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           let result;
@@ -1861,7 +1960,7 @@ describe("ProsodyClient", () => {
     // C8b — an invalid scan-direction token is a caller mistake, rejected
     // TransientStateError (retry, stay visible, never discard the message).
     it("an invalid scan direction throws TransientStateError", async () => {
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
@@ -1892,7 +1991,7 @@ describe("ProsodyClient", () => {
     it("rethrowing a PermanentStateError classifies permanent (no retry)", async () => {
       let count = 0;
       const errorEvent = new EventEmitter();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           count += 1;
@@ -1912,7 +2011,7 @@ describe("ProsodyClient", () => {
     it("rethrowing a TransientStateError classifies transient (retries)", async () => {
       let count = 0;
       const retryEvent = new EventEmitter();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           count += 1;
@@ -1933,7 +2032,7 @@ describe("ProsodyClient", () => {
     // store untouched. The value message names clear() as the way to delete.
     it("null-item writes reject transient and leave the store untouched", async () => {
       const V = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
@@ -2000,7 +2099,7 @@ describe("ProsodyClient", () => {
       "rejects an unrepresentable write (%s) transient, not permanent",
       async (_label, bad) => {
         const V = nonce();
-        client = makeStateClient();
+        client = await makeStateClient();
         await client.subscribe({
           onMessage: async (ctx, msg) => {
             const c = ctx.state(STATE_DEFS.cart);
@@ -2046,7 +2145,7 @@ describe("ProsodyClient", () => {
     // collector, not here.
     it("a state op runs under the active JS trace context (smoke)", async () => {
       const V = nonce();
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           await tracer.startActiveSpan("test.state_op", async (span) => {
@@ -2088,7 +2187,7 @@ describe("ProsodyClient", () => {
       const probeKeys = [0, 1, 2, 3, 4].map((i) => `probe-${nonce()}-${i}`);
       for (const k of probeKeys) await client.send(topic, k, { probe: true });
       const probes = await waitForMessages(probeStream, 5, MESSAGE_TIMEOUT);
-      await client.unsubscribe();
+      await client.shutdown();
 
       const seen = {};
       let keyA = null;
@@ -2110,7 +2209,7 @@ describe("ProsodyClient", () => {
       let aFinished = false;
       const events = new EventEmitter();
 
-      client = makeStateClient();
+      client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
           if (msg.key === keyA) {
@@ -2495,10 +2594,9 @@ describe("keyed state (unit)", () => {
   });
 });
 
-// Infra-free config-validation tests: state-collection rules run synchronously
-// at client construction (mock:true), so an invalid definition THROWS from the
-// constructor with the offending field named in the message.
+// Infra-free configuration tests use mock mode and need no external services.
 describe("keyed state configuration validation", () => {
+  const clients = [];
   const makeConfig = (overrides) => ({
     bootstrapServers: BOOTSTRAP_SERVERS,
     groupId: GROUP_NAME,
@@ -2508,46 +2606,49 @@ describe("keyed state configuration validation", () => {
     ...overrides,
   });
 
-  // A valid mock:true client spins up a mock cluster that logs its startup
-  // asynchronously; drain it before teardown so the log does not fire after the
-  // test module is torn down (mirrors the ProsodyClient afterAll drain).
-  afterAll(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+  const makeClient = async (config) => {
+    const client = await ProsodyClient.create(config);
+    clients.push(client);
+    return client;
+  };
+  const rejectsConfig = async (config, pattern) => {
+    await expect(ProsodyClient.create(config)).rejects.toThrow(pattern);
+  };
+
+  afterEach(async () => {
+    await Promise.all(clients.splice(0).map((client) => client.shutdown()));
   });
 
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
   // whole-number guard instead of being truncated toward zero by a u32
   // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
-  it.each([0.5, 2.5, 3.9])("rejects fractional ttlSeconds %p", (ttlSeconds) => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        ),
-    ).toThrow(/ttlSeconds: must be a whole number/);
-  });
+  it.each([0.5, 2.5, 3.9])(
+    "rejects fractional ttlSeconds %p",
+    async (ttlSeconds) => {
+      await rejectsConfig(
+        makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
+        /ttlSeconds: must be a whole number/,
+      );
+    },
+  );
 
   // Regression: a negative ttlSeconds used to ToUint32-wrap to ~4.29e9 and
   // evade the `== 0` guard, silently registering a ~136-year TTL. It must now
   // throw a field-named error rather than being accepted.
-  it.each([-1, -5])("rejects negative ttlSeconds %p", (ttlSeconds) => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        ),
-    ).toThrow(/ttlSeconds: must be a whole number/);
+  it.each([-1, -5])("rejects negative ttlSeconds %p", async (ttlSeconds) => {
+    await rejectsConfig(
+      makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
+      /ttlSeconds: must be a whole number/,
+    );
   });
 
   it.each([NaN, Infinity, -Infinity])(
     "rejects non-finite ttlSeconds %p",
-    (ttlSeconds) => {
-      expect(
-        () =>
-          new ProsodyClient(
-            makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-          ),
-      ).toThrow(/ttlSeconds: must be a whole number/);
+    async (ttlSeconds) => {
+      await rejectsConfig(
+        makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
+        /ttlSeconds: must be a whole number/,
+      );
     },
   );
 
@@ -2555,106 +2656,87 @@ describe("keyed state configuration validation", () => {
   // silently accepted; it must now throw.
   it.each([2.5, -1, NaN, Infinity])(
     "rejects non-whole keysetLimit %p",
-    (keysetLimit) => {
-      expect(
-        () =>
-          new ProsodyClient(
-            makeConfig({ stateCollections: [map("m", { keysetLimit })] }),
-          ),
-      ).toThrow(/keysetLimit: must be a whole number/);
+    async (keysetLimit) => {
+      await rejectsConfig(
+        makeConfig({ stateCollections: [map("m", { keysetLimit })] }),
+        /keysetLimit: must be a whole number/,
+      );
     },
   );
 
   // keysetLimit 0 disables ordered-scan tracking and is a valid whole number.
-  it("accepts keysetLimit of zero", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
-        ),
-    ).not.toThrow();
+  it("accepts keysetLimit of zero", async () => {
+    await makeClient(
+      makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
+    );
   });
 
-  it("rejects keysetLimit on a non-map collection", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
-        ),
-    ).toThrow(/keysetLimit: only valid for map/);
+  it("rejects keysetLimit on a non-map collection", async () => {
+    await rejectsConfig(
+      makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
+      /keysetLimit: only valid for map/,
+    );
   });
 
-  it("rejects capacity on a non-deque collection", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [value("v", { capacity: 5 })] }),
-        ),
-    ).toThrow(/capacity: only valid for deque/);
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({ stateCollections: [map("m", { capacity: 5 })] }),
-        ),
-    ).toThrow(/capacity: only valid for deque/);
+  it("rejects capacity on a non-deque collection", async () => {
+    await rejectsConfig(
+      makeConfig({ stateCollections: [value("v", { capacity: 5 })] }),
+      /capacity: only valid for deque/,
+    );
+    await rejectsConfig(
+      makeConfig({ stateCollections: [map("m", { capacity: 5 })] }),
+      /capacity: only valid for deque/,
+    );
   });
 
   // capacity is NonZeroUsize core-side: zero, fractional, negative, and
   // non-finite values are all rejected as non-whole at registration.
   it.each([0, 2.5, -1, NaN, Infinity])(
     "rejects non-whole/zero capacity %p",
-    (capacity) => {
-      expect(
-        () =>
-          new ProsodyClient(
-            makeConfig({ stateCollections: [deque("d", { capacity })] }),
-          ),
-      ).toThrow(/capacity: must be a whole number in 1..=/);
+    async (capacity) => {
+      await rejectsConfig(
+        makeConfig({ stateCollections: [deque("d", { capacity })] }),
+        /capacity: must be a whole number in 1..=/,
+      );
     },
   );
 
-  it("accepts a positive capacity on both deque flavours", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [
-              deque("d", { capacity: 100 }),
-              messageDeque("md", { capacity: 100 }),
-            ],
-          }),
-        ),
-    ).not.toThrow();
+  it("accepts a positive capacity on both deque flavours", async () => {
+    await makeClient(
+      makeConfig({
+        stateCollections: [
+          deque("d", { capacity: 100 }),
+          messageDeque("md", { capacity: 100 }),
+        ],
+      }),
+    );
   });
 
-  it("rejects an unknown kind token", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [{ name: "x", kind: "bogus", payload: "json" }],
-          }),
-        ),
-    ).toThrow(/kind: expected/);
+  it("rejects an unknown kind token", async () => {
+    await rejectsConfig(
+      makeConfig({
+        stateCollections: [{ name: "x", kind: "bogus", payload: "json" }],
+      }),
+      /kind: expected/,
+    );
   });
 
-  it("rejects an unknown payload token", () => {
-    expect(
-      () =>
-        new ProsodyClient(
-          makeConfig({
-            stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
-          }),
-        ),
-    ).toThrow(/payload: expected/);
+  it("rejects an unknown payload token", async () => {
+    await rejectsConfig(
+      makeConfig({
+        stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
+      }),
+      /payload: expected/,
+    );
   });
 
   it.each(["0", "-1 MiB", "nonsense"])(
     "rejects invalid stateOwnedCacheSize %p",
-    (stateOwnedCacheSize) => {
-      expect(
-        () => new ProsodyClient(makeConfig({ stateOwnedCacheSize })),
-      ).toThrow(/stateOwnedCacheSize/);
+    async (stateOwnedCacheSize) => {
+      await rejectsConfig(
+        makeConfig({ stateOwnedCacheSize }),
+        /stateOwnedCacheSize/,
+      );
     },
   );
 
@@ -2663,17 +2745,15 @@ describe("keyed state configuration validation", () => {
   // truncating through a u32 coercion.
   it.each([-1, 2.5, NaN, Infinity])(
     "rejects non-whole stateRecoveryDelaySeconds %p",
-    (stateRecoveryDelaySeconds) => {
-      expect(
-        () => new ProsodyClient(makeConfig({ stateRecoveryDelaySeconds })),
-      ).toThrow(/stateRecoveryDelaySeconds: must be a whole number/);
+    async (stateRecoveryDelaySeconds) => {
+      await rejectsConfig(
+        makeConfig({ stateRecoveryDelaySeconds }),
+        /stateRecoveryDelaySeconds: must be a whole number/,
+      );
     },
   );
 
-  it("accepts the full canonical collection set", () => {
-    expect(
-      () =>
-        new ProsodyClient(makeConfig({ stateCollections: STATE_COLLECTIONS })),
-    ).not.toThrow();
+  it("accepts the full canonical collection set", async () => {
+    await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
   });
 });

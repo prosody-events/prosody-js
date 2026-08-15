@@ -15,8 +15,8 @@
 
 /**
  * @typedef {Object} EventHandler
- * @property {Function} [onMessage] - Async callback function to handle incoming messages. Receives (context, message, signal).
- * @property {Function} [onTimer] - Async callback function to handle timer events. Receives (context, timer, signal).
+ * @property {Function} [onMessage] - Handles a message and returns its response.
+ * @property {Function} [onTimer] - Handles a timer.
  */
 
 /**
@@ -38,15 +38,18 @@ const {
 } = require("@opentelemetry/api");
 
 const {
+  AdminClient,
   Message: NativeMessage,
   Mode,
   NativeClient,
   ConsumerState,
   NativeContext,
   initialize,
+  flushTelemetry,
   loggerIsSet,
   setLogger: setLoggerInternal,
   setLoggerIfUnset: setLoggerIfUnsetInternal,
+  shutdownTelemetry,
 } = require("./bindings");
 
 let _sentry = undefined;
@@ -170,12 +173,23 @@ function setLoggerIfUnset(logger) {
  */
 class ProsodyClient {
   /**
-   * Creates a new ProsodyClient instance.
-   *
-   * @param {Configuration} config - The configuration options for the client.
+   * Use {@link ProsodyClient.create}.
+   * @private
    */
-  constructor(config) {
-    this.nativeClient = new NativeClient(config);
+  constructor() {
+    throw new TypeError("Use await ProsodyClient.create(config)");
+  }
+
+  /**
+   * Creates a Prosody client without blocking the Node.js event loop.
+   *
+   * @param {Configuration} config - The client configuration.
+   * @returns {Promise<ProsodyClient>} The initialized client.
+   */
+  static async create(config) {
+    const client = Object.create(ProsodyClient.prototype);
+    client.nativeClient = await NativeClient.create(config);
+    return client;
   }
 
   /**
@@ -266,6 +280,38 @@ class ProsodyClient {
   }
 
   /**
+   * Sends a request and waits for one response from each subsystem.
+   *
+   * @param {string} topic - The Kafka topic.
+   * @param {string} key - The message key.
+   * @param {*} payload - The JSON request payload.
+   * @param {{subsystems: readonly string[], timeoutMs: number, headers?: Readonly<Record<string, string>>, signal?: AbortSignal}} options - Request policy.
+   * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
+   * @throws {Error} If the request cannot produce the complete result map.
+   */
+  async request(topic, key, payload, options) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    const results = await this.nativeClient.request(
+      {
+        headers: options.headers ?? {},
+        topic,
+        key,
+        payload: toJson(payload, TransientError),
+        metadata: eventMetadata(payload),
+        subsystems: options.subsystems,
+        timeoutMs: options.timeoutMs,
+      },
+      carrier,
+      options.signal && onAbort(options.signal),
+    );
+    const outcomes = new Map();
+    for (const { subsystem, outcome } of results)
+      outcomes.set(subsystem, responseOutcome(outcome));
+    return outcomes;
+  }
+
+  /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param {EventHandler} eventHandler - The event handler to process received messages and timers.
@@ -320,8 +366,8 @@ class ProsodyClient {
         if (err) throw err;
 
         const ctx = propagation.extract(otelContext.active(), carrier);
-        await otelContext.with(ctx, async () => {
-          await tracer.startActiveSpan("onMessage", async (span) => {
+        return otelContext.with(ctx, async () => {
+          return tracer.startActiveSpan("onMessage", async (span) => {
             const controller = new AbortController();
             let completed = false;
 
@@ -335,10 +381,13 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              await onMessage(
-                context,
-                withParsedPayload(message),
-                controller.signal,
+              return toJson(
+                (await onMessage(
+                  context,
+                  withParsedPayload(message),
+                  controller.signal,
+                )) ?? null,
+                PermanentError,
               );
             } catch (error) {
               getCurrentLogger()?.error(
@@ -370,8 +419,8 @@ class ProsodyClient {
         if (err) throw err;
 
         const ctx = propagation.extract(otelContext.active(), carrier);
-        await otelContext.with(ctx, async () => {
-          await tracer.startActiveSpan("onTimer", async (span) => {
+        return otelContext.with(ctx, async () => {
+          return tracer.startActiveSpan("onTimer", async (span) => {
             const controller = new AbortController();
             let completed = false;
 
@@ -385,7 +434,10 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              await onTimer(context, timer, controller.signal);
+              return toJson(
+                (await onTimer(context, timer, controller.signal)) ?? null,
+                PermanentError,
+              );
             } catch (error) {
               getCurrentLogger()?.error(
                 "Timer handler error",
@@ -413,13 +465,25 @@ class ProsodyClient {
   }
 
   /**
-   * Unsubscribes from receiving messages and shuts down the consumer.
+   * Stops the consumer. You can subscribe again later.
    *
    * @returns {Promise<void>} A promise that resolves when the unsubscribe operation is complete.
    * @throws {Error} If the unsubscribe operation fails.
    */
   async unsubscribe() {
     await this.nativeClient.unsubscribe();
+  }
+
+  /**
+   * Shuts down the client and all its services.
+   * Concurrent and repeated calls await the same shutdown operation.
+   *
+   * @returns {Promise<void>} A promise that resolves when shutdown is complete.
+   * @throws {Error} If shutdown fails.
+   */
+  async shutdown() {
+    this.shutdownPromise ??= this.nativeClient.shutdown();
+    await this.shutdownPromise;
   }
 }
 
@@ -494,6 +558,19 @@ class PermanentError extends EventHandlerError {
    */
   get isPermanent() {
     return true;
+  }
+}
+
+function responseOutcome(outcome) {
+  if (typeof outcome !== "string") return { ok: false, error: outcome };
+
+  try {
+    return { ok: true, value: JSON.parse(outcome) };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: { kind: "malformedResponse", message: cause.message },
+    };
   }
 }
 
@@ -1799,6 +1876,7 @@ class Context {
 }
 
 module.exports = {
+  AdminClient,
   ConsumerState,
   Context,
   DequeState,
@@ -1816,6 +1894,7 @@ module.exports = {
   ValueState,
   deque,
   getCurrentLogger,
+  flushTelemetry,
   initialize,
   isStateError,
   loggerIsSet,
@@ -1826,6 +1905,7 @@ module.exports = {
   permanent,
   setLogger,
   setLoggerIfUnset,
+  shutdownTelemetry,
   transient,
   value,
 };

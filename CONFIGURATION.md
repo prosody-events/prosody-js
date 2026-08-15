@@ -44,6 +44,22 @@ The JavaScript client reports values it cannot convert to Prosody types. Prosody
 | ---------------------------------------- | ------------------------------- | ------- |
 | `sendTimeoutMs` / `PROSODY_SEND_TIMEOUT` | Give up sending after this long | 1s      |
 
+## Peer Requests
+
+Peer requests work with the defaults on one network. Without a network name, peers always use the direct listener address.
+With a network name, peers with the same name use the direct address. Other peers use the advertised connect URI.
+Use a different bind address for each client that shares a host.
+
+| Option / Environment Variable                                  | Description                                              | Default                                        |
+| -------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| `peerBindAddress` / `PROSODY_PEER_BIND_ADDRESS`                | Socket address for the peer gRPC listener                | Default network interface address on port 9099 |
+| `peerAdvertisedConnect` / `PROSODY_PEER_ADVERTISED_CONNECT`    | gRPC connect URI that peers on another network use       | (none)                                         |
+| `peerNetworkName` / `PROSODY_PEER_NETWORK_NAME`                | Nonempty network name for direct peer routes             | (none)                                         |
+| `peerCacheCapacity` / `PROSODY_PEER_CACHE_CAPACITY`            | Maximum channels and peer records in each peer cache     | 256                                            |
+| `peerRegistrationTtlSeconds` / `PROSODY_PEER_REGISTRATION_TTL` | Directory lease duration; use 5 seconds through 20 years | 30s                                            |
+
+Set `subsystem` to make this client answer requests. Without it, the client consumes messages but does not answer requests.
+
 ## Retry
 
 Retry backoff applies in pipeline and low-latency modes. `maxRetries` controls how many retries low-latency mode performs before routing the failure to `failureTopic`. Pipeline mode uses deferral and does not use this limit.

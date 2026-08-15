@@ -17,17 +17,19 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.7"
-mimalloc = { version = "0.1", features = ["local_dynamic_tls", "v2"] }
+mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 napi = { version = "3.8", features = [
     "async",
     "chrono_date",
-    "napi9",
+    "napi10",
     "serde-json",
 ] }
 napi-derive = "3.5"
 opentelemetry = "0.32"
-# TODO: replace this Git revision with the published Prosody release once the backend change is released.
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "1add1b742a4118142ea536b96d3dc8237ae16897", features = ["libz-static"] }
+# TODO: Use the released version after Prosody publishes peer requests.
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "91a4fc4730e1befbac6d87e8331000906bc367e3", features = [
+    "libz-static",
+] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["sync"] }
