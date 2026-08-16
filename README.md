@@ -997,6 +997,8 @@ const messageHandler = {
     await client.send("topic", "key", { data: "value" }, signal);
     return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 ```
 
