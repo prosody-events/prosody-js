@@ -378,6 +378,7 @@ class ProsodyClient {
               "{ /* your logic here */ } to your subscribe() call",
           },
         );
+        return null;
       },
       onTimer = (context, timer, _signal) => {
         getCurrentLogger()?.error(
@@ -424,11 +425,11 @@ class ProsodyClient {
             try {
               const context = new Context(nativeContext);
               return toJson(
-                (await onMessage(
+                await onMessage(
                   context,
                   withParsedPayload(message),
                   controller.signal,
-                )) ?? null,
+                ),
                 PermanentError,
               );
             } catch (error) {
@@ -475,11 +476,11 @@ class ProsodyClient {
 
             try {
               return toJson(
-                (await onExcise(
+                await onExcise(
                   new Context(nativeContext),
                   message,
                   controller.signal,
-                )) ?? null,
+                ),
                 PermanentError,
               );
             } catch (error) {

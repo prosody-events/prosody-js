@@ -22,6 +22,7 @@ const BACKLOG = messageDeque<OrderEvent>("backlog", { capacity: 100 });
 const handler = {
   async onExcise(_context, message) {
     console.info(`excise ${message.key}`);
+    return null;
   },
 
   async onMessage(context, message) {
@@ -43,6 +44,7 @@ const handler = {
     if (oldest !== null) {
       console.info(`oldest order: ${oldest.payload.orderId}`);
     }
+    return null;
   },
 } satisfies EventHandler<OrderEvent>;
 

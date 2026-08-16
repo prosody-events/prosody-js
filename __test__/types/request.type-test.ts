@@ -50,4 +50,10 @@ client.subscribe({
   onExcise: () => null,
 });
 
+client.subscribe({
+  // @ts-expect-error undefined is not a JSON response.
+  onMessage: () => undefined,
+  onExcise: () => null,
+});
+
 void request;

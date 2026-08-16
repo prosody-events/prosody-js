@@ -31,6 +31,7 @@ const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep th
 const handler = {
   async onExcise(_context, message) {
     void message.key;
+    return null;
   },
 
   async onMessage(context, message) {
@@ -47,6 +48,7 @@ const handler = {
     } else {
       await pending.push(message); // a batch is open → just save the message
     }
+    return null;
   },
 
   async onTimer(context, timer) {

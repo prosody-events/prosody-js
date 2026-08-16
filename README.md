@@ -56,6 +56,7 @@ async function main() {
   const messageHandler = {
     onExcise: async (context, message, signal) => {
       console.log(`Excise key: ${message.key}`);
+      return null;
     },
 
     onMessage: async (context, message, signal) => {
@@ -67,6 +68,7 @@ async function main() {
         const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
         await context.schedule(followupTime);
       }
+      return null;
     },
 
     onTimer: async (context, timer, signal) => {
@@ -487,6 +489,7 @@ const messageHandler = {
     // Check what's scheduled
     const scheduled = await context.scheduled();
     console.log(`Scheduled timers: ${scheduled.length}`);
+    return null;
   },
 
   onTimer: async (context, timer, signal) => {
@@ -566,6 +569,7 @@ class MyHandler {
     // Your message handling logic here
     // TypeError and AttributeError will be treated as permanent
     // All other exceptions will be treated as transient (default behavior)
+    return null;
   }
 }
 
@@ -591,6 +595,7 @@ const messageHandler = {
       // All other exceptions will be treated as transient (default behavior)
       throw error;
     }
+    return null;
   },
 };
 
@@ -657,6 +662,7 @@ client.subscribe({
   async onMessage(context) {
     const count = context.state(COUNT);
     await count.set(((await count.get()) ?? 0) + 1);
+    return null;
   },
 });
 ```
@@ -681,12 +687,13 @@ const handler = {
 
     if (await window.get()) {
       await pending.push(message);
-      return;
+      return null;
     }
 
     await notify(message.key, [message]);
     await window.set(true);
     await context.clearAndSchedule(new Date(Date.now() + 5 * 60_000));
+    return null;
   },
 
   async onTimer(context, timer) {
@@ -817,6 +824,7 @@ const messageHandler = {
     } finally {
       span.end();
     }
+    return null;
   },
 };
 
@@ -900,6 +908,7 @@ async function main() {
   const messageHandler = {
     onMessage: async (context, message, signal) => {
       // Process the message
+      return null;
     },
   };
 
@@ -963,6 +972,7 @@ const messageHandler = {
 
     // Send a message, passing the abort signal
     await client.send("topic", "key", { data: "value" }, signal);
+    return null;
   },
 };
 ```
@@ -1053,8 +1063,8 @@ your changes before merging to `main`.
 Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
-- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R | void>`: Handles incoming messages.
-- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<R | void>`: Handles excise records.
+- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
+- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<R>`: Handles excise records.
 - `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
 
 ### Message

@@ -610,20 +610,20 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
     context: Context,
     message: Message<null>,
     signal: AbortSignal,
-  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+  ) => MaybePromise<R & JsonCompatible<R>>;
   /**
    * Callback function to handle incoming messages.
    *
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns The response for subsystem requests. An omitted response becomes JSON null.
+   * @returns A JSON response for subsystem requests. JSON null is valid.
    */
   onMessage?: (
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
-  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+  ) => MaybePromise<R & JsonCompatible<R>>;
 
   /**
    * Callback function to handle timers.

@@ -20,6 +20,7 @@ interface OrderPayload {
 const orderHandler = {
   async onExcise(_context, message, _signal) {
     assertTrue<Equal<typeof message, Message<null>>>();
+    return null;
   },
 
   async onMessage(_context, message, _signal) {
@@ -34,18 +35,21 @@ const orderHandler = {
     // @ts-expect-error total is a number, not a string
     const badTotal: string = message.payload.total;
     void badTotal;
+    return null;
   },
 } satisfies EventHandler<OrderPayload>;
 
 const defaultHandler = {
   async onExcise(_context, message, _signal) {
     assertTrue<Equal<typeof message, Message<null>>>();
+    return null;
   },
 
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, JsonValue>>();
     // @ts-expect-error a generic JSON value has no known object fields
     void message.payload.orderId;
+    return null;
   },
 } satisfies EventHandler;
 
@@ -55,9 +59,11 @@ client.subscribe(defaultHandler);
 client.subscribe<OrderPayload>({
   async onExcise(_context, message, _signal) {
     assertTrue<Equal<typeof message, Message<null>>>();
+    return null;
   },
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, OrderPayload>>();
+    return null;
   },
 });
 
