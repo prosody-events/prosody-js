@@ -374,18 +374,19 @@ class ProsodyClient {
       message,
       carrier,
       handler,
-      activity,
+      spanName,
+      eventType,
       parsePayload,
     ) => {
       const ctx = propagation.extract(otelContext.active(), carrier);
       return otelContext.with(ctx, () =>
-        tracer.startActiveSpan(activity, async (span) => {
+        tracer.startActiveSpan(spanName, async (span) => {
           const controller = new AbortController();
           let completed = false;
           nativeContext.onCancel().then(() => {
             if (!completed) {
               span.setAttribute("cancelled", true);
-              controller.abort(new Error(`${activity} cancelled`));
+              controller.abort(new Error(`${eventType} cancelled`));
             }
           });
 
@@ -399,13 +400,13 @@ class ProsodyClient {
             return toJson(result ?? null, PermanentError);
           } catch (error) {
             const cause = error.cause ?? error;
-            getCurrentLogger()?.error(`${activity} handler error`, cause);
+            getCurrentLogger()?.error(`${eventType} handler error`, cause);
             span.recordException(cause);
             span.setStatus({
               code: SpanStatusCode.ERROR,
               message: cause.message,
             });
-            captureException(error, activity, {
+            captureException(error, eventType, {
               topic: message.topic,
               partition: message.partition,
               key: message.key,
@@ -436,6 +437,7 @@ class ProsodyClient {
           message,
           carrier,
           onMessage,
+          "onMessage",
           "message",
           true,
         );
@@ -448,6 +450,7 @@ class ProsodyClient {
           message,
           carrier,
           onExcise,
+          "onExcise",
           "excise",
           false,
         );
@@ -1208,11 +1211,8 @@ function withParsedPayload(message) {
  * Serializes a value, mapping the two ways `JSON.stringify` can fail onto the
  * caller's error class.
  *
- * It answers `undefined` for a function, a symbol, or `undefined` itself, and
- * throws outright on a BigInt or a cycle.
- * @param {*} value - The value to serialize.
- * @param {Function} ErrorClass - The error to raise on failure.
- * @returns {string} The JSON text.
+ * Rejects request headers that the client API does not support.
+ * @param {object} options - The request options.
  * @private
  */
 function rejectHeaders(options) {
@@ -1221,6 +1221,16 @@ function rejectHeaders(options) {
   }
 }
 
+/**
+ * Serializes a JSON value.
+ *
+ * It returns `undefined` for a function, a symbol, or `undefined` itself. It
+ * throws for a BigInt or a cycle.
+ * @param {*} value - The value to serialize.
+ * @param {Function} ErrorClass - The error to raise on failure.
+ * @returns {string} The JSON text.
+ * @private
+ */
 function toJson(value, ErrorClass) {
   let json;
   try {

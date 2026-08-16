@@ -246,7 +246,10 @@ impl JsHandler {
                 None::<String>,
                 None::<String>,
             )),
-            Err(error) => Err(self.categorize_error(error).await?),
+            Err(error) => {
+                error!(error = %error, "record handler error");
+                Err(self.categorize_error(error).await?)
+            }
         }
     }
 }
