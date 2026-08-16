@@ -310,6 +310,7 @@ class ProsodyClient {
    * @throws {Error} If the request cannot produce the complete result map.
    */
   async request(topic, key, payload, options) {
+    rejectHeaders(options);
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.request(
@@ -332,6 +333,7 @@ class ProsodyClient {
 
   /** Sends an excise request and waits for one response from each subsystem. */
   async requestExcise(topic, key, options) {
+    rejectHeaders(options);
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.requestExcise(
@@ -367,6 +369,56 @@ class ProsodyClient {
 
     const tracer = trace.getTracer("prosody");
     const { onExcise, onMessage, onTimer } = eventHandler;
+    const handleRecord = async (
+      nativeContext,
+      message,
+      carrier,
+      handler,
+      activity,
+      parsePayload,
+    ) => {
+      const ctx = propagation.extract(otelContext.active(), carrier);
+      return otelContext.with(ctx, () =>
+        tracer.startActiveSpan(activity, async (span) => {
+          const controller = new AbortController();
+          let completed = false;
+          nativeContext.onCancel().then(() => {
+            if (!completed) {
+              span.setAttribute("cancelled", true);
+              controller.abort(new Error(`${activity} cancelled`));
+            }
+          });
+
+          try {
+            const record = parsePayload ? withParsedPayload(message) : message;
+            const result = await handler(
+              new Context(nativeContext),
+              record,
+              controller.signal,
+            );
+            return toJson(result ?? null, PermanentError);
+          } catch (error) {
+            const cause = error.cause ?? error;
+            getCurrentLogger()?.error(`${activity} handler error`, cause);
+            span.recordException(cause);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: cause.message,
+            });
+            captureException(error, activity, {
+              topic: message.topic,
+              partition: message.partition,
+              key: message.key,
+              offset: message.offset,
+            });
+            throw error;
+          } finally {
+            completed = true;
+            span.end();
+          }
+        }),
+      );
+    };
 
     await this.nativeClient.subscribe({
       isPermanent: ([err]) => {
@@ -379,102 +431,26 @@ class ProsodyClient {
 
       onMessage: async (err, [nativeContext, message, carrier]) => {
         if (err) throw err;
-
-        const ctx = propagation.extract(otelContext.active(), carrier);
-        return otelContext.with(ctx, async () => {
-          return tracer.startActiveSpan("onMessage", async (span) => {
-            const controller = new AbortController();
-            let completed = false;
-
-            // Signal abort when cancellation occurs (before handler completes)
-            nativeContext.onCancel().then(() => {
-              if (!completed) {
-                span.setAttribute("cancelled", true);
-                controller.abort(new Error("message cancelled"));
-              }
-            });
-
-            try {
-              const context = new Context(nativeContext);
-              return toJson(
-                await onMessage(
-                  context,
-                  withParsedPayload(message),
-                  controller.signal,
-                ),
-                PermanentError,
-              );
-            } catch (error) {
-              getCurrentLogger()?.error(
-                "Message handler error",
-                error.cause ?? error,
-              );
-              const cause = error.cause ?? error;
-              span.recordException(cause);
-              span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: cause.message,
-              });
-              captureException(error, "message", {
-                topic: message.topic,
-                partition: message.partition,
-                key: message.key,
-                offset: message.offset,
-              });
-              throw error;
-            } finally {
-              completed = true;
-              span.end();
-            }
-          });
-        });
+        return handleRecord(
+          nativeContext,
+          message,
+          carrier,
+          onMessage,
+          "message",
+          true,
+        );
       },
 
       onExcise: async (err, [nativeContext, message, carrier]) => {
         if (err) throw err;
-
-        const ctx = propagation.extract(otelContext.active(), carrier);
-        return otelContext.with(ctx, async () => {
-          return tracer.startActiveSpan("onExcise", async (span) => {
-            const controller = new AbortController();
-            let completed = false;
-
-            nativeContext.onCancel().then(() => {
-              if (!completed) {
-                span.setAttribute("cancelled", true);
-                controller.abort(new Error("excise cancelled"));
-              }
-            });
-
-            try {
-              return toJson(
-                await onExcise(
-                  new Context(nativeContext),
-                  message,
-                  controller.signal,
-                ),
-                PermanentError,
-              );
-            } catch (error) {
-              const cause = error.cause ?? error;
-              span.recordException(cause);
-              span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: cause.message,
-              });
-              captureException(error, "excise", {
-                topic: message.topic,
-                partition: message.partition,
-                key: message.key,
-                offset: message.offset,
-              });
-              throw error;
-            } finally {
-              completed = true;
-              span.end();
-            }
-          });
-        });
+        return handleRecord(
+          nativeContext,
+          message,
+          carrier,
+          onExcise,
+          "excise",
+          false,
+        );
       },
 
       onTimer: async (err, [nativeContext, timer, carrier]) => {
@@ -1239,6 +1215,12 @@ function withParsedPayload(message) {
  * @returns {string} The JSON text.
  * @private
  */
+function rejectHeaders(options) {
+  if (Object.hasOwn(options, "headers")) {
+    throw new TypeError("request options do not support headers");
+  }
+}
+
 function toJson(value, ErrorClass) {
   let json;
   try {

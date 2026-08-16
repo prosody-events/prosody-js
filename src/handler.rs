@@ -47,6 +47,16 @@ pub const HANDLE_QUEUE_SIZE: usize = 64;
 /// Maximum number of queued error classification function calls.
 pub const PERM_QUEUE_SIZE: usize = 64;
 
+type MessageFunction = ThreadsafeFunction<
+    MessageHandlerArgs,
+    Promise<String>,
+    MessageHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+>;
+
 /// Represents a native handler for processing messages and timers.
 ///
 /// This struct contains functions that handle incoming messages, timer events,
@@ -93,24 +103,8 @@ pub struct NativeHandler<'a> {
 /// any thread to handle messages, timers, and error classification. It also
 /// contains an OpenTelemetry propagator for distributed tracing.
 struct JsHandlerInner {
-    on_message: ThreadsafeFunction<
-        MessageHandlerArgs,
-        Promise<String>,
-        MessageHandlerArgs,
-        Status,
-        true,
-        false,
-        HANDLE_QUEUE_SIZE,
-    >,
-    on_excise: ThreadsafeFunction<
-        MessageHandlerArgs,
-        Promise<String>,
-        MessageHandlerArgs,
-        Status,
-        true,
-        false,
-        HANDLE_QUEUE_SIZE,
-    >,
+    on_message: MessageFunction,
+    on_excise: MessageFunction,
     on_timer: ThreadsafeFunction<
         TimerHandlerArgs,
         Promise<String>,
@@ -223,6 +217,38 @@ impl JsHandler {
             JsHandlerError::Js(message)
         })
     }
+
+    async fn handle_record<C>(
+        &self,
+        context: C,
+        message: ConsumerMessage<BinaryPayload>,
+        handler: &MessageFunction,
+    ) -> Result<BinaryPayload, JsHandlerError>
+    where
+        C: EventContext<Payload = BinaryPayload>,
+    {
+        let span = message.span();
+        let native_context =
+            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+        let mut carrier = HashMap::with_capacity(2);
+        self.inner
+            .propagator
+            .inject_context(&span.context(), &mut carrier);
+        let result = handler
+            .call_async(Ok((native_context, Message::new(message), carrier)))
+            .instrument(span.clone())
+            .await?
+            .await;
+
+        match result {
+            Ok(output) => Ok(BinaryPayload::new(
+                output.into_bytes(),
+                None::<String>,
+                None::<String>,
+            )),
+            Err(error) => Err(self.categorize_error(error).await?),
+        }
+    }
 }
 
 impl FromNapiValue for JsHandler {
@@ -296,41 +322,14 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        let span = message.span();
-        let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
-        let mut carrier = HashMap::with_capacity(2);
-
-        self.inner
-            .propagator
-            .inject_context(&span.context(), &mut carrier);
-
-        let message = Message::new(message);
-
         debug!("processing message");
-
         let result = self
-            .inner
-            .on_message
-            .call_async(Ok((native_context, message, carrier)))
-            .instrument(span.clone())
-            .await?
+            .handle_record(context, message, &self.inner.on_message)
             .await;
-
-        match result {
-            Ok(output) => {
-                debug!("message processed successfully");
-                Ok(BinaryPayload::new(
-                    output.into_bytes(),
-                    None::<String>,
-                    None::<String>,
-                ))
-            }
-            Err(error) => {
-                error!(error = %error, "message handler error");
-                Err(self.categorize_error(error).await?)
-            }
+        if result.is_ok() {
+            debug!("message processed successfully");
         }
+        result
     }
 
     async fn on_excise<C>(
@@ -342,30 +341,8 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        let span = message.span();
-        let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
-        let mut carrier = HashMap::with_capacity(2);
-        self.inner
-            .propagator
-            .inject_context(&span.context(), &mut carrier);
-
-        let result = self
-            .inner
-            .on_excise
-            .call_async(Ok((native_context, Message::new(message), carrier)))
-            .instrument(span.clone())
-            .await?
-            .await;
-
-        match result {
-            Ok(output) => Ok(BinaryPayload::new(
-                output.into_bytes(),
-                None::<String>,
-                None::<String>,
-            )),
-            Err(error) => Err(self.categorize_error(error).await?),
-        }
+        self.handle_record(context, message, &self.inner.on_excise)
+            .await
     }
 
     /// Processes a timer trigger by calling the JavaScript callback.

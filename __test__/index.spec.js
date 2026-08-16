@@ -92,6 +92,37 @@ test.each(["onMessage", "onExcise", "onTimer"])(
   },
 );
 
+test.each([
+  ["onMessage", { payload: "{}" }],
+  ["onExcise", {}],
+])("%s converts an undefined response to JSON null", async (name, record) => {
+  let nativeHandler;
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    subscribe: jest.fn(async (handler) => {
+      nativeHandler = handler;
+    }),
+  };
+  const handler = {
+    onMessage: () => undefined,
+    onExcise: () => undefined,
+    onTimer: () => {},
+  };
+  await client.subscribe(handler);
+  const context = { onCancel: () => new Promise(() => {}) };
+  const message = {
+    topic: "orders",
+    key: "order-1",
+    partition: 0,
+    offset: 1,
+    ...record,
+  };
+
+  await expect(nativeHandler[name](null, [context, message, {}])).resolves.toBe(
+    "null",
+  );
+});
+
 test("published state options stay on the descriptor", () => {
   expect(
     value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
@@ -273,7 +304,6 @@ test("request maps native subsystem outcomes", async () => {
         "search",
       ],
       timeoutMs: 2_000,
-      headers: { tenant: "acme" },
     },
   );
 
@@ -291,7 +321,6 @@ test("request maps native subsystem outcomes", async () => {
   expect(results.get("search").error.kind).toBe("malformedResponse");
   expect(request).toHaveBeenCalledWith(
     {
-      headers: { tenant: "acme" },
       topic: "orders",
       key: "order-1",
       payload: JSON.stringify({ type: "order.created" }),
@@ -310,6 +339,30 @@ test("request maps native subsystem outcomes", async () => {
     undefined,
   );
 });
+
+test.each(["request", "requestExcise"])(
+  "%s rejects request headers",
+  async (method) => {
+    const client = Object.create(ProsodyClient.prototype);
+    client.nativeClient = {
+      request: jest.fn(),
+      requestExcise: jest.fn(),
+    };
+    const options = {
+      subsystems: ["inventory"],
+      timeoutMs: 2_000,
+      headers: { tenant: "acme" },
+    };
+    const call =
+      method === "request"
+        ? client.request("orders", "order-1", {}, options)
+        : client.requestExcise("orders", "order-1", options);
+
+    await expect(call).rejects.toThrow(
+      "request options do not support headers",
+    );
+  },
+);
 
 // Helper functions
 const generateTopicName = () =>
