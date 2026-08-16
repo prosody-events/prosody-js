@@ -241,7 +241,7 @@ if (client.isStalled) {
 }
 ```
 
-## Subsystem Requests
+## Requests
 
 Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
