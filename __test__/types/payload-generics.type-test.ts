@@ -37,6 +37,8 @@ const orderHandler = {
     void badTotal;
     return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler<OrderPayload>;
 
 const defaultHandler = {
@@ -51,6 +53,8 @@ const defaultHandler = {
     void message.payload.orderId;
     return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler;
 
 declare const client: ProsodyClient;
@@ -65,6 +69,7 @@ client.subscribe<OrderPayload>({
     assertTrue<Equal<typeof message.payload, OrderPayload>>();
     return null;
   },
+  async onTimer() {},
 });
 
 client.send("orders", "1", {

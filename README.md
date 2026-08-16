@@ -95,7 +95,7 @@ main().catch(console.error);
 
 Call `excise(topic, key)` to send a Kafka record with a key and no payload. Use this record to delete the key from compacted views.
 
-Each handler must implement `onExcise`. It receives the same arguments as `onMessage`. The message payload is `null`.
+Each handler must implement `onMessage`, `onExcise`, and `onTimer`. Subscription fails before consumption if a method is missing.
 
 ## Architecture
 
@@ -1063,9 +1063,9 @@ your changes before merging to `main`.
 Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
-- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
+- `onMessage: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
 - `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<R>`: Handles excise records.
-- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
+- `onTimer: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
 
 ### Message
 

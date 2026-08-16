@@ -50,6 +50,9 @@ client.subscribe({
   onExcise: () => null,
 });
 
+// @ts-expect-error Every handler method is required.
+client.subscribe({ onMessage: () => null, onExcise: () => null });
+
 client.subscribe({
   // @ts-expect-error undefined is not a JSON response.
   onMessage: () => undefined,

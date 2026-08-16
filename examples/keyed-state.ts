@@ -46,6 +46,8 @@ const handler = {
     }
     return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler<OrderEvent>;
 
 async function main(): Promise<void> {

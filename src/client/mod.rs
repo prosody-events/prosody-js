@@ -323,7 +323,9 @@ impl NativeClient {
         let subsystems = request
             .subsystems
             .into_iter()
-            .map(|name| SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string())))
+            .map(|name| {
+                SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
+            })
             .collect::<Result<Vec<_>>>()?;
         let context = self.client.propagator().extract(&otel_context);
         let span = info_span!("javascript-request-excise", topic = %request.topic, key = %request.key, aborted = Empty);
@@ -333,18 +335,25 @@ impl NativeClient {
         let timeout = Duration::try_from_secs_f64(request.timeout_ms / 1_000.0)
             .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
         let request_future = async {
-            let results = self.client.request_excise(
-                Vec::new(),
-                request.topic.as_str().into(),
-                request.key,
-                subsystems,
-                timeout,
-            ).instrument(span.clone()).await
+            let results = self
+                .client
+                .request_excise(
+                    Vec::new(),
+                    request.topic.as_str().into(),
+                    request.key,
+                    subsystems,
+                    timeout,
+                )
+                .instrument(span.clone())
+                .await
                 .map_err(|error| Error::from_reason(error.to_string()))?;
-            Ok(results.into_iter().map(|(subsystem, result)| NativeSubsystemOutcome {
-                subsystem: subsystem.to_string(),
-                outcome: native_outcome(result),
-            }).collect())
+            Ok(results
+                .into_iter()
+                .map(|(subsystem, result)| NativeSubsystemOutcome {
+                    subsystem: subsystem.to_string(),
+                    outcome: native_outcome(result),
+                })
+                .collect())
         };
         let Some(on_abort) = maybe_abort else {
             let result = request_future.await;

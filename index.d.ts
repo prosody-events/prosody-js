@@ -619,7 +619,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param signal - An AbortSignal that can be used to cancel the message processing.
    * @returns A JSON response for subsystem requests. JSON null is valid.
    */
-  onMessage?: (
+  onMessage: (
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
@@ -633,7 +633,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param signal - An AbortSignal that can be used to cancel the message processing.
    * @returns No value.
    */
-  onTimer?: (
+  onTimer: (
     context: Context,
     timer: Timer,
     signal: AbortSignal,
@@ -774,6 +774,7 @@ export declare class ProsodyClient {
    *
    * @param eventHandler - The event handler to process received messages and timers.
    * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
+   * @throws TypeError if any required handler method is missing.
    * @throws Error if the subscription fails to establish.
    */
   subscribe<P = JsonValue, R = JsonValue>(

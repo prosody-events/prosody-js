@@ -15,9 +15,9 @@
 
 /**
  * @typedef {Object} EventHandler
- * @property {Function} [onMessage] - Async callback function to handle incoming messages. Receives (context, message, signal).
+ * @property {Function} onMessage - Handles a message and returns its response.
  * @property {Function} onExcise - Handles an excise record and returns its response.
- * @property {Function} [onTimer] - Async callback function to handle timer events. Receives (context, timer, signal).
+ * @property {Function} onTimer - Handles a timer and returns no value.
  */
 
 /**
@@ -355,46 +355,18 @@ class ProsodyClient {
    *
    * @param {EventHandler} eventHandler - The event handler to process received messages and timers.
    * @returns {Promise<void>} A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
+   * @throws {TypeError} If any required handler method is missing.
    * @throws {Error} If the subscription fails to establish.
    */
   async subscribe(eventHandler) {
+    for (const name of ["onMessage", "onExcise", "onTimer"]) {
+      if (typeof eventHandler?.[name] !== "function") {
+        throw new TypeError(`EventHandler.${name} must be a function`);
+      }
+    }
+
     const tracer = trace.getTracer("prosody");
-    const {
-      onExcise = () => {
-        throw new TypeError("EventHandler.onExcise must be a function");
-      },
-      onMessage = (context, message, _signal) => {
-        getCurrentLogger()?.error(
-          "ProsodyClient: Received a message but no onMessage handler was " +
-            "provided in subscribe(). To handle messages, implement the onMessage " +
-            "method in your EventHandler:",
-          {
-            topic: message.topic,
-            partition: message.partition,
-            offset: message.offset,
-            key: message.key,
-            solution:
-              "Add onMessage: async (context, message, signal) => " +
-              "{ /* your logic here */ } to your subscribe() call",
-          },
-        );
-        return null;
-      },
-      onTimer = (context, timer, _signal) => {
-        getCurrentLogger()?.error(
-          "ProsodyClient: Received a timer event but no onTimer handler was " +
-            "provided in subscribe(). To handle timers, implement the onTimer " +
-            "method in your EventHandler:",
-          {
-            key: timer.key,
-            time: timer.time,
-            solution:
-              "Add onTimer: async (context, timer, signal) => " +
-              "{ /* your logic here */ } to your subscribe() call",
-          },
-        );
-      },
-    } = eventHandler;
+    const { onExcise, onMessage, onTimer } = eventHandler;
 
     await this.nativeClient.subscribe({
       isPermanent: ([err]) => {
