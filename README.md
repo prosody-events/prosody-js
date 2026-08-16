@@ -260,6 +260,8 @@ Return a JSON response from each message handler:
 ```javascript
 await client.subscribe({
   onMessage: async (_context, message) => ({ accepted: message.key }),
+  onExcise: async (_context, message) => ({ accepted: message.key }),
+  onTimer: async () => {},
 });
 ```
 
@@ -497,6 +499,8 @@ const messageHandler = {
     console.log(`Key: ${timer.key}`);
     console.log(`Scheduled time: ${timer.time}`);
   },
+
+  onExcise: async () => null,
 };
 ```
 
@@ -571,6 +575,12 @@ class MyHandler {
     // All other exceptions will be treated as transient (default behavior)
     return null;
   }
+
+  async onExcise() {
+    return null;
+  }
+
+  async onTimer() {}
 }
 
 const client = await ProsodyClient.create(config);
@@ -597,6 +607,8 @@ const messageHandler = {
     }
     return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 
 const client = await ProsodyClient.create(config);
@@ -664,6 +676,10 @@ client.subscribe({
     await count.set(((await count.get()) ?? 0) + 1);
     return null;
   },
+  async onExcise() {
+    return null;
+  },
+  async onTimer() {},
 });
 ```
 
@@ -704,6 +720,9 @@ const handler = {
     if (batch.length > 0) await notify(timer.key, batch);
     await pending.clear();
     await context.state(WINDOW).clear();
+  },
+  async onExcise() {
+    return null;
   },
 } satisfies EventHandler<Activity>;
 ```
@@ -826,6 +845,8 @@ const messageHandler = {
     }
     return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 
 client.subscribe(messageHandler);
@@ -910,6 +931,8 @@ async function main() {
       // Process the message
       return null;
     },
+    onExcise: async () => null,
+    onTimer: async () => {},
   };
 
   client.subscribe(messageHandler);
