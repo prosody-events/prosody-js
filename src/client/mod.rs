@@ -388,10 +388,10 @@ impl NativeClient {
         writable = false,
         ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
                         Message, Record<string, string>]) => Promise<string>; onExcise: (err: \
-                        null | Error, args: [NativeContext, Message, Record<string, string>]) => \
-                        Promise<string>; onTimer: (err: null | Error, args: [NativeContext, \
-                        Timer, Record<string, string>]) => Promise<string>; isPermanent: (args: \
-                        [Error]) => boolean }"
+                        null | Error, args: [NativeContext, ExciseMessage, Record<string, \
+                        string>]) => Promise<string>; onTimer: (err: null | Error, args: \
+                        [NativeContext, Timer, Record<string, string>]) => Promise<string>; \
+                        isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client

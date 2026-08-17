@@ -7,7 +7,7 @@
 //! JavaScript.
 
 use crate::context::NativeContext;
-use crate::message::Message;
+use crate::message::{ExciseMessage, Message};
 use crate::timer::Timer;
 use napi::bindgen_prelude::{FromNapiValue, Function, Object, Promise};
 use napi::sys::{napi_env, napi_value};
@@ -25,6 +25,7 @@ use prosody::high_level::{ClientHandler, JsonBinaryCodecs};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use tracing::{Instrument, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -32,6 +33,10 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 /// Type alias for message handler arguments.
 #[napi]
 pub type MessageHandlerArgs = (NativeContext, Message, HashMap<String, String>);
+
+/// Type alias for excise handler arguments.
+#[napi]
+pub type ExciseHandlerArgs = (NativeContext, ExciseMessage, HashMap<String, String>);
 
 /// Type alias for timer handler arguments.
 #[napi]
@@ -57,6 +62,16 @@ type MessageFunction = ThreadsafeFunction<
     HANDLE_QUEUE_SIZE,
 >;
 
+type ExciseFunction = ThreadsafeFunction<
+    ExciseHandlerArgs,
+    Promise<String>,
+    ExciseHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+>;
+
 /// Represents a native handler for processing messages and timers.
 ///
 /// This struct contains functions that handle incoming messages, timer events,
@@ -75,7 +90,7 @@ pub struct NativeHandler<'a> {
     pub on_message: Function<'a, MessageHandlerArgs, Promise<String>>,
 
     /// A function to call when an excise record arrives.
-    pub on_excise: Function<'a, MessageHandlerArgs, Promise<String>>,
+    pub on_excise: Function<'a, ExciseHandlerArgs, Promise<String>>,
 
     /// A function to be called when a timer fires.
     ///
@@ -104,7 +119,7 @@ pub struct NativeHandler<'a> {
 /// contains an OpenTelemetry propagator for distributed tracing.
 struct JsHandlerInner {
     on_message: MessageFunction,
-    on_excise: MessageFunction,
+    on_excise: ExciseFunction,
     on_timer: ThreadsafeFunction<
         TimerHandlerArgs,
         Promise<String>,
@@ -218,14 +233,17 @@ impl JsHandler {
         })
     }
 
-    async fn handle_record<C>(
+    async fn handle_record<C, P, F, Fut>(
         &self,
         context: C,
-        message: ConsumerMessage<BinaryPayload>,
-        handler: &MessageFunction,
+        message: ConsumerMessage<P>,
+        call: F,
     ) -> Result<BinaryPayload, JsHandlerError>
     where
         C: EventContext<Payload = BinaryPayload>,
+        F: FnOnce(NativeContext, ConsumerMessage<P>, HashMap<String, String>) -> Fut,
+        Fut: Future<Output = napi::Result<Promise<String>>>,
+        P: Send + Sync + 'static,
     {
         let span = message.span();
         let native_context =
@@ -234,8 +252,7 @@ impl JsHandler {
         self.inner
             .propagator
             .inject_context(&span.context(), &mut carrier);
-        let result = handler
-            .call_async(Ok((native_context, Message::new(message), carrier)))
+        let result = call(native_context, message, carrier)
             .instrument(span.clone())
             .await?
             .await;
@@ -327,7 +344,11 @@ impl FallibleHandler for JsHandler {
     {
         debug!("processing message");
         let result = self
-            .handle_record(context, message, &self.inner.on_message)
+            .handle_record(context, message, |context, message, carrier| {
+                self.inner
+                    .on_message
+                    .call_async(Ok((context, Message::new(message), carrier)))
+            })
             .await;
         if result.is_ok() {
             debug!("message processed successfully");
@@ -338,14 +359,18 @@ impl FallibleHandler for JsHandler {
     async fn on_excise<C>(
         &self,
         context: C,
-        message: ConsumerMessage<Self::Payload>,
+        message: ConsumerMessage<()>,
         _demand_type: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        self.handle_record(context, message, &self.inner.on_excise)
-            .await
+        self.handle_record(context, message, |context, message, carrier| {
+            self.inner
+                .on_excise
+                .call_async(Ok((context, ExciseMessage::from(message), carrier)))
+        })
+        .await
     }
 
     /// Processes a timer trigger by calling the JavaScript callback.

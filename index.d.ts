@@ -8,6 +8,7 @@ import type {
   AdminClient,
   Configuration,
   ConsumerState,
+  ExciseMessage as NativeExciseMessage,
   Message as NativeMessage,
   Mode,
   ReadCacheConfiguration,
@@ -75,6 +76,9 @@ export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */
   payload: P;
 }
+
+/** An excise record with Kafka metadata and no payload. */
+export type ExciseMessage = NativeExciseMessage;
 
 /**
  * Wrapper around `MessageContext` for use in Node.js bindings.
@@ -608,7 +612,7 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
   /** Handles an excise record. */
   onExcise: (
     context: Context,
-    message: Message<null>,
+    message: ExciseMessage,
     signal: AbortSignal,
   ) => MaybePromise<R & JsonCompatible<R>>;
   /**

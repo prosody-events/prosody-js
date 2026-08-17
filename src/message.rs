@@ -27,13 +27,24 @@ use napi_derive::napi;
 use prosody::codec::BinaryPayload;
 use prosody::consumer::Keyed;
 use prosody::consumer::message::ConsumerMessage;
-use prosody::consumer::message::Record;
 
 /// A Kafka message received from a consumer.
 #[napi]
 pub struct Message {
     /// The message core shares, held rather than copied — see the module docs.
     inner: ConsumerMessage<BinaryPayload>,
+}
+
+/// A Kafka excise record received from a consumer.
+#[napi]
+pub struct ExciseMessage {
+    inner: ConsumerMessage<()>,
+}
+
+impl From<ConsumerMessage<()>> for ExciseMessage {
+    fn from(message: ConsumerMessage<()>) -> Self {
+        Self { inner: message }
+    }
 }
 
 #[expect(
@@ -100,16 +111,45 @@ impl Message {
     /// @throws Error if the payload is not valid UTF-8, which valid JSON always
     ///   is.
     #[napi(getter, writable = false)]
-    pub fn payload(&self) -> napi::Result<Option<&str>> {
-        let payload = match self.inner.record() {
-            Record::Message(payload) => payload,
-            Record::Excise => return Ok(None),
-        };
-        str::from_utf8(&payload.bytes).map(Some).map_err(|error| {
+    pub fn payload(&self) -> napi::Result<&str> {
+        str::from_utf8(&self.inner.payload().bytes).map_err(|error| {
             Error::new(
                 Status::GenericFailure,
                 format!("message payload is not valid UTF-8: {error}"),
             )
         })
+    }
+}
+
+#[napi]
+impl ExciseMessage {
+    /// The Kafka topic this record was consumed from.
+    #[napi(getter, writable = false)]
+    pub fn topic(&self) -> &'static str {
+        self.inner.topic().as_ref()
+    }
+
+    /// The partition number within the topic.
+    #[napi(getter, writable = false)]
+    pub fn partition(&self) -> i32 {
+        self.inner.partition()
+    }
+
+    /// The offset of this record within its partition.
+    #[napi(getter, writable = false)]
+    pub fn offset(&self) -> BigInt {
+        self.inner.offset().into()
+    }
+
+    /// The timestamp when the record was produced.
+    #[napi(getter, writable = false)]
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        *self.inner.timestamp()
+    }
+
+    /// The key that this record excises.
+    #[napi(getter, writable = false)]
+    pub fn key(&self) -> &str {
+        self.inner.key()
     }
 }

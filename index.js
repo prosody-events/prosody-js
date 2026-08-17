@@ -24,6 +24,7 @@
  * @typedef {import('./bindings').Configuration} Configuration
  * @typedef {import('./bindings').ConsumerState} ConsumerState
  * @typedef {import('./bindings').Context} Context
+ * @typedef {import('./bindings').ExciseMessage} ExciseMessage
  * @typedef {import('./bindings').Message} Message
  * @typedef {import('./bindings').Timer} Timer
  * @typedef {import('./bindings').Mode} Mode

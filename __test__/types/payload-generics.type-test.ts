@@ -1,5 +1,6 @@
 import {
   ProsodyClient,
+  type ExciseMessage,
   type EventHandler,
   type JsonValue,
   type Message,
@@ -19,7 +20,9 @@ interface OrderPayload {
 
 const orderHandler = {
   async onExcise(_context, message, _signal) {
-    assertTrue<Equal<typeof message, Message<null>>>();
+    assertTrue<Equal<typeof message, ExciseMessage>>();
+    // @ts-expect-error excise records have no payload
+    void message.payload;
     return null;
   },
 
@@ -43,7 +46,7 @@ const orderHandler = {
 
 const defaultHandler = {
   async onExcise(_context, message, _signal) {
-    assertTrue<Equal<typeof message, Message<null>>>();
+    assertTrue<Equal<typeof message, ExciseMessage>>();
     return null;
   },
 
@@ -62,7 +65,7 @@ client.subscribe(orderHandler);
 client.subscribe(defaultHandler);
 client.subscribe<OrderPayload>({
   async onExcise(_context, message, _signal) {
-    assertTrue<Equal<typeof message, Message<null>>>();
+    assertTrue<Equal<typeof message, ExciseMessage>>();
     return null;
   },
   async onMessage(_context, message, _signal) {

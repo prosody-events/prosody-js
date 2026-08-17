@@ -1089,7 +1089,7 @@ Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
 - `onMessage: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
-- `onExcise: (context: Context, message: Message<null>, signal: AbortSignal) => Promise<R>`: Handles excise records.
+- `onExcise: (context: Context, message: ExciseMessage, signal: AbortSignal) => Promise<R>`: Handles excise records without a payload member.
 - `onTimer: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
 
 ### Message
