@@ -375,7 +375,6 @@ class ProsodyClient {
       handler,
       spanName,
       eventType,
-      parsePayload,
     ) => {
       const ctx = propagation.extract(otelContext.active(), carrier);
       return otelContext.with(ctx, () =>
@@ -390,10 +389,9 @@ class ProsodyClient {
           });
 
           try {
-            const record = parsePayload ? withParsedPayload(message) : message;
             const result = await handler(
               new Context(nativeContext),
-              record,
+              message,
               controller.signal,
             );
             return toJson(result ?? null, PermanentError);
@@ -433,12 +431,11 @@ class ProsodyClient {
         if (err) throw err;
         return handleRecord(
           nativeContext,
-          message,
+          withParsedPayload(message),
           carrier,
           onMessage,
           "onMessage",
           "message",
-          true,
         );
       },
 
@@ -451,7 +448,6 @@ class ProsodyClient {
           onExcise,
           "onExcise",
           "excise",
-          false,
         );
       },
 

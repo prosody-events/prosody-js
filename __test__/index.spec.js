@@ -676,7 +676,7 @@ describe("ProsodyClient", () => {
     const [message] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
 
     expect(message.key).toBe("obsolete-key");
-    expect(message.payload).toBeNull();
+    expect("payload" in message).toBe(false);
   });
 
   it("handles multiple messages with correct ordering", async () => {
