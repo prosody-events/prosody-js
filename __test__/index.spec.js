@@ -340,30 +340,6 @@ test("request maps native subsystem outcomes", async () => {
   );
 });
 
-test.each(["request", "requestExcise"])(
-  "%s rejects request headers",
-  async (method) => {
-    const client = Object.create(ProsodyClient.prototype);
-    client.nativeClient = {
-      request: jest.fn(),
-      requestExcise: jest.fn(),
-    };
-    const options = {
-      subsystems: ["inventory"],
-      timeoutMs: 2_000,
-      headers: { tenant: "acme" },
-    };
-    const call =
-      method === "request"
-        ? client.request("orders", "order-1", {}, options)
-        : client.requestExcise("orders", "order-1", options);
-
-    await expect(call).rejects.toThrow(
-      "request options do not support headers",
-    );
-  },
-);
-
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

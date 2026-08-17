@@ -310,7 +310,6 @@ class ProsodyClient {
    * @throws {Error} If the request cannot produce the complete result map.
    */
   async request(topic, key, payload, options) {
-    rejectHeaders(options);
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.request(
@@ -333,7 +332,6 @@ class ProsodyClient {
 
   /** Sends an excise request and waits for one response from each subsystem. */
   async requestExcise(topic, key, options) {
-    rejectHeaders(options);
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.requestExcise(
@@ -1205,20 +1203,6 @@ function withParsedPayload(message) {
     },
   });
   return message;
-}
-
-/**
- * Serializes a value, mapping the two ways `JSON.stringify` can fail onto the
- * caller's error class.
- *
- * Rejects request headers that the client API does not support.
- * @param {object} options - The request options.
- * @private
- */
-function rejectHeaders(options) {
-  if (Object.hasOwn(options, "headers")) {
-    throw new TypeError("request options do not support headers");
-  }
 }
 
 /**
