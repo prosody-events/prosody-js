@@ -49,7 +49,7 @@ export type JsonValue =
  */
 export type JsonCompatible<T> = T extends JsonPrimitive
   ? T
-  : T extends bigint | symbol | undefined | ((...args: any[]) => unknown)
+  : T extends bigint | symbol | undefined | ((...args: never[]) => unknown)
     ? never
     : T extends readonly (infer Item)[]
       ? readonly JsonCompatible<Item>[]
@@ -597,15 +597,30 @@ export declare class DequeState<T = JsonValue> {
  */
 export interface Logger {
   /** Logs error-level messages. */
-  error: (message: string | undefined | null, metadata?: any) => void;
+  error: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs warning-level messages. */
-  warn: (message: string | undefined | null, metadata?: any) => void;
+  warn: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs info-level messages. */
-  info: (message: string | undefined | null, metadata?: any) => void;
+  info: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs debug-level messages. */
-  debug: (message: string | undefined | null, metadata?: any) => void;
+  debug: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs trace-level messages. */
-  trace: (message: string | undefined | null, metadata?: any) => void;
+  trace: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
 }
 
 export interface EventHandler<P = JsonValue, R = JsonValue> {
@@ -947,7 +962,7 @@ export function isStateError(
 ): error is PermanentStateError | TransientStateError;
 
 /** Type alias for a constructor of an Error subclass. */
-type ErrorClass<T extends Error> = new (...args: any[]) => T;
+type ErrorClass<T extends Error> = new (...args: never[]) => T;
 
 /**
  * Type for a decorator function that can be applied to both methods and standalone functions.

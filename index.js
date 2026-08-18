@@ -707,7 +707,7 @@ function createErrorDecorator(ErrorClass) {
 /**
  * Decorator factory for marking errors as transient.
  * Can be applied to methods to automatically wrap specified error types as transient.
- * @param {...(new(...args: any[]) => Error)} exceptionTypes - The error types to be treated as transient.
+ * @param {...(new(...args: never[]) => Error)} exceptionTypes - The error types to be treated as transient.
  * @returns {Function} A decorator function.
  */
 const transient = createErrorDecorator(TransientError);
@@ -715,7 +715,7 @@ const transient = createErrorDecorator(TransientError);
 /**
  * Decorator factory for marking errors as permanent.
  * Can be applied to methods to automatically wrap specified error types as permanent.
- * @param {...(new(...args: any[]) => Error)} exceptionTypes - The error types to be treated as permanent.
+ * @param {...(new(...args: never[]) => Error)} exceptionTypes - The error types to be treated as permanent.
  * @returns {Function} A decorator function.
  */
 const permanent = createErrorDecorator(PermanentError);
