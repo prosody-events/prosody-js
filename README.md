@@ -22,11 +22,11 @@ npm install @prosody-events/prosody
 ```
 
 The package ships TypeScript declarations for the public API.
-`EventHandler<P>` carries an application payload type into `Message<P>`, and
-keyed-state definitions carry their item types through `context.state()`.
-Unparameterized handlers, messages, definitions, and state handles default to
-`JsonValue`. See the [strict TypeScript examples](examples/) for IDE-ready
-projects compiled by the repository typecheck.
+`EventHandler<P, R>` carries application payload and response types through each
+handler method. Keyed-state definitions carry their item types through
+`context.state()`. Unparameterized API types default to `JsonValue`. See the
+[strict TypeScript examples](examples/) for IDE-ready projects compiled by the
+repository typecheck.
 
 ## Quick Start
 

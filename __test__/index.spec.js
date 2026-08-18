@@ -340,6 +340,42 @@ test("request maps native subsystem outcomes", async () => {
   );
 });
 
+test("requestExcise maps native subsystem outcomes", async () => {
+  const requestExcise = jest.fn().mockResolvedValue([
+    { subsystem: "inventory", outcome: JSON.stringify({ deleted: true }) },
+    {
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
+    },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { requestExcise };
+
+  const results = await client.requestExcise("orders", "order-1", {
+    subsystems: ["inventory", "billing"],
+    timeoutMs: 2_000,
+  });
+
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { deleted: true },
+  });
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(requestExcise).toHaveBeenCalledWith(
+    {
+      topic: "orders",
+      key: "order-1",
+      subsystems: ["inventory", "billing"],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
+});
+
 // Helper functions
 const generateTopicName = () =>
   `test-topic-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

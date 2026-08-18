@@ -325,10 +325,7 @@ class ProsodyClient {
       carrier,
       options.signal && onAbort(options.signal),
     );
-    const outcomes = new Map();
-    for (const { subsystem, outcome } of results)
-      outcomes.set(subsystem, responseOutcome(outcome));
-    return outcomes;
+    return responseOutcomes(results);
   }
 
   /** Sends an excise request and waits for one response from each subsystem. */
@@ -345,10 +342,7 @@ class ProsodyClient {
       carrier,
       options.signal && onAbort(options.signal),
     );
-    const outcomes = new Map();
-    for (const { subsystem, outcome } of results)
-      outcomes.set(subsystem, responseOutcome(outcome));
-    return outcomes;
+    return responseOutcomes(results);
   }
 
   /**
@@ -606,6 +600,13 @@ function responseOutcome(outcome) {
       error: { kind: "malformedResponse", message: cause.message },
     };
   }
+}
+
+function responseOutcomes(results) {
+  const outcomes = new Map();
+  for (const { subsystem, outcome } of results)
+    outcomes.set(subsystem, responseOutcome(outcome));
+  return outcomes;
 }
 
 /**
