@@ -559,6 +559,8 @@ const client = await ProsodyClient.create({
 Prosody classifies errors as transient (temporary, can be retried) or permanent (won't be resolved by retrying). By
 default, all errors are considered transient.
 
+The error classes and decorators apply to `onMessage`, `onExcise`, and `onTimer`.
+
 #### Using Decorators
 
 If you're using TypeScript or a JavaScript environment that supports decorators, you can use the `@permanent` decorator
