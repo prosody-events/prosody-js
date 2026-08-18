@@ -7,7 +7,7 @@
 //! JavaScript.
 
 use crate::context::NativeContext;
-use crate::message::Message;
+use crate::message::{ExciseMessage, Message};
 use crate::timer::Timer;
 use napi::bindgen_prelude::{FromNapiValue, Function, Object, Promise};
 use napi::sys::{napi_env, napi_value};
@@ -25,6 +25,7 @@ use prosody::high_level::{ClientHandler, JsonBinaryCodecs};
 use prosody::propagator::new_propagator;
 use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use tracing::{Instrument, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -32,6 +33,10 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 /// Type alias for message handler arguments.
 #[napi]
 pub type MessageHandlerArgs = (NativeContext, Message, HashMap<String, String>);
+
+/// Type alias for excise handler arguments.
+#[napi]
+pub type ExciseHandlerArgs = (NativeContext, ExciseMessage, HashMap<String, String>);
 
 /// Type alias for timer handler arguments.
 #[napi]
@@ -46,6 +51,26 @@ pub const HANDLE_QUEUE_SIZE: usize = 64;
 
 /// Maximum number of queued error classification function calls.
 pub const PERM_QUEUE_SIZE: usize = 64;
+
+type MessageFunction = ThreadsafeFunction<
+    MessageHandlerArgs,
+    Promise<String>,
+    MessageHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+>;
+
+type ExciseFunction = ThreadsafeFunction<
+    ExciseHandlerArgs,
+    Promise<String>,
+    ExciseHandlerArgs,
+    Status,
+    true,
+    false,
+    HANDLE_QUEUE_SIZE,
+>;
 
 /// Represents a native handler for processing messages and timers.
 ///
@@ -63,6 +88,9 @@ pub struct NativeHandler<'a> {
     ///
     /// Note: Error parameter is automatically added by CalleeHandled=true
     pub on_message: Function<'a, MessageHandlerArgs, Promise<String>>,
+
+    /// A function to call when an excise record arrives.
+    pub on_excise: Function<'a, ExciseHandlerArgs, Promise<String>>,
 
     /// A function to be called when a timer fires.
     ///
@@ -90,15 +118,8 @@ pub struct NativeHandler<'a> {
 /// any thread to handle messages, timers, and error classification. It also
 /// contains an OpenTelemetry propagator for distributed tracing.
 struct JsHandlerInner {
-    on_message: ThreadsafeFunction<
-        MessageHandlerArgs,
-        Promise<String>,
-        MessageHandlerArgs,
-        Status,
-        true,
-        false,
-        HANDLE_QUEUE_SIZE,
-    >,
+    on_message: MessageFunction,
+    on_excise: ExciseFunction,
     on_timer: ThreadsafeFunction<
         TimerHandlerArgs,
         Promise<String>,
@@ -154,6 +175,13 @@ impl JsHandler {
             .max_queue_size()
             .build()?;
 
+        let on_excise = event_handler
+            .on_excise
+            .build_threadsafe_function()
+            .callee_handled()
+            .max_queue_size()
+            .build()?;
+
         let on_timer = event_handler
             .on_timer
             .build_threadsafe_function()
@@ -170,6 +198,7 @@ impl JsHandler {
         Ok(Self {
             inner: Arc::new(JsHandlerInner {
                 on_message,
+                on_excise,
                 on_timer,
                 is_permanent,
                 propagator: Arc::new(new_propagator()),
@@ -203,6 +232,43 @@ impl JsHandler {
             JsHandlerError::Js(message)
         })
     }
+
+    async fn handle_record<C, P, F, Fut>(
+        &self,
+        context: C,
+        message: ConsumerMessage<P>,
+        call: F,
+    ) -> Result<BinaryPayload, JsHandlerError>
+    where
+        C: EventContext<Payload = BinaryPayload>,
+        F: FnOnce(NativeContext, ConsumerMessage<P>, HashMap<String, String>) -> Fut,
+        Fut: Future<Output = napi::Result<Promise<String>>>,
+        P: Send + Sync + 'static,
+    {
+        let span = message.span();
+        let native_context =
+            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+        let mut carrier = HashMap::with_capacity(2);
+        self.inner
+            .propagator
+            .inject_context(&span.context(), &mut carrier);
+        let result = call(native_context, message, carrier)
+            .instrument(span.clone())
+            .await?
+            .await;
+
+        match result {
+            Ok(output) => Ok(BinaryPayload::new(
+                output.into_bytes(),
+                None::<String>,
+                None::<String>,
+            )),
+            Err(error) => {
+                error!(error = %error, "record handler error");
+                Err(self.categorize_error(error).await?)
+            }
+        }
+    }
 }
 
 impl FromNapiValue for JsHandler {
@@ -231,12 +297,17 @@ impl FromNapiValue for JsHandler {
             .get("onTimer")?
             .ok_or_else(|| Error::from_reason("onTimer property missing"))?;
 
+        let on_excise = obj
+            .get("onExcise")?
+            .ok_or_else(|| Error::from_reason("onExcise property missing"))?;
+
         let is_permanent = obj
             .get("isPermanent")?
             .ok_or_else(|| Error::from_reason("isPermanent property missing"))?;
 
         let native_handler = NativeHandler {
             on_message,
+            on_excise,
             on_timer,
             is_permanent,
         };
@@ -271,41 +342,35 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        let span = message.span();
-        let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
-        let mut carrier = HashMap::with_capacity(2);
-
-        self.inner
-            .propagator
-            .inject_context(&span.context(), &mut carrier);
-
-        let message = Message::new(message);
-
         debug!("processing message");
-
         let result = self
-            .inner
-            .on_message
-            .call_async(Ok((native_context, message, carrier)))
-            .instrument(span.clone())
-            .await?
+            .handle_record(context, message, |context, message, carrier| {
+                self.inner
+                    .on_message
+                    .call_async(Ok((context, Message::new(message), carrier)))
+            })
             .await;
-
-        match result {
-            Ok(output) => {
-                debug!("message processed successfully");
-                Ok(BinaryPayload::new(
-                    output.into_bytes(),
-                    None::<String>,
-                    None::<String>,
-                ))
-            }
-            Err(error) => {
-                error!(error = %error, "message handler error");
-                Err(self.categorize_error(error).await?)
-            }
+        if result.is_ok() {
+            debug!("message processed successfully");
         }
+        result
+    }
+
+    async fn on_excise<C>(
+        &self,
+        context: C,
+        message: ConsumerMessage<()>,
+        _demand_type: DemandType,
+    ) -> Result<Self::Output, Self::Error>
+    where
+        C: EventContext<Payload = Self::Payload>,
+    {
+        self.handle_record(context, message, |context, message, carrier| {
+            self.inner
+                .on_excise
+                .call_async(Ok((context, ExciseMessage::from(message), carrier)))
+        })
+        .await
     }
 
     /// Processes a timer trigger by calling the JavaScript callback.

@@ -8,6 +8,7 @@ import type {
   AdminClient,
   Configuration,
   ConsumerState,
+  ExciseMessage as NativeExciseMessage,
   Message as NativeMessage,
   Mode,
   ReadCacheConfiguration,
@@ -48,7 +49,7 @@ export type JsonValue =
  */
 export type JsonCompatible<T> = T extends JsonPrimitive
   ? T
-  : T extends bigint | symbol | undefined | ((...args: any[]) => unknown)
+  : T extends bigint | symbol | undefined | ((...args: never[]) => unknown)
     ? never
     : T extends readonly (infer Item)[]
       ? readonly JsonCompatible<Item>[]
@@ -75,6 +76,9 @@ export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
   /** The message payload as a JSON-serializable value. */
   payload: P;
 }
+
+/** An excise record with Kafka metadata and no payload. */
+export type ExciseMessage = NativeExciseMessage;
 
 /**
  * Wrapper around `MessageContext` for use in Node.js bindings.
@@ -593,31 +597,52 @@ export declare class DequeState<T = JsonValue> {
  */
 export interface Logger {
   /** Logs error-level messages. */
-  error: (message: string | undefined | null, metadata?: any) => void;
+  error: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs warning-level messages. */
-  warn: (message: string | undefined | null, metadata?: any) => void;
+  warn: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs info-level messages. */
-  info: (message: string | undefined | null, metadata?: any) => void;
+  info: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs debug-level messages. */
-  debug: (message: string | undefined | null, metadata?: any) => void;
+  debug: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
   /** Logs trace-level messages. */
-  trace: (message: string | undefined | null, metadata?: any) => void;
+  trace: (
+    message: string | undefined | null,
+    metadata?: Record<string, unknown>,
+  ) => void;
 }
 
 export interface EventHandler<P = JsonValue, R = JsonValue> {
+  /** Handles an excise record. */
+  onExcise: (
+    context: Context,
+    message: ExciseMessage,
+    signal: AbortSignal,
+  ) => MaybePromise<R & JsonCompatible<R>>;
   /**
    * Callback function to handle incoming messages.
    *
    * @param context - The context of the message processing.
    * @param message - The received Kafka message.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns The response for requests. An omitted response becomes JSON null.
+   * @returns A JSON response for subsystem requests. JSON null is valid.
    */
-  onMessage?: (
+  onMessage: (
     context: Context,
     message: Message<P>,
     signal: AbortSignal,
-  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+  ) => MaybePromise<R & JsonCompatible<R>>;
 
   /**
    * Callback function to handle timers.
@@ -625,13 +650,13 @@ export interface EventHandler<P = JsonValue, R = JsonValue> {
    * @param context - The context of the message processing.
    * @param timer - The triggered timer.
    * @param signal - An AbortSignal that can be used to cancel the message processing.
-   * @returns A JSON result. Timer results are not request responses.
+   * @returns No value.
    */
-  onTimer?: (
+  onTimer: (
     context: Context,
     timer: Timer,
     signal: AbortSignal,
-  ) => MaybePromise<(R & JsonCompatible<R>) | void>;
+  ) => MaybePromise<void>;
 }
 
 /** One successful subsystem outcome. */
@@ -656,14 +681,12 @@ export type ResponseError =
   | { readonly kind: "formatMismatch"; readonly message: string }
   | { readonly kind: "malformedResponse"; readonly message: string };
 
-/** Request targets, deadline, metadata, and cancellation. */
+/** Request targets, deadline, and cancellation. */
 export interface RequestOptions {
   /** The subsystems that must respond. */
   readonly subsystems: readonly string[];
   /** The response deadline in milliseconds. */
   readonly timeoutMs: number;
-  /** Kafka headers to add to the request. */
-  readonly headers?: Readonly<Record<string, string>>;
   /** Cancels the local wait. */
   readonly signal?: AbortSignal;
 }
@@ -742,6 +765,9 @@ export declare class ProsodyClient {
     signal?: AbortSignal,
   ): Promise<void>;
 
+  /** Sends an excise record for a key. */
+  excise(topic: string, key: string, signal?: AbortSignal): Promise<void>;
+
   /**
    * Sends a request and waits for one response from each subsystem.
    *
@@ -755,11 +781,19 @@ export declare class ProsodyClient {
     options: RequestOptions,
   ): Promise<ReadonlyMap<string, Outcome<R>>>;
 
+  /** Sends an excise request and waits for one response from each subsystem. */
+  requestExcise<R = JsonValue>(
+    topic: string,
+    key: string,
+    options: RequestOptions,
+  ): Promise<ReadonlyMap<string, Outcome<R>>>;
+
   /**
    * Subscribes to receive messages using the provided event handler.
    *
    * @param eventHandler - The event handler to process received messages and timers.
    * @returns A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
+   * @throws TypeError if any required handler method is missing.
    * @throws Error if the subscription fails to establish.
    */
   subscribe<P = JsonValue, R = JsonValue>(
@@ -928,7 +962,7 @@ export function isStateError(
 ): error is PermanentStateError | TransientStateError;
 
 /** Type alias for a constructor of an Error subclass. */
-type ErrorClass<T extends Error> = new (...args: any[]) => T;
+type ErrorClass<T extends Error> = new (...args: never[]) => T;
 
 /**
  * Type for a decorator function that can be applied to both methods and standalone functions.

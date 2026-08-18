@@ -20,6 +20,11 @@ const TOTALS = map<number>("totals");
 const BACKLOG = messageDeque<OrderEvent>("backlog", { capacity: 100 });
 
 const handler = {
+  async onExcise(_context, message) {
+    console.info(`excise ${message.key}`);
+    return null;
+  },
+
   async onMessage(context, message) {
     const cart = context.state(CART);
     const current = (await cart.get()) ?? { items: [] };
@@ -39,7 +44,10 @@ const handler = {
     if (oldest !== null) {
       console.info(`oldest order: ${oldest.payload.orderId}`);
     }
+    return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler<OrderEvent>;
 
 async function main(): Promise<void> {

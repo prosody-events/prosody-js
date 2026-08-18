@@ -16,9 +16,16 @@ async function request(): Promise<void> {
     {
       subsystems: ["billing"],
       timeoutMs: 2_000,
-      headers: { tenant: "acme" },
     },
   );
+  const exciseResults = await client.requestExcise<{ total: number }>(
+    "orders",
+    "order-1",
+    { subsystems: ["billing"], timeoutMs: 2_000 },
+  );
+  assertTrue<
+    Equal<typeof exciseResults, ReadonlyMap<string, Outcome<{ total: number }>>>
+  >();
   assertTrue<
     Equal<typeof results, ReadonlyMap<string, Outcome<{ total: number }>>>
   >();
@@ -33,12 +40,23 @@ async function request(): Promise<void> {
 
 client.subscribe<{ id: string }, { accepted: boolean }>({
   onMessage: () => ({ accepted: true }),
-  onTimer: async () => ({ accepted: false }),
+  onExcise: () => ({ accepted: true }),
+  onTimer: async () => {},
 });
 
 client.subscribe({
   // @ts-expect-error Date is not a JSON response.
   onMessage: () => new Date(),
+  onExcise: () => null,
+});
+
+// @ts-expect-error Every handler method is required.
+client.subscribe({ onMessage: () => null, onExcise: () => null });
+
+client.subscribe({
+  // @ts-expect-error undefined is not a JSON response.
+  onMessage: () => undefined,
+  onExcise: () => null,
 });
 
 void request;

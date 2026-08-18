@@ -22,11 +22,11 @@ npm install @prosody-events/prosody
 ```
 
 The package ships TypeScript declarations for the public API.
-`EventHandler<P>` carries an application payload type into `Message<P>`, and
-keyed-state definitions carry their item types through `context.state()`.
-Unparameterized handlers, messages, definitions, and state handles default to
-`JsonValue`. See the [strict TypeScript examples](examples/) for IDE-ready
-projects compiled by the repository typecheck.
+`EventHandler<P, R>` carries application payload and response types through each
+handler method. Keyed-state definitions carry their item types through
+`context.state()`. Unparameterized API types default to `JsonValue`. See the
+[strict TypeScript examples](examples/) for IDE-ready projects compiled by the
+repository typecheck.
 
 ## Quick Start
 
@@ -54,6 +54,11 @@ async function main() {
 
   // Define a message handler
   const messageHandler = {
+    onExcise: async (context, message, signal) => {
+      console.log(`Excise key: ${message.key}`);
+      return null;
+    },
+
     onMessage: async (context, message, signal) => {
       // Process the received message
       console.log(`Received message: ${JSON.stringify(message)}`);
@@ -63,6 +68,7 @@ async function main() {
         const followupTime = new Date(Date.now() + 30000); // 30 seconds from now
         await context.schedule(followupTime);
       }
+      return null;
     },
 
     onTimer: async (context, timer, signal) => {
@@ -76,6 +82,7 @@ async function main() {
 
   // Send a message to a topic
   await client.send("my-topic", "message-key", { content: "Hello, Kafka!" });
+  await client.excise("my-topic", "obsolete-key");
 
   // Shut down all client services when done
   await client.shutdown();
@@ -83,6 +90,12 @@ async function main() {
 
 main().catch(console.error);
 ```
+
+## Excise records
+
+Call `excise(topic, key)` to send a Kafka record with a key and no payload. Use this record to delete the key from compacted views.
+
+Each handler must implement `onMessage`, `onExcise`, and `onTimer`. Subscription fails before consumption if a method is missing.
 
 ## Architecture
 
@@ -232,6 +245,8 @@ if (client.isStalled) {
 
 Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
 
+Use `requestExcise` to send an excise record and collect the same outcome type.
+
 Do not rely on map iteration order.
 
 Prosody rejects the request if it cannot produce the complete result map.
@@ -245,6 +260,8 @@ Return a JSON response from each message handler:
 ```javascript
 await client.subscribe({
   onMessage: async (_context, message) => ({ accepted: message.key }),
+  onExcise: async (_context, message) => ({ accepted: message.key }),
+  onTimer: async () => {},
 });
 ```
 
@@ -474,6 +491,7 @@ const messageHandler = {
     // Check what's scheduled
     const scheduled = await context.scheduled();
     console.log(`Scheduled timers: ${scheduled.length}`);
+    return null;
   },
 
   onTimer: async (context, timer, signal) => {
@@ -481,6 +499,8 @@ const messageHandler = {
     console.log(`Key: ${timer.key}`);
     console.log(`Scheduled time: ${timer.time}`);
   },
+
+  onExcise: async () => null,
 };
 ```
 
@@ -539,6 +559,8 @@ const client = await ProsodyClient.create({
 Prosody classifies errors as transient (temporary, can be retried) or permanent (won't be resolved by retrying). By
 default, all errors are considered transient.
 
+The error classes and decorators apply to `onMessage`, `onExcise`, and `onTimer`.
+
 #### Using Decorators
 
 If you're using TypeScript or a JavaScript environment that supports decorators, you can use the `@permanent` decorator
@@ -553,7 +575,14 @@ class MyHandler {
     // Your message handling logic here
     // TypeError and AttributeError will be treated as permanent
     // All other exceptions will be treated as transient (default behavior)
+    return null;
   }
+
+  async onExcise() {
+    return null;
+  }
+
+  async onTimer() {}
 }
 
 const client = await ProsodyClient.create(config);
@@ -578,7 +607,10 @@ const messageHandler = {
       // All other exceptions will be treated as transient (default behavior)
       throw error;
     }
+    return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 
 const client = await ProsodyClient.create(config);
@@ -644,7 +676,12 @@ client.subscribe({
   async onMessage(context) {
     const count = context.state(COUNT);
     await count.set(((await count.get()) ?? 0) + 1);
+    return null;
   },
+  async onExcise() {
+    return null;
+  },
+  async onTimer() {},
 });
 ```
 
@@ -668,12 +705,13 @@ const handler = {
 
     if (await window.get()) {
       await pending.push(message);
-      return;
+      return null;
     }
 
     await notify(message.key, [message]);
     await window.set(true);
     await context.clearAndSchedule(new Date(Date.now() + 5 * 60_000));
+    return null;
   },
 
   async onTimer(context, timer) {
@@ -684,6 +722,9 @@ const handler = {
     if (batch.length > 0) await notify(timer.key, batch);
     await pending.clear();
     await context.state(WINDOW).clear();
+  },
+  async onExcise() {
+    return null;
   },
 } satisfies EventHandler<Activity>;
 ```
@@ -804,7 +845,10 @@ const messageHandler = {
     } finally {
       span.end();
     }
+    return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 
 client.subscribe(messageHandler);
@@ -887,7 +931,10 @@ async function main() {
   const messageHandler = {
     onMessage: async (context, message, signal) => {
       // Process the message
+      return null;
     },
+    onExcise: async () => null,
+    onTimer: async () => {},
   };
 
   client.subscribe(messageHandler);
@@ -950,7 +997,10 @@ const messageHandler = {
 
     // Send a message, passing the abort signal
     await client.send("topic", "key", { data: "value" }, signal);
+    return null;
   },
+  onExcise: async () => null,
+  onTimer: async () => {},
 };
 ```
 
@@ -1013,6 +1063,7 @@ your changes before merging to `main`.
 - `ProsodyClient.create(config: Configuration): Promise<ProsodyClient>`: Initialize a client without blocking the Node.js event loop.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
+- `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
 - `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Request one response from each subsystem.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
@@ -1039,8 +1090,9 @@ your changes before merging to `main`.
 Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
-- `onMessage?: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R | void>`: Handles incoming messages.
-- `onTimer?: (context: Context, timer: Timer, signal: AbortSignal) => Promise<R | void>`: Handles timer events.
+- `onMessage: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
+- `onExcise: (context: Context, message: ExciseMessage, signal: AbortSignal) => Promise<R>`: Handles excise records without a payload member.
+- `onTimer: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
 
 ### Message
 

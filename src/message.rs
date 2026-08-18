@@ -35,6 +35,18 @@ pub struct Message {
     inner: ConsumerMessage<BinaryPayload>,
 }
 
+/// A Kafka excise record received from a consumer.
+#[napi]
+pub struct ExciseMessage {
+    inner: ConsumerMessage<()>,
+}
+
+impl From<ConsumerMessage<()>> for ExciseMessage {
+    fn from(message: ConsumerMessage<()>) -> Self {
+        Self { inner: message }
+    }
+}
+
 #[expect(
     clippy::multiple_inherent_impl,
     reason = "napi requires a separate impl block for exported vs internal methods"
@@ -98,7 +110,7 @@ impl Message {
     ///
     /// @throws Error if the payload is not valid UTF-8, which valid JSON always
     ///   is.
-    #[napi(getter, writable = false, ts_return_type = "string")]
+    #[napi(getter, writable = false)]
     pub fn payload(&self) -> napi::Result<&str> {
         str::from_utf8(&self.inner.payload().bytes).map_err(|error| {
             Error::new(
@@ -106,5 +118,38 @@ impl Message {
                 format!("message payload is not valid UTF-8: {error}"),
             )
         })
+    }
+}
+
+#[napi]
+impl ExciseMessage {
+    /// The Kafka topic this record was consumed from.
+    #[napi(getter, writable = false)]
+    pub fn topic(&self) -> &'static str {
+        self.inner.topic().as_ref()
+    }
+
+    /// The partition number within the topic.
+    #[napi(getter, writable = false)]
+    pub fn partition(&self) -> i32 {
+        self.inner.partition()
+    }
+
+    /// The offset of this record within its partition.
+    #[napi(getter, writable = false)]
+    pub fn offset(&self) -> BigInt {
+        self.inner.offset().into()
+    }
+
+    /// The timestamp when the record was produced.
+    #[napi(getter, writable = false)]
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        *self.inner.timestamp()
+    }
+
+    /// The key that this record excises.
+    #[napi(getter, writable = false)]
+    pub fn key(&self) -> &str {
+        self.inner.key()
     }
 }

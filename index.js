@@ -15,14 +15,16 @@
 
 /**
  * @typedef {Object} EventHandler
- * @property {Function} [onMessage] - Handles a message and returns its response.
- * @property {Function} [onTimer] - Handles a timer.
+ * @property {Function} onMessage - Handles a message and returns its response.
+ * @property {Function} onExcise - Handles an excise record and returns its response.
+ * @property {Function} onTimer - Handles a timer and returns no value.
  */
 
 /**
  * @typedef {import('./bindings').Configuration} Configuration
  * @typedef {import('./bindings').ConsumerState} ConsumerState
  * @typedef {import('./bindings').Context} Context
+ * @typedef {import('./bindings').ExciseMessage} ExciseMessage
  * @typedef {import('./bindings').Message} Message
  * @typedef {import('./bindings').Timer} Timer
  * @typedef {import('./bindings').Mode} Mode
@@ -280,12 +282,31 @@ class ProsodyClient {
   }
 
   /**
+   * Sends an excise record for a key.
+   *
+   * @param {string} topic - The topic name.
+   * @param {string} key - The key to delete from compacted views.
+   * @param {AbortSignal} [signal] - An optional abort signal.
+   * @returns {Promise<void>} A promise that resolves after Prosody sends the record.
+   */
+  async excise(topic, key, signal) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    await this.nativeClient.excise(
+      topic,
+      key,
+      carrier,
+      signal && onAbort(signal),
+    );
+  }
+
+  /**
    * Sends a request and waits for one response from each subsystem.
    *
    * @param {string} topic - The Kafka topic.
    * @param {string} key - The message key.
    * @param {*} payload - The JSON request payload.
-   * @param {{subsystems: readonly string[], timeoutMs: number, headers?: Readonly<Record<string, string>>, signal?: AbortSignal}} options - Request policy.
+   * @param {{subsystems: readonly string[], timeoutMs: number, signal?: AbortSignal}} options - Request policy.
    * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
    * @throws {Error} If the request cannot produce the complete result map.
    */
@@ -294,7 +315,6 @@ class ProsodyClient {
     propagation.inject(otelContext.active(), carrier);
     const results = await this.nativeClient.request(
       {
-        headers: options.headers ?? {},
         topic,
         key,
         payload: toJson(payload, TransientError),
@@ -305,10 +325,24 @@ class ProsodyClient {
       carrier,
       options.signal && onAbort(options.signal),
     );
-    const outcomes = new Map();
-    for (const { subsystem, outcome } of results)
-      outcomes.set(subsystem, responseOutcome(outcome));
-    return outcomes;
+    return responseOutcomes(results);
+  }
+
+  /** Sends an excise request and waits for one response from each subsystem. */
+  async requestExcise(topic, key, options) {
+    const carrier = {};
+    propagation.inject(otelContext.active(), carrier);
+    const results = await this.nativeClient.requestExcise(
+      {
+        topic,
+        key,
+        subsystems: options.subsystems,
+        timeoutMs: options.timeoutMs,
+      },
+      carrier,
+      options.signal && onAbort(options.signal),
+    );
+    return responseOutcomes(results);
   }
 
   /**
@@ -316,42 +350,67 @@ class ProsodyClient {
    *
    * @param {EventHandler} eventHandler - The event handler to process received messages and timers.
    * @returns {Promise<void>} A promise that resolves when the subscription is successfully established and the consumer is ready to receive messages.
+   * @throws {TypeError} If any required handler method is missing.
    * @throws {Error} If the subscription fails to establish.
    */
   async subscribe(eventHandler) {
+    for (const name of ["onMessage", "onExcise", "onTimer"]) {
+      if (typeof eventHandler?.[name] !== "function") {
+        throw new TypeError(`EventHandler.${name} must be a function`);
+      }
+    }
+
     const tracer = trace.getTracer("prosody");
-    const {
-      onMessage = (context, message, _signal) => {
-        getCurrentLogger()?.error(
-          "ProsodyClient: Received a message but no onMessage handler was " +
-            "provided in subscribe(). To handle messages, implement the onMessage " +
-            "method in your EventHandler:",
-          {
-            topic: message.topic,
-            partition: message.partition,
-            offset: message.offset,
-            key: message.key,
-            solution:
-              "Add onMessage: async (context, message, signal) => " +
-              "{ /* your logic here */ } to your subscribe() call",
-          },
-        );
-      },
-      onTimer = (context, timer, _signal) => {
-        getCurrentLogger()?.error(
-          "ProsodyClient: Received a timer event but no onTimer handler was " +
-            "provided in subscribe(). To handle timers, implement the onTimer " +
-            "method in your EventHandler:",
-          {
-            key: timer.key,
-            time: timer.time,
-            solution:
-              "Add onTimer: async (context, timer, signal) => " +
-              "{ /* your logic here */ } to your subscribe() call",
-          },
-        );
-      },
-    } = eventHandler;
+    const { onExcise, onMessage, onTimer } = eventHandler;
+    const handleRecord = async (
+      nativeContext,
+      message,
+      carrier,
+      handler,
+      spanName,
+      eventType,
+    ) => {
+      const ctx = propagation.extract(otelContext.active(), carrier);
+      return otelContext.with(ctx, () =>
+        tracer.startActiveSpan(spanName, async (span) => {
+          const controller = new AbortController();
+          let completed = false;
+          nativeContext.onCancel().then(() => {
+            if (!completed) {
+              span.setAttribute("cancelled", true);
+              controller.abort(new Error(`${eventType} cancelled`));
+            }
+          });
+
+          try {
+            const result = await handler(
+              new Context(nativeContext),
+              message,
+              controller.signal,
+            );
+            return toJson(result ?? null, PermanentError);
+          } catch (error) {
+            const cause = error.cause ?? error;
+            getCurrentLogger()?.error(`${eventType} handler error`, cause);
+            span.recordException(cause);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: cause.message,
+            });
+            captureException(error, eventType, {
+              topic: message.topic,
+              partition: message.partition,
+              key: message.key,
+              offset: message.offset,
+            });
+            throw error;
+          } finally {
+            completed = true;
+            span.end();
+          }
+        }),
+      );
+    };
 
     await this.nativeClient.subscribe({
       isPermanent: ([err]) => {
@@ -364,55 +423,26 @@ class ProsodyClient {
 
       onMessage: async (err, [nativeContext, message, carrier]) => {
         if (err) throw err;
+        return handleRecord(
+          nativeContext,
+          withParsedPayload(message),
+          carrier,
+          onMessage,
+          "onMessage",
+          "message",
+        );
+      },
 
-        const ctx = propagation.extract(otelContext.active(), carrier);
-        return otelContext.with(ctx, async () => {
-          return tracer.startActiveSpan("onMessage", async (span) => {
-            const controller = new AbortController();
-            let completed = false;
-
-            // Signal abort when cancellation occurs (before handler completes)
-            nativeContext.onCancel().then(() => {
-              if (!completed) {
-                span.setAttribute("cancelled", true);
-                controller.abort(new Error("message cancelled"));
-              }
-            });
-
-            try {
-              const context = new Context(nativeContext);
-              return toJson(
-                (await onMessage(
-                  context,
-                  withParsedPayload(message),
-                  controller.signal,
-                )) ?? null,
-                PermanentError,
-              );
-            } catch (error) {
-              getCurrentLogger()?.error(
-                "Message handler error",
-                error.cause ?? error,
-              );
-              const cause = error.cause ?? error;
-              span.recordException(cause);
-              span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: cause.message,
-              });
-              captureException(error, "message", {
-                topic: message.topic,
-                partition: message.partition,
-                key: message.key,
-                offset: message.offset,
-              });
-              throw error;
-            } finally {
-              completed = true;
-              span.end();
-            }
-          });
-        });
+      onExcise: async (err, [nativeContext, message, carrier]) => {
+        if (err) throw err;
+        return handleRecord(
+          nativeContext,
+          message,
+          carrier,
+          onExcise,
+          "onExcise",
+          "excise",
+        );
       },
 
       onTimer: async (err, [nativeContext, timer, carrier]) => {
@@ -434,10 +464,8 @@ class ProsodyClient {
 
             try {
               const context = new Context(nativeContext);
-              return toJson(
-                (await onTimer(context, timer, controller.signal)) ?? null,
-                PermanentError,
-              );
+              await onTimer(context, timer, controller.signal);
+              return "null";
             } catch (error) {
               getCurrentLogger()?.error(
                 "Timer handler error",
@@ -574,6 +602,13 @@ function responseOutcome(outcome) {
   }
 }
 
+function responseOutcomes(results) {
+  const outcomes = new Map();
+  for (const { subsystem, outcome } of results)
+    outcomes.set(subsystem, responseOutcome(outcome));
+  return outcomes;
+}
+
 /**
  * Represents a transient keyed-state failure that may succeed on a later
  * attempt — a store read/write timeout, AND every caller mistake (a
@@ -673,7 +708,7 @@ function createErrorDecorator(ErrorClass) {
 /**
  * Decorator factory for marking errors as transient.
  * Can be applied to methods to automatically wrap specified error types as transient.
- * @param {...(new(...args: any[]) => Error)} exceptionTypes - The error types to be treated as transient.
+ * @param {...(new(...args: never[]) => Error)} exceptionTypes - The error types to be treated as transient.
  * @returns {Function} A decorator function.
  */
 const transient = createErrorDecorator(TransientError);
@@ -681,7 +716,7 @@ const transient = createErrorDecorator(TransientError);
 /**
  * Decorator factory for marking errors as permanent.
  * Can be applied to methods to automatically wrap specified error types as permanent.
- * @param {...(new(...args: any[]) => Error)} exceptionTypes - The error types to be treated as permanent.
+ * @param {...(new(...args: never[]) => Error)} exceptionTypes - The error types to be treated as permanent.
  * @returns {Function} A decorator function.
  */
 const permanent = createErrorDecorator(PermanentError);
@@ -1169,11 +1204,10 @@ function withParsedPayload(message) {
 }
 
 /**
- * Serializes a value, mapping the two ways `JSON.stringify` can fail onto the
- * caller's error class.
+ * Serializes a JSON value.
  *
- * It answers `undefined` for a function, a symbol, or `undefined` itself, and
- * throws outright on a BigInt or a cycle.
+ * It returns `undefined` for a function, a symbol, or `undefined` itself. It
+ * throws for a BigInt or a cycle.
  * @param {*} value - The value to serialize.
  * @param {Function} ErrorClass - The error to raise on failure.
  * @returns {string} The JSON text.

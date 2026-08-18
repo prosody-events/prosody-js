@@ -1,5 +1,6 @@
 import {
   ProsodyClient,
+  type ExciseMessage,
   type EventHandler,
   type JsonValue,
   type Message,
@@ -18,6 +19,13 @@ interface OrderPayload {
 }
 
 const orderHandler = {
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, ExciseMessage>>();
+    // @ts-expect-error excise records have no payload
+    void message.payload;
+    return null;
+  },
+
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message, Message<OrderPayload>>>();
     const orderId: string = message.payload.orderId;
@@ -30,24 +38,41 @@ const orderHandler = {
     // @ts-expect-error total is a number, not a string
     const badTotal: string = message.payload.total;
     void badTotal;
+    return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler<OrderPayload>;
 
 const defaultHandler = {
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, ExciseMessage>>();
+    return null;
+  },
+
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, JsonValue>>();
     // @ts-expect-error a generic JSON value has no known object fields
     void message.payload.orderId;
+    return null;
   },
+
+  async onTimer() {},
 } satisfies EventHandler;
 
 declare const client: ProsodyClient;
 client.subscribe(orderHandler);
 client.subscribe(defaultHandler);
 client.subscribe<OrderPayload>({
+  async onExcise(_context, message, _signal) {
+    assertTrue<Equal<typeof message, ExciseMessage>>();
+    return null;
+  },
   async onMessage(_context, message, _signal) {
     assertTrue<Equal<typeof message.payload, OrderPayload>>();
+    return null;
   },
+  async onTimer() {},
 });
 
 client.send("orders", "1", {

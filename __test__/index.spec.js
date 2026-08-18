@@ -72,6 +72,57 @@ test("exports utility APIs", () => {
   expect(shutdownTelemetry).toEqual(expect.any(Function));
 });
 
+test.each(["onMessage", "onExcise", "onTimer"])(
+  "rejects a missing %s handler before native subscription",
+  async (missing) => {
+    const nativeSubscribe = jest.fn();
+    const client = Object.create(ProsodyClient.prototype);
+    client.nativeClient = { subscribe: nativeSubscribe };
+    const handler = {
+      onMessage: () => null,
+      onExcise: () => null,
+      onTimer: () => {},
+    };
+    delete handler[missing];
+
+    await expect(client.subscribe(handler)).rejects.toThrow(
+      `EventHandler.${missing} must be a function`,
+    );
+    expect(nativeSubscribe).not.toHaveBeenCalled();
+  },
+);
+
+test.each([
+  ["onMessage", { payload: "{}" }],
+  ["onExcise", {}],
+])("%s converts an undefined response to JSON null", async (name, record) => {
+  let nativeHandler;
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    subscribe: jest.fn(async (handler) => {
+      nativeHandler = handler;
+    }),
+  };
+  const handler = {
+    onMessage: () => undefined,
+    onExcise: () => undefined,
+    onTimer: () => {},
+  };
+  await client.subscribe(handler);
+  const context = { onCancel: () => new Promise(() => {}) };
+  const message = {
+    topic: "orders",
+    key: "order-1",
+    partition: 0,
+    offset: 1,
+    ...record,
+  };
+
+  await expect(nativeHandler[name](null, [context, message, {}])).resolves.toBe(
+    "null",
+  );
+});
+
 test("published state options stay on the descriptor", () => {
   expect(
     value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
@@ -253,7 +304,6 @@ test("request maps native subsystem outcomes", async () => {
         "search",
       ],
       timeoutMs: 2_000,
-      headers: { tenant: "acme" },
     },
   );
 
@@ -271,7 +321,6 @@ test("request maps native subsystem outcomes", async () => {
   expect(results.get("search").error.kind).toBe("malformedResponse");
   expect(request).toHaveBeenCalledWith(
     {
-      headers: { tenant: "acme" },
       topic: "orders",
       key: "order-1",
       payload: JSON.stringify({ type: "order.created" }),
@@ -284,6 +333,42 @@ test("request maps native subsystem outcomes", async () => {
         "crm",
         "search",
       ],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
+});
+
+test("requestExcise maps native subsystem outcomes", async () => {
+  const requestExcise = jest.fn().mockResolvedValue([
+    { subsystem: "inventory", outcome: JSON.stringify({ deleted: true }) },
+    {
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
+    },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { requestExcise };
+
+  const results = await client.requestExcise("orders", "order-1", {
+    subsystems: ["inventory", "billing"],
+    timeoutMs: 2_000,
+  });
+
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { deleted: true },
+  });
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(requestExcise).toHaveBeenCalledWith(
+    {
+      topic: "orders",
+      key: "order-1",
+      subsystems: ["inventory", "billing"],
       timeoutMs: 2_000,
     },
     expect.any(Object),
@@ -369,6 +454,17 @@ const STATE_COLLECTIONS = Object.values(STATE_DEFS);
 // assertion can only pass on a value this test wrote.
 const nonce = () => Math.random().toString(36).slice(2);
 
+const withCompleteHandlers = (client) => {
+  const subscribe = client.subscribe.bind(client);
+  client.subscribe = (handler) =>
+    subscribe({
+      onMessage: handler.onMessage?.bind(handler) ?? (() => null),
+      onExcise: handler.onExcise?.bind(handler) ?? (() => null),
+      onTimer: handler.onTimer?.bind(handler) ?? (() => {}),
+    });
+  return client;
+};
+
 describe("ProsodyClient", () => {
   let admin;
   let tracer;
@@ -425,20 +521,22 @@ describe("ProsodyClient", () => {
   // Builds a client with the canonical state collections registered against the
   // per-test topic. It replaces `client`, which afterEach shuts down.
   // maxConcurrency >= 2 so the async-bridging test can observe interleaving.
-  const makeStateClient = () =>
-    ProsodyClient.create({
-      bootstrapServers: BOOTSTRAP_SERVERS,
-      groupId: GROUP_NAME,
-      sourceSystem: SOURCE_NAME,
-      subscribedTopics: topic,
-      probePort: null,
-      mode: Mode.Pipeline,
-      cassandraNodes: CASSANDRA_NODES,
-      cassandraKeyspace: CASSANDRA_KEYSPACE,
-      stateCollections: STATE_COLLECTIONS,
-      maxConcurrency: 4,
-      peerBindAddress: "127.0.0.1:0",
-    });
+  const makeStateClient = async () =>
+    withCompleteHandlers(
+      await ProsodyClient.create({
+        bootstrapServers: BOOTSTRAP_SERVERS,
+        groupId: GROUP_NAME,
+        sourceSystem: SOURCE_NAME,
+        subscribedTopics: topic,
+        probePort: null,
+        mode: Mode.Pipeline,
+        cassandraNodes: CASSANDRA_NODES,
+        cassandraKeyspace: CASSANDRA_KEYSPACE,
+        stateCollections: STATE_COLLECTIONS,
+        maxConcurrency: 4,
+        peerBindAddress: "127.0.0.1:0",
+      }),
+    );
 
   const sendTestMessage = async (key = "timer-test-key") => {
     const testMessage = {
@@ -469,18 +567,20 @@ describe("ProsodyClient", () => {
     topic = generateTopicName();
     await admin.createTopic(topic, 4, 1);
 
-    client = await ProsodyClient.create({
-      bootstrapServers: BOOTSTRAP_SERVERS,
-      groupId: GROUP_NAME,
-      sourceSystem: SOURCE_NAME,
-      subscribedTopics: topic,
-      probePort: null,
-      mode: Mode.Pipeline,
-      cassandraNodes: CASSANDRA_NODES,
-      cassandraKeyspace: CASSANDRA_KEYSPACE,
-      subsystem: "inventory",
-      peerBindAddress: "127.0.0.1:0",
-    });
+    client = withCompleteHandlers(
+      await ProsodyClient.create({
+        bootstrapServers: BOOTSTRAP_SERVERS,
+        groupId: GROUP_NAME,
+        sourceSystem: SOURCE_NAME,
+        subscribedTopics: topic,
+        probePort: null,
+        mode: Mode.Pipeline,
+        cassandraNodes: CASSANDRA_NODES,
+        cassandraKeyspace: CASSANDRA_KEYSPACE,
+        subsystem: "inventory",
+        peerBindAddress: "127.0.0.1:0",
+      }),
+    );
     messageStream = createMessageStream();
   });
 
@@ -601,6 +701,18 @@ describe("ProsodyClient", () => {
         span.end();
       }
     });
+  });
+
+  it("sends and receives an excise record", async () => {
+    await client.subscribe({
+      onExcise: async (_, message) => messageStream.push(message),
+    });
+
+    await client.excise(topic, "obsolete-key");
+    const [message] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+
+    expect(message.key).toBe("obsolete-key");
+    expect("payload" in message).toBe(false);
   });
 
   it("handles multiple messages with correct ordering", async () => {

@@ -3,7 +3,7 @@ use crate::client::config::{
 };
 use crate::handler::JsHandler;
 use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
-use napi::bindgen_prelude::{Either, Promise};
+use napi::bindgen_prelude::Promise;
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
@@ -12,10 +12,9 @@ use prosody::high_level::erased::{
     ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
 };
 use prosody::propagator::new_propagator;
-use prosody::requester::ResponseError;
 use prosody::subsystem::SubsystemName;
 use std::collections::HashMap;
-use std::result::Result as StdResult;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
@@ -25,6 +24,12 @@ use tracing::{Instrument, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 mod config;
+mod transport;
+
+use transport::native_outcome;
+pub use transport::{
+    ConsumerState, EventMetadata, NativeExciseRequest, NativeRequest, NativeSubsystemOutcome,
+};
 
 /// A native client wrapper for the Prosody high-level client.
 /// Provides methods for sending messages, subscribing to topics, and managing
@@ -202,6 +207,47 @@ impl NativeClient {
         }
     }
 
+    /// Sends an excise record to a specified topic.
+    #[napi(writable = false)]
+    pub async fn excise(
+        &self,
+        topic: String,
+        key: String,
+        otel_context: HashMap<String, String>,
+        maybe_abort: Option<Promise<()>>,
+    ) -> Result<()> {
+        let context = self.client.propagator().extract(&otel_context);
+        let span = info_span!("javascript-excise", %topic, %key, aborted = Empty);
+        if let Err(err) = span.set_parent(context) {
+            debug!("failed to set parent span: {err:#}");
+        }
+
+        let excise_future = async {
+            self.client
+                .excise(topic.as_str().into(), key)
+                .instrument(span.clone())
+                .await
+                .map_err(|error| Error::from_reason(error.to_string()))
+        };
+
+        let Some(on_abort) = maybe_abort else {
+            let result = excise_future.await;
+            span.record("aborted", false);
+            return result;
+        };
+
+        select! {
+            result = on_abort.into_future() => {
+                span.record("aborted", true);
+                result
+            }
+            result = excise_future => {
+                span.record("aborted", false);
+                result
+            }
+        }
+    }
+
     /// Sends one request and returns one outcome per subsystem.
     #[napi(writable = false)]
     pub async fn request(
@@ -210,13 +256,7 @@ impl NativeClient {
         otel_context: HashMap<String, String>,
         maybe_abort: Option<Promise<()>>,
     ) -> Result<Vec<NativeSubsystemOutcome>> {
-        let subsystems = request
-            .subsystems
-            .into_iter()
-            .map(|name| {
-                SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let (subsystems, timeout) = request_parameters(request.subsystems, request.timeout_ms)?;
         let context = self.client.propagator().extract(&otel_context);
         let span = info_span!("javascript-request", topic = %request.topic, key = %request.key, aborted = Empty);
         if let Err(error) = span.set_parent(context) {
@@ -227,20 +267,19 @@ impl NativeClient {
             request.metadata.event_id,
             request.metadata.event_type,
         );
-        let timeout = Duration::try_from_secs_f64(request.timeout_ms / 1_000.0)
-            .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
+        let request_span = span.clone();
         let request_future = async {
             let results = self
                 .client
                 .request(
-                    request.headers.into_iter().collect(),
+                    Vec::new(),
                     request.topic.as_str().into(),
                     request.key,
                     payload,
                     subsystems,
                     timeout,
                 )
-                .instrument(span.clone())
+                .instrument(request_span)
                 .await
                 .map_err(|error| Error::from_reason(error.to_string()))?;
             Ok(results
@@ -251,24 +290,46 @@ impl NativeClient {
                 })
                 .collect())
         };
-        let Some(on_abort) = maybe_abort else {
-            let result = request_future.await;
-            span.record("aborted", false);
-            return result;
-        };
-        select! {
-            result = on_abort.into_future() => {
-                span.record("aborted", true);
-                match result {
-                    Err(error) => Err(error),
-                    Ok(()) => Err(Error::from_reason("abort signal resolved without aborting")),
-                }
-            }
-            result = request_future => {
-                span.record("aborted", false);
-                result
-            }
+        await_request(request_future, maybe_abort, span).await
+    }
+
+    /// Sends one excise request and returns one outcome per subsystem.
+    #[napi(writable = false)]
+    pub async fn request_excise(
+        &self,
+        request: NativeExciseRequest,
+        otel_context: HashMap<String, String>,
+        maybe_abort: Option<Promise<()>>,
+    ) -> Result<Vec<NativeSubsystemOutcome>> {
+        let (subsystems, timeout) = request_parameters(request.subsystems, request.timeout_ms)?;
+        let context = self.client.propagator().extract(&otel_context);
+        let span = info_span!("javascript-request-excise", topic = %request.topic, key = %request.key, aborted = Empty);
+        if let Err(error) = span.set_parent(context) {
+            debug!("failed to set parent span: {error:#}");
         }
+        let request_span = span.clone();
+        let request_future = async {
+            let results = self
+                .client
+                .request_excise(
+                    Vec::new(),
+                    request.topic.as_str().into(),
+                    request.key,
+                    subsystems,
+                    timeout,
+                )
+                .instrument(request_span)
+                .await
+                .map_err(|error| Error::from_reason(error.to_string()))?;
+            Ok(results
+                .into_iter()
+                .map(|(subsystem, result)| NativeSubsystemOutcome {
+                    subsystem: subsystem.to_string(),
+                    outcome: native_outcome(result),
+                })
+                .collect())
+        };
+        await_request(request_future, maybe_abort, span).await
     }
 
     /// Subscribes to receive messages using the provided event handler.
@@ -279,9 +340,11 @@ impl NativeClient {
     #[napi(
         writable = false,
         ts_args_type = "eventHandler: { onMessage: (err: null | Error, args: [NativeContext, \
-                        Message, Record<string, string>]) => Promise<string>; onTimer: (err: null \
-                        | Error, args: [NativeContext, Timer, Record<string, string>]) => \
-                        Promise<string>; isPermanent: (args: [Error]) => boolean }"
+                        Message, Record<string, string>]) => Promise<string>; onExcise: (err: \
+                        null | Error, args: [NativeContext, ExciseMessage, Record<string, \
+                        string>]) => Promise<string>; onTimer: (err: null | Error, args: \
+                        [NativeContext, Timer, Record<string, string>]) => Promise<string>; \
+                        isPermanent: (args: [Error]) => boolean }"
     )]
     pub async fn subscribe(&self, event_handler: JsHandler) -> Result<()> {
         self.client
@@ -342,6 +405,49 @@ impl NativeClient {
     }
 }
 
+fn request_parameters(
+    subsystems: Vec<String>,
+    timeout_ms: f64,
+) -> Result<(Vec<SubsystemName>, Duration)> {
+    let subsystems = subsystems
+        .into_iter()
+        .map(|name| {
+            SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let timeout = Duration::try_from_secs_f64(timeout_ms / 1_000.0)
+        .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
+    Ok((subsystems, timeout))
+}
+
+async fn await_request<T, F>(
+    request: F,
+    maybe_abort: Option<Promise<()>>,
+    span: tracing::Span,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    let Some(on_abort) = maybe_abort else {
+        let result = request.await;
+        span.record("aborted", false);
+        return result;
+    };
+    select! {
+        result = on_abort.into_future() => {
+            span.record("aborted", true);
+            match result {
+                Err(error) => Err(error),
+                Ok(()) => Err(Error::from_reason("abort signal resolved without aborting")),
+            }
+        }
+        result = request => {
+            span.record("aborted", false);
+            result
+        }
+    }
+}
+
 fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
     match (cache_ms, disabled.unwrap_or(false)) {
         (Some(_), true) => Err(Error::from_reason(
@@ -353,121 +459,4 @@ fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedRea
         )))),
         (None, false) => Ok(ErasedReadCache::Inherit),
     }
-}
-
-/// One request.
-#[napi(object)]
-pub struct NativeRequest {
-    /// Kafka headers.
-    pub headers: HashMap<String, String>,
-    /// Kafka topic.
-    pub topic: String,
-    /// Message key.
-    pub key: String,
-    /// JSON payload text.
-    pub payload: String,
-    /// Event metadata read before serialization.
-    pub metadata: EventMetadata,
-    /// Subsystems that must respond.
-    pub subsystems: Vec<String>,
-    /// Response deadline in milliseconds.
-    pub timeout_ms: f64,
-}
-
-/// One response failure.
-#[napi(object)]
-pub struct NativeResponseError {
-    /// Failure discriminator.
-    pub kind: NativeResponseErrorKind,
-    /// Failure text.
-    pub message: String,
-}
-
-/// One subsystem and its outcome.
-#[napi(object)]
-pub struct NativeSubsystemOutcome {
-    /// Canonical subsystem name.
-    pub subsystem: String,
-    /// Encoded response or failure.
-    pub outcome: Either<String, NativeResponseError>,
-}
-
-/// One response failure kind.
-#[derive(Clone, Copy)]
-#[napi(string_enum)]
-pub enum NativeResponseErrorKind {
-    #[napi(value = "handler")]
-    Handler,
-    #[napi(value = "timeout")]
-    Timeout,
-    #[napi(value = "formatMismatch")]
-    FormatMismatch,
-    #[napi(value = "malformedResponse")]
-    Malformed,
-}
-
-fn native_outcome(
-    result: StdResult<BinaryPayload, ResponseError>,
-) -> Either<String, NativeResponseError> {
-    match result {
-        Ok(value) => match String::from_utf8(value.bytes) {
-            Ok(value) => Either::A(value),
-            Err(_) => Either::B(native_error(ResponseError::Malformed)),
-        },
-        Err(error) => Either::B(native_error(error)),
-    }
-}
-
-fn native_error(error: ResponseError) -> NativeResponseError {
-    let (kind, message) = match error {
-        ResponseError::Handler { message } => (NativeResponseErrorKind::Handler, message),
-        ResponseError::Timeout => (
-            NativeResponseErrorKind::Timeout,
-            ResponseError::Timeout.to_string(),
-        ),
-        ResponseError::FormatMismatch => (
-            NativeResponseErrorKind::FormatMismatch,
-            ResponseError::FormatMismatch.to_string(),
-        ),
-        ResponseError::Malformed => (
-            NativeResponseErrorKind::Malformed,
-            ResponseError::Malformed.to_string(),
-        ),
-    };
-    NativeResponseError { kind, message }
-}
-
-/// Event metadata read off a payload before it was serialized.
-///
-/// Carrying it alongside the JSON text is what lets the send path forward the
-/// payload verbatim: neither side re-parses the document to recover these two
-/// fields.
-#[napi(object)]
-pub struct EventMetadata {
-    /// The payload's `id` field.
-    pub event_id: Option<String>,
-
-    /// The payload's `type` field.
-    pub event_type: Option<String>,
-}
-
-/// Current state of the consumer.
-/// Represents the lifecycle stages of a Prosody consumer.
-#[derive(Debug)]
-#[napi(string_enum)]
-pub enum ConsumerState {
-    /// The client is shut down
-    Shutdown,
-
-    /// The consumer is not yet configured
-    Unconfigured,
-
-    /// The consumer is configured but not running
-    Configured,
-
-    /// The consumer is actively running
-    Running,
-
-    /// The consumer configuration failed
-    ConfigurationFailed,
 }

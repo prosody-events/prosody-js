@@ -29,6 +29,11 @@ const WINDOW = value<boolean>("window"); // is a batch open for this user?
 const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep the latest 100 messages
 
 const handler = {
+  async onExcise(_context, message) {
+    void message.key;
+    return null;
+  },
+
   async onMessage(context, message) {
     // message.key = userId; message.payload = { actor, action }
     const window = context.state(WINDOW); // bind THIS user's handles for THIS event
@@ -43,6 +48,7 @@ const handler = {
     } else {
       await pending.push(message); // a batch is open → just save the message
     }
+    return null;
   },
 
   async onTimer(context, timer) {
