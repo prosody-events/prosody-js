@@ -769,10 +769,10 @@ export declare class ProsodyClient {
   excise(topic: string, key: string, signal?: AbortSignal): Promise<void>;
 
   /**
-   * Sends a request and waits for one response from each subsystem.
+   * Sends a request and returns one outcome for each subsystem.
    *
-   * The map contains one outcome for each accepted subsystem.
-   * @throws Error if the request cannot produce the complete result map.
+   * The map contains every selected subsystem. A missing response has a timeout outcome.
+   * @throws Error if the input is invalid, sending fails, shutdown starts, or the signal aborts.
    */
   request<R = JsonValue>(
     topic: string,
@@ -781,7 +781,7 @@ export declare class ProsodyClient {
     options: RequestOptions,
   ): Promise<ReadonlyMap<string, Outcome<R>>>;
 
-  /** Sends an excise request and waits for one response from each subsystem. */
+  /** Sends an excise request and returns one outcome for each subsystem. */
   requestExcise<R = JsonValue>(
     topic: string,
     key: string,

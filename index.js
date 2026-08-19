@@ -301,14 +301,14 @@ class ProsodyClient {
   }
 
   /**
-   * Sends a request and waits for one response from each subsystem.
+   * Sends a request and returns one outcome for each subsystem.
    *
    * @param {string} topic - The Kafka topic.
    * @param {string} key - The message key.
    * @param {*} payload - The JSON request payload.
    * @param {{subsystems: readonly string[], timeoutMs: number, signal?: AbortSignal}} options - Request policy.
    * @returns {Promise<ReadonlyMap<string, {ok: true, value: *}|{ok: false, error: {kind: "handler"|"timeout"|"formatMismatch"|"malformedResponse", message: string}}>>} One outcome per subsystem.
-   * @throws {Error} If the request cannot produce the complete result map.
+   * @throws {Error} If the input is invalid, sending fails, shutdown starts, or the signal aborts.
    */
   async request(topic, key, payload, options) {
     const carrier = {};
@@ -328,7 +328,7 @@ class ProsodyClient {
     return responseOutcomes(results);
   }
 
-  /** Sends an excise request and waits for one response from each subsystem. */
+  /** Sends an excise request and returns one outcome for each subsystem. */
   async requestExcise(topic, key, options) {
     const carrier = {};
     propagation.inject(otelContext.active(), carrier);

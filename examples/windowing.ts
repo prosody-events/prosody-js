@@ -17,8 +17,11 @@ const WINDOW = value<boolean>("window"); // is a batch open for this user?
 const PENDING = messageDeque<Activity>("pending", { capacity: 100 }); // keep the latest 100 messages
 
 const handler = {
-  async onExcise(_context, message) {
+  async onExcise(context, message) {
     console.info(`excise ${message.key}`);
+    await context.state(PENDING).clear();
+    await context.state(WINDOW).clear();
+    await context.clearScheduled();
     return null;
   },
 

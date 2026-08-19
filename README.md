@@ -56,6 +56,7 @@ async function main() {
   const messageHandler = {
     onExcise: async (context, message, signal) => {
       console.log(`Excise key: ${message.key}`);
+      await context.clearScheduled();
       return null;
     },
 
@@ -93,9 +94,13 @@ main().catch(console.error);
 
 ## Excise records
 
-Call `excise(topic, key)` to send a Kafka record with a key and no payload. Use this record to delete the key from compacted views.
+Applications can copy event data into keyed state and external stores. A regulatory or contractual deletion must remove every copy for one key.
+
+An excise record carries this deletion command. Kafka encodes the command as a key with no payload. During topic compaction, Kafka deletes earlier values for the key. Call `excise(topic, key)` to send the record. Prosody routes the record to `onExcise`. The handler must delete all consumer-owned data for the key.
 
 Each handler must implement `onMessage`, `onExcise`, and `onTimer`. Subscription fails before consumption if a method is missing.
+
+If an excise record is a request, return a response from `onExcise`. Prosody uses this response as the subsystem result.
 
 ## Architecture
 
@@ -241,21 +246,23 @@ if (client.isStalled) {
 }
 ```
 
+## Subsystems
+
+A consumer group ID identifies a set of processes that share records and the keyed state that the group owns. A subsystem can include one or more services and consumer groups. If callers use these IDs, a refactor can require changes to each caller.
+
+A subsystem gives requests and published state one stable public name. Callers use this name instead of consumer group IDs. You can change its services and consumer groups without changing callers. Prosody uses the first response to a subsystem request. For each published-state read, it uses one consumer group that publishes the collection.
+
 ## Requests
 
-Requests return one outcome for each named subsystem. The result map uses the canonical subsystem names as keys.
+Kafka decouples producers from consumers, so a send does not return consumer results. This asynchronous model lets each service process records independently. Some operations must wait for consumer results before they continue. A request recovers synchrony for the caller while consumers continue asynchronous processing.
 
-Use `requestExcise` to send an excise record and collect the same outcome type.
+Send a request from a handler or other application code. The Prosody client does not need an active subscription. The result map uses canonical subsystem names as keys. Each value is a `Success` or `Failure` outcome. Use `requestExcise` to send an excise record and collect the same outcome type.
 
-Do not rely on map iteration order.
+Do not rely on map order. The map contains one entry for each selected subsystem. A missing response becomes a timeout `Failure`; Prosody does not omit the subsystem. The request rejects for request-level failures, such as invalid input, a Kafka send failure, or shutdown. Do not await a request if the current consumer group must process it for the same key. That group cannot process it until the handler returns.
 
-Prosody rejects the request if it cannot produce the complete result map.
+Message and excise handler return values become successful outcomes. Each return value must have a JSON representation.
 
-Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
-
-Message handler return values become successful request outcomes. Each return value must have a JSON representation.
-
-Return a JSON response from each message handler:
+Set `subsystem` to `inventory` on the client that subscribes this handler.
 
 ```javascript
 await client.subscribe({
@@ -265,7 +272,7 @@ await client.subscribe({
 });
 ```
 
-Send a request without a subscription on the requester:
+Send the request:
 
 ```javascript
 const subsystems = ["inventory", "billing"];
@@ -289,7 +296,7 @@ inventory: { accepted: 'order-1' }
 billing: no response arrived before the deadline
 ```
 
-Each map value is a `Success` or `Failure`. Each failure contains one typed response error.
+Each failure contains one typed response error.
 
 Each response error has one message.
 
@@ -500,7 +507,10 @@ const messageHandler = {
     console.log(`Scheduled time: ${timer.time}`);
   },
 
-  onExcise: async () => null,
+  onExcise: async (context) => {
+    await context.clearScheduled();
+    return null;
+  },
 };
 ```
 
@@ -626,43 +636,17 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Keyed state gives every Kafka key its own durable working memory. Prosody automatically uses the current message or timer key, so a handler can relate the current event to earlier events for that key. State survives restarts and rebalances. By default, changes become visible only when the event succeeds.
+Many stream transformations must reason across multiple events or timer firings. Windows, state machines, aggregates, and complex event processing all require state.
 
-Use keyed state for time-aware stream processing: counters, deduplication, rolling aggregates, pending work, and per-key workflows. Keep your relational database as the source of truth for business data and for work that needs joins or ad hoc queries. Reconstructing stream state with repeated database queries can be slow and expensive; keyed state is built for that job.
+A Kafka key identifies an entity, such as a customer or order. Keyed state gives each key independent working state for these transformations. With Cassandra, the state survives restarts and partition reassignment.
 
-Most collections should have a TTL. Set it comfortably beyond the longest timer or workflow that uses the state; Prosody validates the minimum supported TTL. Omit it only when keeping inactive keys forever is intentional.
+Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. By default, Prosody commits pending keyed-state changes only when the handler succeeds. If the handler returns an error, Prosody discards those changes.
 
-### Published state
-
-Published state lets another client read a JSON value, map, or deque without subscribing to the owner's topics. Use the same typed definition for the owned collection and its read-only view. The owner sets `published: true`, names its `subsystem`, and registers the definition as usual:
-
-```js
-const CURRENT_ORDER = value("current-order", { published: true });
-const owner = await ProsodyClient.create({
-  ...config,
-  subsystem: "checkout",
-  stateCollections: [CURRENT_ORDER],
-});
-
-// Inside the owner's handler, the event supplies the user key.
-const currentOrder = context.state(CURRENT_ORDER);
-await currentOrder.set({ sku: "book" });
-```
-
-Another client opens a reader by naming the subsystem and passing that same definition. The reader is independent of subscriptions and only returns committed state:
-
-```js
-const orderReader = await client.state("checkout", CURRENT_ORDER);
-const currentOrder = await orderReader.get("customer-123");
-```
-
-Published readers provide the owned collection's read operations without its mutations. An owned handle gets the user key from the current event; a published reader is outside a handler, so every operation takes that key explicitly. Map and deque iteration is asynchronous and reads in chunks rather than loading the entire collection.
-
-The default cache window is five seconds unless the client configuration changes it. Set `readCache: { ttlMs }` on a definition to choose a different freshness window, or `readCache: false` to read durable storage on every operation. To stop publishing a collection, deploy its definition with `published: false` while keeping it registered and retaining `subsystem` for that deployment.
+Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it when state must remain for inactive keys.
 
 ### A counter for each key
 
-Declare each collection once, register it on the client, and ask the event context for the current key's state:
+Declare each collection once. Register it on the client. In a handler, get the current key's state from the event context:
 
 ```typescript
 const COUNT = value<number>("count", { ttlSeconds: 30 * 24 * 60 * 60 });
@@ -678,18 +662,21 @@ client.subscribe({
     await count.set(((await count.get()) ?? 0) + 1);
     return null;
   },
-  async onExcise() {
+  async onExcise(context) {
+    await context.state(COUNT).clear();
     return null;
   },
   async onTimer() {},
 });
 ```
 
-Here, counters expire after 30 days without an update.
+Each Kafka key now has an independent counter. A counter expires when that key has no update for 30 days.
 
 ### Window activity into one notification
 
-This example turns a burst of activity into two useful notifications. It sends the first event immediately, collects later events for five minutes, then sends one summary. Because the user ID is the Kafka key, every user gets an independent window.
+This example sends the first event for a user immediately. It collects later events for five minutes and then sends one summary.
+
+The user ID is the Kafka key. Each user has an independent window.
 
 ```typescript
 const WINDOW = value<boolean>("window", { ttlSeconds: 24 * 60 * 60 });
@@ -723,7 +710,10 @@ const handler = {
     await pending.clear();
     await context.state(WINDOW).clear();
   },
-  async onExcise() {
+  async onExcise(context) {
+    await context.state(PENDING).clear();
+    await context.state(WINDOW).clear();
+    await context.clearScheduled();
     return null;
   },
 } satisfies EventHandler<Activity>;
@@ -733,18 +723,18 @@ See the complete, type-checked example for imports, types, client setup, and `no
 
 Why this works:
 
-- Register both definitions in `stateCollections` before subscribing. Keyed state uses Cassandra unless `mock: true`.
+- Register both definitions in `stateCollections` before you subscribe. Keyed state uses Cassandra unless `mock: true`.
 - Use `clearAndSchedule`, not `schedule`, so a retried event does not add another timer for the same key.
-- `capacity: 100` and the one-day TTL prevent an inactive or unusually busy key from retaining an unlimited backlog. Since this example only pushes, overflow drops the oldest saved message.
-- A `messageDeque` requires the original Kafka messages to remain available for the whole window. Use a plain `deque` of payloads if topic retention or compaction cannot guarantee that.
+- `capacity: 100` and the one-day TTL bound the saved backlog. Overflow drops the oldest message because this example only pushes.
+- A `messageDeque` requires the original Kafka messages during the window. Use `deque` when topic retention or compaction cannot provide them.
 - Prosody runs one handler at a time for each key, so a user's message and timer handlers cannot overlap.
-- Sending a notification is outside Prosody's state transaction and may happen again after a retry. Give notifications a stable idempotency key, or send them through an outbox, when duplicates matter.
+- A notification is outside the state transaction. A retry can send it again. Use a stable operation ID to reject duplicate notifications.
 
 ### Collections and handles
 
-A definition gives a collection a stable name, kind, and options. Register it once on the client, then pass the same definition to `context.state` to access the current key. Do not reuse a persisted name for a different collection kind or payload type.
+A definition sets a collection's durable name, kind, and options. Register it once. Pass it to `context.state` in a handler.
 
-Create handles inside the handler and do not retain them or their iterators afterward.
+Do not reuse a durable name for a different collection kind or payload type. Create handles inside the handler. Do not retain handles or iterators.
 
 | Collection         | JSON payload | Kafka message     | Main operations                                                      |
 | ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
@@ -752,17 +742,57 @@ Create handles inside the handler and do not retain them or their iterators afte
 | Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `set`, `delete`, `entries`, `keys`, `clear` |
 | Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear` |
 
-All operations are async. Map and deque scans are async iterables; a `for await` loop may stop early safely. Map keys are strings. `null` and `undefined` mean absence and cannot be stored—use `clear()` or `delete()` instead.
+All operations are asynchronous. Map and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
-### When changes become visible
+Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
 
-Reads inside a handler see its earlier writes. The default behavior is the safest choice for most handlers: Prosody buffers those changes and publishes them together when the event succeeds. If the handler throws, none of its pending changes become visible.
+### When keyed-state changes become visible
 
-Each collection also offers explicit controls for workflows that need different behavior:
+By default, retries do not see pending state from a failed attempt. Reads in a handler see its earlier keyed-state writes. Prosody commits pending changes when the event succeeds and discards them when the handler throws.
 
-- `readUncommitted: true` writes that collection's changes after the handler succeeds but before the event is recorded as complete. A crash in between can leave the changes visible even though the event is retried. Use it only for idempotent changes, where processing the same event again produces the same stored result.
-- `commit()` immediately publishes this collection's pending changes. They remain visible even if the handler later throws and the event is retried.
-- `rollback()` discards this collection's pending changes since its last `commit()`. It cannot undo changes that were already committed.
+This transaction applies only to keyed state. Some workflows need state changes before the handler ends, so each collection also provides explicit controls:
+
+- `readUncommitted: true` persists keyed-state changes before Prosody records the event as complete. If the process stops between these steps, Prosody can process the same event again. The retry sees state changes from the earlier attempt. You must make these keyed-state changes idempotent. Each retry must produce the same state.
+- `commit()` commits the collection's pending changes before the handler ends. A later handler failure does not remove them.
+- `rollback()` discards pending changes since the last `commit()`. It cannot undo committed changes.
+
+### Published state
+
+Some callers need only the current value for a key. They can accept a stale value or a race with a concurrent update.
+
+Use topics and event sourcing when a consumer must process each state change in order. Use published state for direct, read-only lookup of persisted keyed state. The caller does not need to consume the owner's topics or maintain a separate lookup store.
+
+Configure the subsystem name on each publisher. Enable publication on the collection definition. Register the definition on the Prosody client:
+
+```js
+const CURRENT_ORDER = value("current-order", { published: true });
+const owner = await ProsodyClient.create({
+  ...config,
+  subsystem: "checkout",
+  stateCollections: [CURRENT_ORDER],
+});
+
+// The handler uses the key from its current event.
+const currentOrder = context.state(CURRENT_ORDER);
+await currentOrder.set({ sku: "book" });
+```
+
+Read published state from a handler or other application code. The Prosody client does not need an active subscription.
+
+Use the subsystem and the same definition to open a reader:
+
+```js
+const orderReader = await client.state("checkout", CURRENT_ORDER);
+const currentOrder = await orderReader.get("customer-123");
+```
+
+The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one.
+
+Map and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
+
+The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache.
+
+To stop publication, deploy the definition with `published: false`. Keep the definition registered during that deployment. Keep the subsystem configured during that deployment.
 
 ## OpenTelemetry Tracing
 
@@ -903,21 +933,17 @@ Strategies for achieving idempotence:
 - Each message advances the state machine, allowing for idempotent processing and easy failure recovery.
 - Particularly useful for complex, distributed transactions across multiple services.
 
-### Proper Shutdown
+### Application shutdown
 
-Shut down the client before your application exits:
+A Prosody client runs a subscription, timers, and other services in the background. Before an application terminates, it must stop all client services. `unsubscribe()` stops only the active subscription.
+
+Call `shutdown()` when the application terminates. It stops all client services and rejects new operations. Call `unsubscribe()` only when the application will use the client again. You do not need to call `unsubscribe()` before `shutdown()`.
 
 ```javascript
 await client.shutdown();
 ```
 
-This ensures:
-
-1. Completion and commitment of all in-flight work
-2. Quick rebalancing, allowing other consumers to take over partitions
-3. Proper release of resources
-
-Implement shutdown handling in your application:
+Handle application shutdown:
 
 ```javascript
 const { ProsodyClient } = require("@prosody-events/prosody");
@@ -930,7 +956,7 @@ async function main() {
 
   const messageHandler = {
     onMessage: async (context, message, signal) => {
-      // Process the message
+      // Process the message.
       return null;
     },
     onExcise: async () => null,
@@ -939,10 +965,10 @@ async function main() {
 
   client.subscribe(messageHandler);
 
-  // Create a promise that resolves when shutdown is signaled
+  // Resolve this promise after a shutdown signal.
   const shutdownPromise = new Promise((resolve) => {
     const shutdown = async (signal) => {
-      console.log(`Received ${signal}. Initiating shutdown...`);
+      console.log(`Received ${signal}. Client shutdown starts.`);
       await client.shutdown();
       resolve();
     };
@@ -952,7 +978,7 @@ async function main() {
     process.on("SIGHUP", () => shutdown("SIGHUP"));
   });
 
-  // Wait for shutdown to be signaled
+  // Wait for a shutdown signal.
   await shutdownPromise;
 }
 
@@ -1064,8 +1090,11 @@ your changes before merging to `main`.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
-- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Request one response from each subsystem.
-- `consumerState: ConsumerState`: Get the current state of the consumer.
+- `request<R>(topic, key, payload: JsonValue, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
+- `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one excise outcome for each subsystem.
+- `consumerState(): Promise<ConsumerState>`: Get the current state of the consumer.
+- `assignedPartitionCount(): Promise<number>`: Get the assigned partition count.
+- `isStalled(): Promise<boolean>`: Test whether the consumer is stalled.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
@@ -1080,19 +1109,14 @@ your changes before merging to `main`.
 - `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
 - `deleteTopic(name)`: Delete a Kafka topic.
 
-### Telemetry lifecycle
-
-- `flushTelemetry()`: Export pending telemetry.
-- `shutdownTelemetry()`: Export pending telemetry and stop its providers.
-
 ### EventHandler
 
 Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
-- `onMessage: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
-- `onExcise: (context: Context, message: ExciseMessage, signal: AbortSignal) => Promise<R>`: Handles excise records without a payload member.
-- `onTimer: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
+- `onMessage: (context, message, signal) => MaybePromise<R & JsonCompatible<R>>`: Handle incoming messages.
+- `onExcise: (context, message, signal) => MaybePromise<R & JsonCompatible<R>>`: Handle excise records.
+- `onTimer: (context, timer, signal) => MaybePromise<void>`: Handle timer events.
 
 ### Message
 
@@ -1107,14 +1131,17 @@ Represents a Kafka message with the following properties:
 
 `Message` takes an optional payload type parameter, `Message<P>`, used by handlers and message-backed state collections to type `payload`. Unparameterized `Message` is `Message<JsonValue>`, preserving useful JSON safety without requiring an application-specific payload type.
 
-`JsonValue` describes arbitrary JSON data. `JsonCompatible<T>` checks a known
-application type recursively, so ordinary interfaces work with `send()` while
-functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields are
-reported by TypeScript before the message reaches the serializer.
+`JsonValue` describes arbitrary JSON data. `JsonCompatible<T>` checks a known application type recursively.
+
+Ordinary interfaces work with `send()`. TypeScript rejects functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields before serialization.
+
+### ExciseMessage
+
+An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, and `key` properties. It has no `payload` property.
 
 ### Context
 
-Represents the context of message processing:
+Represents the current event context:
 
 - `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
 - `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
@@ -1129,7 +1156,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Binds a registered collection for the current event attempt, returning a typed handle (message definitions vend `*State<Message<P>>`). Throws `PermanentStateError` when the name was never registered, or when the definition's `kind`/`payload` disagrees with the collection's durably-registered schema. See the [Keyed State](#keyed-state-2) API reference below.
+- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
 
 ### Timer
 
@@ -1137,6 +1164,29 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 - `key: string`: The entity key identifying what this timer belongs to
 - `time: Date`: The time when this timer was scheduled to fire
+
+### Requests
+
+- `RequestOptions`: Contains `subsystems`, `timeoutMs`, and an optional `signal`.
+- `Outcome<T>`: A `Success<T>` or `Failure` result for one subsystem.
+- `Success<T>`: Contains `ok: true` and `value: T`.
+- `Failure`: Contains `ok: false` and a `ResponseError`.
+- `ResponseError`: A handler, timeout, format-mismatch, or malformed-response error.
+
+### Configuration types
+
+- `Configuration`: Contains the client settings. See [Configuration](CONFIGURATION.md).
+- `ConsumerState`: Identifies the consumer lifecycle state.
+- `Mode`: Selects the client processing mode.
+- `ReadCacheConfiguration`: Configures the default published-state cache.
+- `ReadCacheOptions`: Overrides the cache for one published collection.
+
+### Payload types
+
+- `JsonPrimitive`: A JSON null, boolean, number, or string.
+- `JsonValue`: Any recursively JSON-compatible value.
+- `JsonCompatible<T>`: Rejects non-JSON members in a known application type.
+- `MaybePromise<T>`: A value or a promise-like value.
 
 ### Keyed State
 
@@ -1193,13 +1243,38 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
 
-`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; readCache?: { ttlMs: number } | false; keysetLimit?: number; capacity?: number }`. Publication and `readCache` are supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
+`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
+
+JSON definitions also accept `readCache`. This option applies when the definition opens published state. It is not part of `StateCollectionConfig`.
+
+The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
+
+All definitions expose `name`, `kind`, `payload`, `ttlSeconds`, and `readUncommitted`. JSON definitions also expose `published` and `readCache`. Map definitions expose `keysetLimit`. Deque definitions expose `capacity`.
 
 Errors:
 
-- `TransientStateError extends TransientError`: the default — a temporary store read/write failure, or any caller mistake (a `null`/unrepresentable write, item-shape mismatch, non-integer deque index, invalid scan direction), rejected transient so it retries rather than discarding the message.
-- `PermanentStateError extends PermanentError`: reserved for failures a retry cannot resolve in-process (unregistered/identity-mismatched collection, duplicate registration), or one a handler throws explicitly.
+- `TransientStateError extends TransientError`: Reports a keyed-state error that Prosody can retry.
+- `PermanentStateError extends PermanentError`: Reports a keyed-state error that another attempt cannot resolve.
 - `isStateError(error: unknown): error is PermanentStateError | TransientStateError`: type-guard narrowing an error to either state error class.
+
+Handler error types and decorators:
+
+- `EventHandlerError`: Base class with an abstract `isPermanent` property.
+- `TransientError`: Has `isPermanent: false` and marks an error as retriable.
+- `PermanentError`: Has `isPermanent: true` and marks an error as final.
+- `transient(...errorTypes)`: Creates a transient-error decorator.
+- `permanent(...errorTypes)`: Creates a permanent-error decorator.
+
+### Logging and telemetry
+
+- `Logger`: Provides `error`, `warn`, `info`, `debug`, and `trace` methods.
+- `initialize()`: Prepare the logging and tracing system during application startup.
+- `loggerIsSet()`: Test whether the application configured a logger.
+- `setLogger(logger)`: Replaces the logger.
+- `setLoggerIfUnset(logger)`: Sets the logger only when no logger exists.
+- `getCurrentLogger()`: Returns the current JavaScript logger.
+- `flushTelemetry()`: Exports pending telemetry.
+- `shutdownTelemetry()`: Exports pending telemetry and stops its providers.
 
 ## License
 
