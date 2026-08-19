@@ -640,7 +640,7 @@ Many stream transformations must reason across multiple events or timer firings.
 
 A Kafka key identifies an entity, such as a customer or order. Keyed state gives each key independent working state for these transformations. With Cassandra, the state survives restarts and partition reassignment.
 
-Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. By default, it commits state changes after a successful event and discards changes from a failed attempt.
+Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. Prosody commits an event after success or permanent failure. It commits pending keyed-state changes only after success and discards them after any failure.
 
 Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it when state must remain for inactive keys.
 
