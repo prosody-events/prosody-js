@@ -1091,7 +1091,10 @@ your changes before merging to `main`.
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
 - `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
-- `consumerState: ConsumerState`: Get the current state of the consumer.
+- `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Send an excise request.
+- `consumerState(): Promise<ConsumerState>`: Get the current state of the consumer.
+- `assignedPartitionCount(): Promise<number>`: Get the assigned partition count.
+- `isStalled(): Promise<boolean>`: Test whether the consumer is stalled.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
@@ -1105,11 +1108,6 @@ your changes before merging to `main`.
 - `new AdminClient(bootstrapServers)`: Create an admin client for the specified Kafka servers.
 - `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
 - `deleteTopic(name)`: Delete a Kafka topic.
-
-### Telemetry lifecycle
-
-- `flushTelemetry()`: Export pending telemetry.
-- `shutdownTelemetry()`: Export pending telemetry and stop its providers.
 
 ### EventHandler
 
@@ -1138,6 +1136,10 @@ application type recursively, so ordinary interfaces work with `send()` while
 functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields are
 reported by TypeScript before the message reaches the serializer.
 
+### ExciseMessage
+
+An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, and `key` properties. It has no `payload` property.
+
 ### Context
 
 Represents the context of message processing:
@@ -1155,7 +1157,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Binds a registered collection for the current event attempt, returning a typed handle (message definitions vend `*State<Message<P>>`). Throws `PermanentStateError` when the name was never registered, or when the definition's `kind`/`payload` disagrees with the collection's durably-registered schema. See the [Keyed State](#keyed-state-2) API reference below.
+- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
 
 ### Timer
 
@@ -1163,6 +1165,29 @@ Represents a timer that has fired, provided to the `onTimer` method:
 
 - `key: string`: The entity key identifying what this timer belongs to
 - `time: Date`: The time when this timer was scheduled to fire
+
+### Requests
+
+- `RequestOptions`: Contains `subsystems`, `timeoutMs`, and an optional `signal`.
+- `Outcome<T>`: A `Success<T>` or `Failure` result for one subsystem.
+- `Success<T>`: Contains `ok: true` and `value: T`.
+- `Failure`: Contains `ok: false` and a `ResponseError`.
+- `ResponseError`: A handler, timeout, format-mismatch, or malformed-response error.
+
+### Configuration types
+
+- `Configuration`: Contains the client settings. See [Configuration](CONFIGURATION.md).
+- `ConsumerState`: Identifies the consumer lifecycle state.
+- `Mode`: Selects the client processing mode.
+- `ReadCacheConfiguration`: Configures the default published-state cache.
+- `ReadCacheOptions`: Overrides the cache for one published collection.
+
+### Payload types
+
+- `JsonPrimitive`: A JSON null, boolean, number, or string.
+- `JsonValue`: Any recursively JSON-compatible value.
+- `JsonCompatible<T>`: Rejects non-JSON members in a known application type.
+- `MaybePromise<T>`: A value or a promise-like value.
 
 ### Keyed State
 
@@ -1219,13 +1244,36 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
 
-`StateCollectionConfig` (a `stateCollections` entry): `{ name: string; kind: "value" | "map" | "deque"; payload: "json" | "message"; ttlSeconds?: number; readUncommitted?: boolean; published?: boolean; readCache?: { ttlMs: number } | false; keysetLimit?: number; capacity?: number }`. Publication and `readCache` are supported for JSON collections. The definition constructors produce objects assignable to this shape, so prefer them.
+`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
+
+JSON definitions also accept `readCache`. This option applies when the definition opens published state. It is not part of `StateCollectionConfig`.
+
+The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
+
+All definitions expose `name`, `kind`, `payload`, `ttlSeconds`, and `readUncommitted`. JSON definitions also expose `published` and `readCache`. Map definitions expose `keysetLimit`. Deque definitions expose `capacity`.
 
 Errors:
 
-- `TransientStateError extends TransientError`: the default — a temporary store read/write failure, or any caller mistake (a `null`/unrepresentable write, item-shape mismatch, non-integer deque index, invalid scan direction), rejected transient so it retries rather than discarding the message.
-- `PermanentStateError extends PermanentError`: reserved for failures a retry cannot resolve in-process (unregistered/identity-mismatched collection, duplicate registration), or one a handler throws explicitly.
+- `TransientStateError extends TransientError`: Reports a keyed-state error that Prosody can retry.
+- `PermanentStateError extends PermanentError`: Reports a keyed-state error that another attempt cannot resolve.
 - `isStateError(error: unknown): error is PermanentStateError | TransientStateError`: type-guard narrowing an error to either state error class.
+
+Handler error types and decorators:
+
+- `EventHandlerError`: Base class with an abstract `isPermanent` property.
+- `TransientError`: Has `isPermanent: false` and marks an error as retriable.
+- `PermanentError`: Has `isPermanent: true` and marks an error as final.
+- `transient(...errorTypes)`: Creates a transient-error decorator.
+- `permanent(...errorTypes)`: Creates a permanent-error decorator.
+
+### Logging and telemetry
+
+- `Logger`: Provides `error`, `warn`, `info`, `debug`, and `trace` methods.
+- `setLogger(logger)`: Replaces the logger.
+- `setLoggerIfUnset(logger)`: Sets the logger only when no logger exists.
+- `getCurrentLogger()`: Returns the current JavaScript logger.
+- `flushTelemetry()`: Exports pending telemetry.
+- `shutdownTelemetry()`: Exports pending telemetry and stops its providers.
 
 ## License
 
