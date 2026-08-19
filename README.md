@@ -56,6 +56,7 @@ async function main() {
   const messageHandler = {
     onExcise: async (context, message, signal) => {
       console.log(`Excise key: ${message.key}`);
+      await context.clearScheduled();
       return null;
     },
 
@@ -247,7 +248,7 @@ if (client.isStalled) {
 
 ## Subsystems
 
-A consumer group ID determines which process handles each record and identifies its keyed state. If a public interface exposes this ID, callers depend on this internal layout.
+A consumer group ID groups the client processes that share records. Prosody also uses this ID to identify the group's keyed state. Callers must not depend on this stream design.
 
 A subsystem gives requests and published state a stable public name. One or more consumer groups can use this name. Their IDs can change without changing public interfaces. Prosody uses the first response to a subsystem request. It reads published state from one consumer group that publishes the state.
 
@@ -506,7 +507,10 @@ const messageHandler = {
     console.log(`Scheduled time: ${timer.time}`);
   },
 
-  onExcise: async () => null,
+  onExcise: async (context) => {
+    await context.clearScheduled();
+    return null;
+  },
 };
 ```
 
@@ -636,7 +640,7 @@ Many stream transformations must reason across multiple events or timer firings.
 
 A Kafka key identifies an entity, such as a customer or order. Keyed state gives each key independent working state for these transformations. With Cassandra, the state survives restarts and partition reassignment.
 
-Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. It commits state changes after a successful event and discards changes from a failed attempt.
+Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. By default, it commits state changes after a successful event and discards changes from a failed attempt.
 
 Use a database for business records, joins, and unplanned queries.
 
@@ -660,7 +664,8 @@ client.subscribe({
     await count.set(((await count.get()) ?? 0) + 1);
     return null;
   },
-  async onExcise() {
+  async onExcise(context) {
+    await context.state(COUNT).clear();
     return null;
   },
   async onTimer() {},
@@ -707,7 +712,10 @@ const handler = {
     await pending.clear();
     await context.state(WINDOW).clear();
   },
-  async onExcise() {
+  async onExcise(context) {
+    await context.state(PENDING).clear();
+    await context.state(WINDOW).clear();
+    await context.clearScheduled();
     return null;
   },
 } satisfies EventHandler<Activity>;
@@ -742,7 +750,7 @@ Map keys are strings. `null` and `undefined` mean absence. Do not store these va
 
 ### When keyed-state changes become visible
 
-Retries must not expose partial state from a failed attempt. Reads in a handler see its earlier keyed-state writes. Prosody commits pending changes when the event succeeds and discards them when the handler throws.
+By default, retries do not see pending state from a failed attempt. Reads in a handler see its earlier keyed-state writes. Prosody commits pending changes when the event succeeds and discards them when the handler throws.
 
 This transaction applies only to keyed state. Some workflows need state changes before the handler ends, so each collection also provides explicit controls:
 
@@ -754,7 +762,7 @@ This transaction applies only to keyed state. Some workflows need state changes 
 
 Some callers need only the current value for a key. They can accept a stale value or a race with a concurrent update.
 
-Use topics and event sourcing when a consumer must process each state change in order. Use published state for direct, read-only lookup of committed keyed state. The caller does not need to consume the owner's topics or maintain a separate lookup store.
+Use topics and event sourcing when a consumer must process each state change in order. Use published state for direct, read-only lookup of persisted keyed state. The caller does not need to consume the owner's topics or maintain a separate lookup store.
 
 Configure the subsystem name on each publisher. Enable publication on the collection definition. Register the definition on the Prosody client:
 
@@ -780,7 +788,7 @@ const orderReader = await client.state("checkout", CURRENT_ORDER);
 const currentOrder = await orderReader.get("customer-123");
 ```
 
-The reader returns only committed state. It cannot change the collection. Each read takes an explicit key because no handler supplies one.
+The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one.
 
 Map and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
 
@@ -1084,7 +1092,7 @@ your changes before merging to `main`.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
-- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Request one response from each subsystem.
+- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
 - `consumerState: ConsumerState`: Get the current state of the consumer.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
