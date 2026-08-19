@@ -96,7 +96,7 @@ main().catch(console.error);
 
 Applications can copy event data into keyed state and external stores. A regulatory or contractual deletion must remove every copy for one key.
 
-An excise record carries this deletion command. Kafka encodes the command as a key with no payload. This record removes the current value from compacted topics. Call `excise(topic, key)` to send the record. Prosody routes the record to `onExcise`. The handler must delete all consumer-owned data for the key.
+An excise record carries this deletion command. Kafka encodes the command as a key with no payload. During topic compaction, Kafka deletes earlier values for the key. Call `excise(topic, key)` to send the record. Prosody routes the record to `onExcise`. The handler must delete all consumer-owned data for the key.
 
 Each handler must implement `onMessage`, `onExcise`, and `onTimer`. Subscription fails before consumption if a method is missing.
 
@@ -250,7 +250,7 @@ if (client.isStalled) {
 
 A consumer group ID identifies a set of processes that share records and the keyed state that the group owns. A subsystem can include one or more services and consumer groups. If callers use these IDs, a refactor can require changes to each caller.
 
-A subsystem gives requests and published state one stable public name. Callers use this name instead of consumer group IDs. You can change its services and consumer groups without changing callers. Prosody uses the first response to a subsystem request. It reads published state from one consumer group that publishes the state.
+A subsystem gives requests and published state one stable public name. Callers use this name instead of consumer group IDs. You can change its services and consumer groups without changing callers. Prosody uses the first response to a subsystem request. For each published-state read, it uses one consumer group that publishes the collection.
 
 ## Requests
 
