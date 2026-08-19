@@ -245,11 +245,19 @@ if (client.isStalled) {
 }
 ```
 
+## Subsystems
+
+Kafka consumer group IDs describe a deployment. Applications must not use these IDs as public interface names.
+
+A subsystem gives one public name to one or more consumer groups. Request callers and published-state readers use the subsystem name, not a group ID.
+
+A subsystem works like an ingress. It keeps one public name while the consumer groups behind that name can change.
+
+Configure the same subsystem name on each client that must provide this interface.
+
 ## Requests
 
-A normal Kafka send does not return consumer results. A request lets a producer wait for results from selected consumer roles.
-
-A subsystem is a stable name for one consumer role, such as `inventory` or `billing`. Configure the same subsystem name on all client instances for that role. A subsystem name also identifies the owner of published keyed state.
+A normal Kafka send does not return consumer results. A request lets a producer wait for results from selected subsystems.
 
 Requests return one outcome for each selected subsystem. The result map uses canonical subsystem names as keys.
 
@@ -762,7 +770,7 @@ Each collection also offers explicit controls for workflows that need different 
 
 Handlers normally read state only for their current event key. Sometimes another service needs that state but must not consume the owner's Kafka topics.
 
-Published state provides this read-only access. The owner enables publication, names its subsystem, and registers the collection definition:
+Published state provides this read-only access. Each publisher uses the subsystem name, enables publication, and registers the collection definition:
 
 ```js
 const CURRENT_ORDER = value("current-order", { published: true });
