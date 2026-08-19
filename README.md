@@ -93,13 +93,11 @@ main().catch(console.error);
 
 ## Excise records
 
-An excise record tells a consumer to delete all data for one key. Applications usually use excision to meet a regulatory or contractual deletion requirement.
+An excise record commands its recipient to delete all data it owns for one key. Excision usually satisfies a regulatory or contractual deletion requirement.
 
-Prosody does not know which application stores contain the data. In `onExcise`, delete all data for the key from every store that the consumer owns.
+Kafka encodes excision as a key with no payload. This record also removes the key's current value from a compacted topic.
 
-A compacted Kafka topic keeps the latest value for each key. Kafka uses a record with the key and no payload to remove that value.
-
-Call `excise(topic, key)` to send this record. Prosody sends received excise records to `onExcise`, not to `onMessage`.
+Call `excise(topic, key)` to send it. Prosody routes it to `onExcise`, where the handler must delete its data for the key.
 
 Each handler must implement `onMessage`, `onExcise`, and `onTimer`. Subscription fails before consumption if a method is missing.
 
@@ -251,37 +249,27 @@ if (client.isStalled) {
 
 ## Subsystems
 
-Kafka uses a consumer group ID for client processes that share records. Prosody uses this ID to separate the keyed state of each consumer group.
+A consumer group controls which process handles each record and owns its keyed state. If its ID changes, its processing and state identity also change.
 
-The consumer group ID is part of the stream design. Applications must not use it in public interfaces for requests or published state.
+A subsystem gives requests and published state a stable public name. One or more consumer groups can use it, so public interfaces do not expose their IDs.
 
-Applications need a stable name when they send requests or read published state.
-
-A subsystem provides a stable name. One or more consumer groups can use the same subsystem name.
-
-Prosody does not combine results from these consumer groups. A request uses the first response for the subsystem. A published-state read uses one consumer group that publishes the state.
-
-Callers use the subsystem name, not a consumer group ID. You can change the consumer groups. You do not need to change the callers.
+For a request, Prosody uses the first subsystem response. For a published-state read, Prosody uses one consumer group that publishes the state.
 
 ## Requests
 
-A normal Kafka send does not return consumer results. A request lets a producer wait for results from selected subsystems.
+A Kafka send does not return consumer results. A request waits for one outcome from each selected subsystem.
 
-You can send a request from a handler or from other application code. The Prosody client does not need an active subscription.
+Send a request from a handler or other application code. The Prosody client does not need an active subscription.
 
-Requests return one outcome for each selected subsystem. The result map uses canonical subsystem names as keys.
+The result map uses canonical subsystem names as keys. Each value is a `Success` or `Failure` outcome.
 
 Use `requestExcise` to send an excise record and collect the same outcome type.
 
-Do not rely on map iteration order.
-
-Prosody rejects the request if it cannot produce the complete result map.
+Do not rely on map order. Prosody rejects a request if it cannot produce the complete result map.
 
 Do not await a request if the current consumer group must process it for the same key. That group cannot process it until the handler returns.
 
-Message and excise handler return values become successful request outcomes. Each return value must have a JSON representation.
-
-Return a JSON response from each message and excise handler:
+Message and excise handler return values become successful outcomes. Each return value must have a JSON representation.
 
 Set `subsystem` to `inventory` on the client that subscribes this handler.
 
@@ -317,7 +305,7 @@ inventory: { accepted: 'order-1' }
 billing: no response arrived before the deadline
 ```
 
-Each map value is a `Success` or `Failure`. Each failure contains one typed response error.
+Each failure contains one typed response error.
 
 Each response error has one message.
 
@@ -654,19 +642,19 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-A handler can process events for different keys concurrently. Prosody processes only one event at a time for each key. Many decisions need data from earlier events for the same key.
+A Kafka key identifies an entity, such as a customer or order. Keyed state stores data from earlier events separately for each key.
 
-A Kafka key identifies the entity for an event, such as a customer or order. Keyed state stores separate data for each key. Prosody selects the current message or timer key automatically.
+Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently.
 
-With Cassandra, keyed state survives a process restart. It also survives when Kafka assigns a partition to a different process. By default, Prosody commits keyed-state changes after the handler completes without an error. Prosody discards pending keyed-state changes from a failed attempt.
+With Cassandra, keyed state survives restarts and partition reassignment. Prosody commits changes after a successful event and discards changes from a failed attempt.
 
-Use keyed state for counters, duplicate detection, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and unplanned queries. Repeated database reads can make stream processing slow and expensive.
+Use keyed state for counters, duplicate detection, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and unplanned queries.
 
 Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it only when inactive keys must remain forever.
 
 ### A counter for each key
 
-Declare each collection once. Register it on the client. In a handler, ask the event context for the current key's state:
+Declare each collection once. Register it on the client. In a handler, get the current key's state from the event context:
 
 ```typescript
 const COUNT = value<number>("count", { ttlSeconds: 30 * 24 * 60 * 60 });
@@ -693,9 +681,9 @@ Each Kafka key now has an independent counter. A counter expires when that key h
 
 ### Window activity into one notification
 
-This example groups a burst of activity for one user. It sends the first event immediately. It collects later events for five minutes.
+This example sends the first event for a user immediately. It collects later events for five minutes and then sends one summary.
 
-If later events arrive, the timer sends one summary when the window ends. The user ID is the Kafka key, so each user has an independent window.
+The user ID is the Kafka key. Each user has an independent window.
 
 ```typescript
 const WINDOW = value<boolean>("window", { ttlSeconds: 24 * 60 * 60 });
@@ -748,9 +736,7 @@ Why this works:
 
 ### Collections and handles
 
-A definition sets a collection's durable name, kind, and options. Register each definition once on the client.
-
-Pass the same definition to `context.state` inside a handler. Prosody uses the current event key for that handle.
+A definition sets a collection's durable name, kind, and options. Register it once. Pass it to `context.state` in a handler.
 
 Do not reuse a durable name for a different collection kind or payload type. Create handles inside the handler. Do not retain handles or iterators.
 
@@ -766,9 +752,9 @@ Map keys are strings. `null` and `undefined` mean absence. Do not store these va
 
 ### When keyed-state changes become visible
 
-Reads inside a handler see earlier keyed-state writes from that handler. By default, Prosody buffers keyed-state changes until the event succeeds.
+Reads in a handler see its earlier keyed-state writes. Prosody commits pending changes when the event succeeds and discards them when the handler throws.
 
-Prosody then commits the pending keyed-state changes. If the handler throws, Prosody discards its pending keyed-state changes. This transaction does not include other handler side effects.
+This transaction applies only to keyed state. It does not include other handler side effects.
 
 Each collection also offers explicit controls for workflows that need different behavior:
 
@@ -778,9 +764,7 @@ Each collection also offers explicit controls for workflows that need different 
 
 ### Published state
 
-Handlers normally read state only for their current event key. Sometimes another service needs that state but must not consume the owner's Kafka topics.
-
-Published state provides this read-only access.
+Published state gives other services read-only access to keyed state. These services do not need to consume the owner's Kafka topics.
 
 Configure the subsystem name on each publisher. Enable publication on the collection definition. Register the definition on the Prosody client:
 
@@ -797,7 +781,7 @@ const currentOrder = context.state(CURRENT_ORDER);
 await currentOrder.set({ sku: "book" });
 ```
 
-You can read published state from a handler or from other application code. The Prosody client does not need an active subscription.
+Read published state from a handler or other application code. The Prosody client does not need an active subscription.
 
 Use the subsystem and the same definition to open a reader:
 
@@ -955,9 +939,11 @@ Strategies for achieving idempotence:
 
 ### Application shutdown
 
-`unsubscribe()` stops only the active subscription. Other client services continue to run.
+`unsubscribe()` stops only the active subscription.
 
-Call `shutdown()` when the application terminates. Shutdown stops the active subscription and all other client services. The client rejects new operations after shutdown.
+Call `shutdown()` when the application terminates. It stops the subscription and all client services.
+
+The client rejects new operations after shutdown.
 
 Call `unsubscribe()` only when the application will use the client again. You do not need to call `unsubscribe()` before `shutdown()`.
 
