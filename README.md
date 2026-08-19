@@ -248,9 +248,9 @@ if (client.isStalled) {
 
 ## Subsystems
 
-A consumer group ID groups the client processes that share records. Prosody also uses this ID to identify the group's keyed state. Callers must not depend on this stream design.
+A consumer group ID identifies a set of processes that share records and the keyed state that the group owns. A subsystem can include one or more services and consumer groups. If callers use these IDs, a refactor can require changes to each caller.
 
-A subsystem gives requests and published state a stable public name. One or more consumer groups can use this name. Their IDs can change without changing public interfaces. Prosody uses the first response to a subsystem request. It reads published state from one consumer group that publishes the state.
+A subsystem gives requests and published state one stable public name. Callers use this name instead of consumer group IDs. You can change its services and consumer groups without changing callers. Prosody uses the first response to a subsystem request. It reads published state from one consumer group that publishes the state.
 
 ## Requests
 
