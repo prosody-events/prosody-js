@@ -247,17 +247,23 @@ if (client.isStalled) {
 
 ## Subsystems
 
-Kafka uses a consumer group ID to make client processes share the work of processing records. This ID is a deployment detail.
+Kafka uses a consumer group ID for client processes that share records. Prosody uses this ID to separate the keyed state of each consumer group.
+
+The consumer group ID is part of the stream design. Applications must not use it in public interfaces for requests or published state.
 
 Applications need a stable name when they send requests or read published state.
 
 A subsystem provides a stable name. One or more consumer groups can use the same subsystem name.
 
-Callers use the subsystem name, not a consumer group ID. You can change the consumer groups without changing the callers.
+Prosody does not combine results from these consumer groups. A request uses the first response for the subsystem. A published-state read uses one consumer group that publishes the state.
+
+Callers use the subsystem name, not a consumer group ID. You can change the consumer groups. You do not need to change the callers.
 
 ## Requests
 
 A normal Kafka send does not return consumer results. A request lets a producer wait for results from selected subsystems.
+
+You can send a request from a handler or from other application code. The Prosody client does not need an active subscription.
 
 Requests return one outcome for each selected subsystem. The result map uses canonical subsystem names as keys.
 
@@ -267,7 +273,7 @@ Do not rely on map iteration order.
 
 Prosody rejects the request if it cannot produce the complete result map.
 
-Do not await a request from a handler for the same key and subsystem. The request cannot finish before that handler returns.
+Do not await a request if the current consumer group must process it for the same key. That group cannot process it until the handler returns.
 
 Message and excise handler return values become successful request outcomes. Each return value must have a JSON representation.
 
@@ -283,7 +289,7 @@ await client.subscribe({
 });
 ```
 
-Send a request without a subscription on the requester:
+Send the request:
 
 ```javascript
 const subsystems = ["inventory", "billing"];
@@ -648,7 +654,7 @@ A handler can process events for different keys concurrently. Prosody processes 
 
 A Kafka key identifies the entity for an event, such as a customer or order. Keyed state stores separate data for each key. Prosody selects the current message or timer key automatically.
 
-Keyed state survives a process restart. It also survives when Kafka assigns a partition to a different process. By default, Prosody commits keyed-state changes after the handler completes without an error. Prosody discards pending keyed-state changes from a failed attempt.
+With Cassandra, keyed state survives a process restart. It also survives when Kafka assigns a partition to a different process. By default, Prosody commits keyed-state changes after the handler completes without an error. Prosody discards pending keyed-state changes from a failed attempt.
 
 Use keyed state for counters, duplicate detection, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and unplanned queries. Repeated database reads can make stream processing slow and expensive.
 
@@ -656,7 +662,7 @@ Give most collections a time to live (TTL). Set the TTL beyond the longest timer
 
 ### A counter for each key
 
-Declare each collection once, register it on the client, and ask the event context for the current key's state:
+Declare each collection once. Register it on the client. In a handler, ask the event context for the current key's state:
 
 ```typescript
 const COUNT = value<number>("count", { ttlSeconds: 30 * 24 * 60 * 60 });
@@ -685,7 +691,7 @@ Each Kafka key now has an independent counter. A counter expires when that key h
 
 This example groups a burst of activity for one user. It sends the first event immediately. It collects later events for five minutes.
 
-The timer sends one summary when the window ends. The user ID is the Kafka key, so each user has an independent window.
+If later events arrive, the timer sends one summary when the window ends. The user ID is the Kafka key, so each user has an independent window.
 
 ```typescript
 const WINDOW = value<boolean>("window", { ttlSeconds: 24 * 60 * 60 });
@@ -729,7 +735,7 @@ See the complete, type-checked example for imports, types, client setup, and `no
 
 Why this works:
 
-- Register both definitions in `stateCollections` before subscribing. Keyed state uses Cassandra unless `mock: true`.
+- Register both definitions in `stateCollections` before you subscribe. Keyed state uses Cassandra unless `mock: true`.
 - Use `clearAndSchedule`, not `schedule`, so a retried event does not add another timer for the same key.
 - `capacity: 100` and the one-day TTL bound the saved backlog. Overflow drops the oldest message because this example only pushes.
 - A `messageDeque` requires the original Kafka messages during the window. Use `deque` when topic retention or compaction cannot provide them.
@@ -752,17 +758,17 @@ Do not reuse a durable name for a different collection kind or payload type. Cre
 
 All operations are asynchronous. Map and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
-Map keys are strings. `null` and `undefined` mean absence. Use `clear()` or `delete()` instead of storing them.
+Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
 
 ### When keyed-state changes become visible
 
 Reads inside a handler see earlier keyed-state writes from that handler. By default, Prosody buffers keyed-state changes until the event succeeds.
 
-Prosody then commits the keyed-state changes together. If the handler throws, Prosody discards its pending keyed-state changes. This transaction does not include other handler side effects.
+Prosody then commits the pending keyed-state changes. If the handler throws, Prosody discards its pending keyed-state changes. This transaction does not include other handler side effects.
 
 Each collection also offers explicit controls for workflows that need different behavior:
 
-- `readUncommitted: true` writes changes before Prosody records the event as complete. A crash can make these changes visible before a retry. Use this option only when repeated processing produces the same result.
+- `readUncommitted: true` writes changes before Prosody records the event as complete. A crash can make these changes visible before a retry. Use this option only when each retry writes the same state.
 - `commit()` commits the collection's pending changes before the handler ends. A later handler failure does not remove them.
 - `rollback()` discards pending changes since the last `commit()`. It cannot undo committed changes.
 
@@ -770,7 +776,9 @@ Each collection also offers explicit controls for workflows that need different 
 
 Handlers normally read state only for their current event key. Sometimes another service needs that state but must not consume the owner's Kafka topics.
 
-Published state provides this read-only access. Each publisher uses the subsystem name, enables publication, and registers the collection definition:
+Published state provides this read-only access.
+
+Configure the subsystem name on each publisher. Enable publication on the collection definition. Register the definition on the Prosody client:
 
 ```js
 const CURRENT_ORDER = value("current-order", { published: true });
@@ -785,7 +793,9 @@ const currentOrder = context.state(CURRENT_ORDER);
 await currentOrder.set({ sku: "book" });
 ```
 
-Another client uses the subsystem and the same definition to open a reader. The reader does not require a subscription:
+You can read published state from a handler or from other application code. The Prosody client does not need an active subscription.
+
+Use the subsystem and the same definition to open a reader:
 
 ```js
 const orderReader = await client.state("checkout", CURRENT_ORDER);
@@ -798,7 +808,7 @@ Map and deque readers fetch data in chunks. They do not load the complete collec
 
 The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache.
 
-To stop publication, deploy the definition with `published: false`. Keep the definition registered and keep its `subsystem` during that deployment.
+To stop publication, deploy the definition with `published: false`. Keep the definition registered during that deployment. Keep the subsystem configured during that deployment.
 
 ## OpenTelemetry Tracing
 
@@ -941,6 +951,8 @@ Strategies for achieving idempotence:
 
 ### Application shutdown
 
+`unsubscribe()` stops only the active subscription. Other client services continue to run.
+
 Call `shutdown()` when the application terminates. Shutdown stops the active subscription and all other client services. The client rejects new operations after shutdown.
 
 Call `unsubscribe()` only when the application will use the client again. You do not need to call `unsubscribe()` before `shutdown()`.
@@ -949,7 +961,7 @@ Call `unsubscribe()` only when the application will use the client again. You do
 await client.shutdown();
 ```
 
-Implement shutdown handling in your application:
+Handle application shutdown:
 
 ```javascript
 const { ProsodyClient } = require("@prosody-events/prosody");
