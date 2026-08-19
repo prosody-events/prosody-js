@@ -247,13 +247,13 @@ if (client.isStalled) {
 
 ## Subsystems
 
-Kafka consumer group IDs describe a deployment. Applications must not use these IDs as public interface names.
+Kafka uses a consumer group ID to make client processes share the work of processing records. This ID is a deployment detail.
 
-A subsystem gives one public name to one or more consumer groups. Request callers and published-state readers use the subsystem name, not a group ID.
+Applications need a stable name when they send requests or read published state.
 
-A subsystem works like an ingress. It keeps one public name while the consumer groups behind that name can change.
+A subsystem provides a stable name. One or more consumer groups can use the same subsystem name.
 
-Configure the same subsystem name on each client that must provide this interface.
+Callers use the subsystem name, not a consumer group ID. You can change the consumer groups without changing the callers.
 
 ## Requests
 
