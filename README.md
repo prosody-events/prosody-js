@@ -630,13 +630,13 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Handlers often need data from earlier events for the same entity. Process memory loses this data after a restart or partition reassignment.
+Many stream transformations must reason across multiple events or timer firings. Windows, state machines, aggregates, and complex event processing all require state.
 
-A Kafka key identifies an entity, such as a customer or order. Keyed state stores this data by key. With Cassandra, the state survives restarts and partition reassignment.
+A Kafka key identifies an entity, such as a customer or order. Keyed state gives each key independent working state for these transformations. With Cassandra, the state survives restarts and partition reassignment.
 
 Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. It commits state changes after a successful event and discards changes from a failed attempt.
 
-Use keyed state for counters, duplicate detection, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and unplanned queries.
+Use a database for business records, joins, and unplanned queries.
 
 Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it only when inactive keys must remain forever.
 
@@ -750,7 +750,9 @@ This transaction applies only to keyed state. Some workflows need state changes 
 
 ### Published state
 
-Other services sometimes need derived state. Without published state, they must consume the same topics and rebuild the state. Published state gives them read-only access to committed keyed state.
+Some callers need only the current value for a key. They can accept a stale value or a race with a concurrent update.
+
+Use topics and event sourcing when a consumer must process each state change in order. Use published state for direct, read-only lookup of committed keyed state. The caller does not need to consume the owner's topics or maintain a separate lookup store.
 
 Configure the subsystem name on each publisher. Enable publication on the collection definition. Register the definition on the Prosody client:
 
