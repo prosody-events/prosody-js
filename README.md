@@ -257,7 +257,9 @@ Kafka decouples producers from consumers, so a send does not return consumer res
 
 Send a request from a handler or other application code. The Prosody client does not need an active subscription. The result map uses canonical subsystem names as keys. Each value is a `Success` or `Failure` outcome. Use `requestExcise` to send an excise record and collect the same outcome type.
 
-Do not rely on map order. Prosody rejects a request if it cannot produce the complete result map. Do not await a request if the current consumer group must process it for the same key. That group cannot process it until the handler returns. Message and excise handler return values become successful outcomes. Each return value must have a JSON representation.
+Do not rely on map order. The map contains one entry for each selected subsystem. A missing response becomes a timeout `Failure`; Prosody does not omit the subsystem. The request rejects for request-level failures, such as invalid input, a Kafka send failure, or shutdown. Do not await a request if the current consumer group must process it for the same key. That group cannot process it until the handler returns.
+
+Message and excise handler return values become successful outcomes. Each return value must have a JSON representation.
 
 Set `subsystem` to `inventory` on the client that subscribes this handler.
 
