@@ -20,6 +20,10 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      retry_version:
+        description: "Rebuild and publish the current version without running Release Please"
+        required: false
+        type: string
       release_as:
         description: "Force release version (e.g. 2.2.0-beta.1)"
         required: false
@@ -30,11 +34,11 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.release_context.outputs.release_created }}
     steps:
       - uses: actions/checkout@v6
       - name: Release Please Action
+        if: inputs.retry_version == ''
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
@@ -42,6 +46,25 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           release-as: ${{ github.event.inputs.release_as }}
+
+      - name: Resolve release context
+        id: release_context
+        env:
+          RETRY_VERSION: ${{ inputs.retry_version }}
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+        run: |
+          if [[ -n "$RETRY_VERSION" ]]; then
+            package_version=$(node -p "require('./package.json').version")
+            if [[ "$RETRY_VERSION" != "$package_version" ]]; then
+              echo "::error::Retry version $RETRY_VERSION does not match package version $package_version"
+              exit 1
+            fi
+            release_created=true
+          else
+            release_created=${RELEASE_CREATED:-false}
+          fi
+
+          echo "release_created=$release_created" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [release-please]
