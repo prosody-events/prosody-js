@@ -1090,8 +1090,8 @@ your changes before merging to `main`.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
-- `request<R>(topic, key, payload, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
-- `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Send an excise request.
+- `request<R>(topic, key, payload: JsonValue, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
+- `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one excise outcome for each subsystem.
 - `consumerState(): Promise<ConsumerState>`: Get the current state of the consumer.
 - `assignedPartitionCount(): Promise<number>`: Get the assigned partition count.
 - `isStalled(): Promise<boolean>`: Test whether the consumer is stalled.
@@ -1114,9 +1114,9 @@ your changes before merging to `main`.
 Interface for handling messages and timers:
 
 - `EventHandler<P = JsonValue, R = JsonValue>` carries the payload and response types through each callback.
-- `onMessage: (context: Context, message: Message<P>, signal: AbortSignal) => Promise<R>`: Handles incoming messages.
-- `onExcise: (context: Context, message: ExciseMessage, signal: AbortSignal) => Promise<R>`: Handles excise records without a payload member.
-- `onTimer: (context: Context, timer: Timer, signal: AbortSignal) => Promise<void>`: Handles timer events.
+- `onMessage: (context, message, signal) => MaybePromise<R & JsonCompatible<R>>`: Handle incoming messages.
+- `onExcise: (context, message, signal) => MaybePromise<R & JsonCompatible<R>>`: Handle excise records.
+- `onTimer: (context, timer, signal) => MaybePromise<void>`: Handle timer events.
 
 ### Message
 
@@ -1131,10 +1131,9 @@ Represents a Kafka message with the following properties:
 
 `Message` takes an optional payload type parameter, `Message<P>`, used by handlers and message-backed state collections to type `payload`. Unparameterized `Message` is `Message<JsonValue>`, preserving useful JSON safety without requiring an application-specific payload type.
 
-`JsonValue` describes arbitrary JSON data. `JsonCompatible<T>` checks a known
-application type recursively, so ordinary interfaces work with `send()` while
-functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields are
-reported by TypeScript before the message reaches the serializer.
+`JsonValue` describes arbitrary JSON data. `JsonCompatible<T>` checks a known application type recursively.
+
+Ordinary interfaces work with `send()`. TypeScript rejects functions, `undefined`, `Date`, symbols, bigints, and invalid nested fields before serialization.
 
 ### ExciseMessage
 
@@ -1142,7 +1141,7 @@ An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, and `key` pr
 
 ### Context
 
-Represents the context of message processing:
+Represents the current event context:
 
 - `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
 - `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
@@ -1269,6 +1268,8 @@ Handler error types and decorators:
 ### Logging and telemetry
 
 - `Logger`: Provides `error`, `warn`, `info`, `debug`, and `trace` methods.
+- `initialize()`: Prepare the logging and tracing system during application startup.
+- `loggerIsSet()`: Test whether the application configured a logger.
 - `setLogger(logger)`: Replaces the logger.
 - `setLoggerIfUnset(logger)`: Sets the logger only when no logger exists.
 - `getCurrentLogger()`: Returns the current JavaScript logger.
