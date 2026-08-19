@@ -642,9 +642,7 @@ A Kafka key identifies an entity, such as a customer or order. Keyed state gives
 
 Prosody selects the current message or timer key. It processes one event at a time for that key but can process other keys concurrently. By default, it commits state changes after a successful event and discards changes from a failed attempt.
 
-Use a database for business records, joins, and unplanned queries.
-
-Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it only when inactive keys must remain forever.
+Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it when state must remain for inactive keys.
 
 ### A counter for each key
 
