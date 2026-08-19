@@ -626,15 +626,15 @@ client.subscribe(messageHandler);
 
 ## Keyed State
 
-Stream handlers usually receive one event at a time. Many decisions need facts from earlier events. Counters, activity windows, and workflows all need this memory.
+Stream handlers usually receive one event at a time. Many decisions need data from earlier events. Counters, activity windows, and workflows all need this data.
 
-A Kafka key identifies the entity for an event, such as a customer or order. Keyed state gives each key separate, durable memory. Prosody selects the current message or timer key automatically. Prosody also runs only one handler for that key at a time.
+A Kafka key identifies the entity for an event, such as a customer or order. Keyed state stores separate data for each key. Prosody selects the current message or timer key automatically. Prosody also runs only one handler for that key at a time.
 
-State survives process restarts and Kafka partition moves. By default, Prosody makes changes visible only after the event succeeds. A failed attempt cannot publish its pending changes.
+State survives a process restart. State also survives when Kafka assigns a partition to a different process. By default, Prosody makes changes visible after the handler completes without an error. A failed attempt cannot make its pending changes visible.
 
-Use keyed state for counters, deduplication, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and ad hoc queries. Repeated database reads can make stream processing slow and expensive.
+Use keyed state for counters, duplicate detection, rolling totals, pending work, and per-key workflows. Use a database for business records, joins, and unplanned queries. Repeated database reads can make stream processing slow and expensive.
 
-Give most collections a TTL. Set the TTL beyond the longest timer or workflow that uses the collection. Omit it only when inactive keys must remain forever.
+Give most collections a time to live (TTL). Set the TTL beyond the longest timer or workflow that uses the collection. Omit it only when inactive keys must remain forever.
 
 ### A counter for each key
 
@@ -716,7 +716,7 @@ Why this works:
 - `capacity: 100` and the one-day TTL bound the saved backlog. Overflow drops the oldest message because this example only pushes.
 - A `messageDeque` requires the original Kafka messages during the window. Use `deque` when topic retention or compaction cannot provide them.
 - Prosody runs one handler at a time for each key, so a user's message and timer handlers cannot overlap.
-- A notification is outside the state transaction. A retry can send it again. Use a stable idempotency key when duplicates matter.
+- A notification is outside the state transaction. A retry can send it again. Use a stable operation ID to reject duplicate notifications.
 
 ### Collections and handles
 
@@ -750,7 +750,7 @@ Each collection also offers explicit controls for workflows that need different 
 
 ### Published state
 
-Handlers normally read state only for their current event key. Sometimes another service needs that state without consuming the owner's Kafka topics.
+Handlers normally read state only for their current event key. Sometimes another service needs that state but must not consume the owner's Kafka topics.
 
 Published state provides this read-only access. The owner enables publication, names its subsystem, and registers the collection definition:
 
