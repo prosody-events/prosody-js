@@ -68,7 +68,7 @@ jobs:
 
   build:
     needs: [release-please]
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: needs.release-please.outputs.release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -265,7 +265,7 @@ jobs:
       - release-please
       - build
       - test-linux-bindings
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: needs.release-please.outputs.release_created == 'true'
     steps:
       - uses: actions/checkout@v6
       - name: Setup node
