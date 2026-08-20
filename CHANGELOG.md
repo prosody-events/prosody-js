@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/prosody-events/prosody-js/compare/prosody-v0.5.0...prosody-v0.5.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* require a created JavaScript release ([#60](https://github.com/prosody-events/prosody-js/issues/60)) ([1729fc8](https://github.com/prosody-events/prosody-js/commit/1729fc8c586bc3e58e87bd49616a36d0efcebee7))
+* support JavaScript release retries ([#58](https://github.com/prosody-events/prosody-js/issues/58)) ([2ed9310](https://github.com/prosody-events/prosody-js/commit/2ed931065c1ea7a505b7c552e805e2d94aedc36f))
+* update mimalloc for thread lifecycle safety ([#61](https://github.com/prosody-events/prosody-js/issues/61)) ([541cda9](https://github.com/prosody-events/prosody-js/commit/541cda9f6a19f0696abe08d09b2dc09fe1048a24))
+
 ## [0.5.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.4.0...prosody-v0.5.0) (2026-08-19)
 
 
