@@ -201,7 +201,7 @@ export type ScanDirection = "forward" | "backward";
 export interface StateDefinitionOptions {
   /**
    * Optional per-write TTL in whole seconds. Must be at least 1 and must
-   * exceed the client's recovery delay (enforced core-side).
+   * stay within the Cassandra TTL limit.
    */
   ttlSeconds?: number;
   /**

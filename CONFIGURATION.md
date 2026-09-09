@@ -146,7 +146,6 @@ Register keyed-state collections before you subscribe. Persistence is backed by 
 | `stateOwnedCacheSize` / `PROSODY_STATE_OWNED_CACHE_SIZE`     | Capacity of the owning keyed-state cache; accepts sizes such as `64 MiB` or `500 MB`                                                                                                                                                   | storage-engine default                                                              |
 | `stateReadCacheSize` / `PROSODY_STATE_READ_CACHE_SIZE`       | Capacity of the published-state read-through cache; accepts sizes such as `1 MiB`                                                                                                                                                      | `stateOwnedCacheSize` or `PROSODY_STATE_OWNED_CACHE_SIZE` when set; otherwise 1 MiB |
 | `stateReadCache` / `PROSODY_STATE_READ_CACHE_TTL`            | Default published-read cache policy. Use `{ ttlMs }` or `{ disabled: true }`; the environment value `none` disables it                                                                                                                 | 5s                                                                                  |
-| `stateRecoveryDelaySeconds` / `PROSODY_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                                                                                 |
 
 Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Prefer the definition constructors from the [API reference](README.md#api-reference). They serialize into `stateCollections`, so you can reuse the same object with `context.state()`.
 
@@ -157,7 +156,7 @@ Published collections require `subsystem`. Keep it configured for one deployment
 | `name`            | Collection name; non-empty and unique within the client                                                          | (required) |
 | `kind`            | `"value"`, `"map"`, or `"deque"`                                                                                 | (required) |
 | `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received)                              | (required) |
-| `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)                                      | (none)     |
+| `ttlSeconds`      | Per-write TTL in whole seconds (at least 1)                                      | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                                              | false      |
 | `published`       | Allow other clients to read this JSON collection without subscribing                                             | false      |
 | `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted                                     | inherit    |

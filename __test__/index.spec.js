@@ -2852,19 +2852,6 @@ describe("keyed state configuration validation", () => {
     },
   );
 
-  // Regression: stateRecoveryDelaySeconds arrives as f64, so negative and
-  // fractional values reach the whole-number guard instead of wrapping or
-  // truncating through a u32 coercion.
-  it.each([-1, 2.5, NaN, Infinity])(
-    "rejects non-whole stateRecoveryDelaySeconds %p",
-    async (stateRecoveryDelaySeconds) => {
-      await rejectsConfig(
-        makeConfig({ stateRecoveryDelaySeconds }),
-        /stateRecoveryDelaySeconds: must be a whole number/,
-      );
-    },
-  );
-
   it("accepts the full canonical collection set", async () => {
     await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
   });

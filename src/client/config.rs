@@ -271,14 +271,6 @@ pub struct Configuration {
     /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
     pub state_read_cache: Option<ReadCacheConfiguration>,
 
-    /// Delay in whole seconds between staging a provisional cell and the
-    /// keyed-state recovery sweep. Every registered TTL must strictly exceed
-    /// this. Falls back to the `PROSODY_STATE_RECOVERY_DELAY` environment
-    /// variable (a duration string such as `30s`), then to 30 seconds. Must be
-    /// a whole number of seconds >= 1 when set (fractional, negative, and
-    /// non-finite values are rejected).
-    pub state_recovery_delay_seconds: Option<f64>,
-
     /// Subsystem under which published JSON collections are advertised.
     /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
     pub subsystem: Option<String>,
@@ -320,7 +312,7 @@ pub struct StateCollectionConfig {
 
     /// Optional per-write TTL in whole seconds. Must be a whole number >= 1
     /// (fractional, negative, and non-finite values are rejected) and must
-    /// exceed the recovery delay (the latter checked at consumer build).
+    /// stay within the Cassandra TTL limit.
     pub ttl_seconds: Option<f64>,
 
     /// Optional opt-out of transactional staging (read-uncommitted, at-least
@@ -979,11 +971,6 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
 
     if let Some(dir) = &config.state_cache_dir {
         builder.cache_dir(PathBuf::from(dir));
-    }
-
-    if let Some(seconds) = config.state_recovery_delay_seconds {
-        let seconds = whole_number_field(seconds, "stateRecoveryDelaySeconds", 0, u32::MAX)?;
-        builder.recovery_delay(CompactDuration::new(seconds));
     }
 
     if let Some(size) = &config.state_owned_cache_size {
