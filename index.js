@@ -173,23 +173,6 @@ function setLoggerIfUnset(logger) {
  * Main client for interacting with Prosody messaging system.
  * Provides functionality for sending messages, subscribing to topics, and managing consumer state.
  */
-let recoveryDelayWarned = false;
-
-/**
- * Emits the recovery-delay deprecation warning once per process. The option
- * has no effect: keyed-state recovery uses the commit evidence in each
- * collection.
- * @private
- */
-function warnRecoveryDelay() {
-  if (recoveryDelayWarned) return;
-  recoveryDelayWarned = true;
-  process.emitWarning(
-    "stateRecoveryDelaySeconds has no effect. Remove it from the configuration.",
-    { type: "DeprecationWarning", code: "PROSODY_STATE_RECOVERY_DELAY" },
-  );
-}
-
 class ProsodyClient {
   /**
    * Use {@link ProsodyClient.create}.
@@ -206,9 +189,6 @@ class ProsodyClient {
    * @returns {Promise<ProsodyClient>} The initialized client.
    */
   static async create(config) {
-    if (config?.stateRecoveryDelaySeconds !== undefined) {
-      warnRecoveryDelay();
-    }
     const client = Object.create(ProsodyClient.prototype);
     client.nativeClient = await NativeClient.create(config);
     return client;

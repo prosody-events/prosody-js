@@ -67,10 +67,6 @@ const config: Configuration = {
 };
 void config;
 
-// The recovery delay stays in the type as a deprecated no-op.
-const legacy: Configuration = { stateRecoveryDelaySeconds: 30 };
-void legacy;
-
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
 declare const publishedCart: PublishedValue<Cart>;
