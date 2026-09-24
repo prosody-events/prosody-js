@@ -736,12 +736,12 @@ A definition sets a collection's durable name, kind, and options. Register it on
 
 Do not reuse a durable name for a different collection kind or payload type. Create handles inside the handler. Do not retain handles or iterators.
 
-| Collection         | JSON payload | Kafka message     | Main operations                                                      |
-| ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
-| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                |
-| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `set`, `delete`, `entries`, `keys`, `clear` |
-| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear` |
-| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `values`, `clear`      |
+| Collection         | JSON payload | Kafka message     | Main operations                                                                            |
+| ------------------ | ------------ | ----------------- | ------------------------------------------------------------------------------------------ |
+| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                                      |
+| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `set`, `delete`, `entries`, `keys`, `clear` |
+| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear`                       |
+| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `values`, `clear`                            |
 
 All operations are asynchronous. Map, set, and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
@@ -1260,6 +1260,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `get(key: string): Promise<V | null>`
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`
 - `has(key: string): Promise<boolean>`
+- `hasMany(keys: readonly string[]): Promise<boolean[]>`
+- `isEmpty(): Promise<boolean>`
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
@@ -1303,7 +1305,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 
-Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
 `StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
 

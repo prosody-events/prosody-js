@@ -557,6 +557,13 @@ export declare class MapState<V = JsonValue> {
    */
   has(key: string): Promise<boolean>;
   /**
+   * Tests several keys for presence in one read. `result[i]` answers
+   * `keys[i]`. Like {@link MapState#has}, it skips the value decode.
+   */
+  hasMany(keys: readonly string[]): Promise<boolean[]>;
+  /** Reports whether the map holds no live entries. */
+  isEmpty(): Promise<boolean>;
+  /**
    * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
    * (via {@link !NonNullable}) because a top-level `null` is not a storable
    * value — writing one (or an unrepresentable value) is a caller mistake,
@@ -970,6 +977,8 @@ export declare class PublishedMap<V = JsonValue> {
   get(key: string, mapKey: string): Promise<V | null>;
   getMany(key: string, mapKeys: string[]): Promise<Array<V | null>>;
   has(key: string, mapKey: string): Promise<boolean>;
+  hasMany(key: string, mapKeys: readonly string[]): Promise<boolean[]>;
+  isEmpty(key: string): Promise<boolean>;
   entries(
     key: string,
     options?: ScanDirection | KeyQuery,

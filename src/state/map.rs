@@ -92,6 +92,44 @@ impl NativeJsonMapState {
             .map_err(|e| state_error(&e))
     }
 
+    /// Tests several keys for presence in one read.
+    ///
+    /// Returns one result per key, in input order. Like `contains`, it skips
+    /// the value decode and the resolver.
+    ///
+    /// @param keys The keys to test, in order.
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns One presence result per input key.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn contains_many(
+        &self,
+        keys: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<Vec<bool>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.state
+            .contains_many(keys)
+            .with_context(context)
+            .await
+            .map_err(|e| state_error(&e))
+    }
+
+    /// Reports whether the map holds no live entries.
+    ///
+    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @returns True when the map is empty.
+    /// @throws Error carrying the category on `cause` if the read fails.
+    #[napi(writable = false)]
+    pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.state
+            .is_empty()
+            .with_context(context)
+            .await
+            .map_err(|e| state_error(&e))
+    }
+
     /// Inserts or overwrites `key` with a JSON document.
     ///
     /// JSON null is rejected with a transient error naming `delete` as the way
@@ -242,6 +280,32 @@ impl NativeMessageMapState {
         let context = op_context(&self.propagator, &otel_context);
         self.state
             .contains_key(key)
+            .with_context(context)
+            .await
+            .map_err(|e| state_error(&e))
+    }
+
+    /// Tests several keys for presence in one read.
+    #[napi(writable = false)]
+    pub async fn contains_many(
+        &self,
+        keys: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> napi::Result<Vec<bool>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.state
+            .contains_many(keys)
+            .with_context(context)
+            .await
+            .map_err(|e| state_error(&e))
+    }
+
+    /// Reports whether the map has no live entries.
+    #[napi(writable = false)]
+    pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.state
+            .is_empty()
             .with_context(context)
             .await
             .map_err(|e| state_error(&e))

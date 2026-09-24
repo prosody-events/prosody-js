@@ -1236,6 +1236,16 @@ class PublishedMap {
     return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
   }
 
+  hasMany(key, mapKeys) {
+    return stateOp((carrier) =>
+      this.native.containsMany(key, mapKeys, carrier),
+    );
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
   entries(key, options) {
     const query = keyQuery(options);
     return stateIterator(
@@ -1671,6 +1681,26 @@ class MapState extends StateHandle {
    */
   has(key) {
     return stateOp((carrier) => this.native.contains(key, carrier));
+  }
+
+  /**
+   * Tests several keys for presence in one read. `result[i]` answers
+   * `keys[i]`. Like {@link MapState#has}, it skips the value decode.
+   * @param {string[]} keys - The keys to test, in order.
+   * @returns {Promise<boolean[]>} One presence result per key.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  hasMany(keys) {
+    return stateOp((carrier) => this.native.containsMany(keys, carrier));
+  }
+
+  /**
+   * Reports whether the map holds no live entries.
+   * @returns {Promise<boolean>} True when the map is empty.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  isEmpty() {
+    return stateOp((carrier) => this.native.isEmpty(carrier));
   }
 
   /**

@@ -108,6 +108,37 @@ impl NativePublishedMap {
             .map_err(|error| read_error(&error))
     }
 
+    /// Tests committed presence aligned with the supplied map keys.
+    #[napi(writable = false)]
+    pub async fn contains_many(
+        &self,
+        key: String,
+        map_keys: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Vec<bool>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .contains_many(key, map_keys)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reports whether the committed map is empty.
+    #[napi(writable = false)]
+    pub async fn is_empty(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .is_empty(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
     /// Opens a cursor over the selected entries.
     #[napi(writable = false)]
     pub fn entries(&self, key: String, query: NativeKeyQuery) -> Result<NativeJsonMapCursor> {
@@ -195,7 +226,11 @@ impl NativePublishedSet {
     #[napi(writable = false)]
     pub fn keys(&self, key: String, query: NativeKeyQuery) -> Result<NativeKeyCursor> {
         Ok(NativeKeyCursor {
-            cursor: self.inner.keys(key).with_query(query.into_query()?).stream(),
+            cursor: self
+                .inner
+                .keys(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

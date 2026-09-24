@@ -155,6 +155,8 @@ test.each([
 test("published state uses the owned read method names", async () => {
   const mapNative = {
     contains: jest.fn().mockResolvedValue(true),
+    containsMany: jest.fn().mockResolvedValue([true, false]),
+    isEmpty: jest.fn().mockResolvedValue(true),
   };
   const dequeNative = {
     isEmpty: jest.fn().mockResolvedValue(false),
@@ -162,7 +164,19 @@ test("published state uses the owned read method names", async () => {
     peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
   };
 
-  expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
+  const mapState = new PublishedMap(mapNative);
+  expect(await mapState.has("user-1", "item")).toBe(true);
+  expect(await mapState.hasMany("user-1", ["item", "gone"])).toEqual([
+    true,
+    false,
+  ]);
+  expect(mapNative.containsMany).toHaveBeenCalledWith(
+    "user-1",
+    ["item", "gone"],
+    expect.any(Object),
+  );
+  expect(await mapState.isEmpty("user-1")).toBe(true);
+  expect(mapNative.isEmpty).toHaveBeenCalledWith("user-1", expect.any(Object));
   const dequeState = new PublishedDeque(dequeNative);
   expect(await dequeState.isEmpty("user-1")).toBe(false);
   expect(await dequeState.at("user-1", 0)).toBe("first");
@@ -1655,11 +1669,15 @@ describe("ProsodyClient", () => {
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
           try {
+            const emptyBefore = await m.isEmpty();
             await m.set("a", 1);
             await m.set("b", { v: 2 });
             messageStream.push({
               result: await m.getMany(["a", missing, "b"]),
               empty: await m.getMany([]),
+              present: await m.hasMany(["b", missing, "a"]),
+              emptyBefore,
+              emptyAfter: await m.isEmpty(),
             });
           } catch (e) {
             messageStream.push({ error: e.message });
@@ -1678,6 +1696,10 @@ describe("ProsodyClient", () => {
       expect(obs.result).toEqual(expect.arrayContaining([1, { v: 2 }, null]));
       // asking for no keys gives back an empty array.
       expect(obs.empty).toEqual([]);
+      // hasMany answers each key in input order; isEmpty sees the writes.
+      expect(obs.present).toEqual([true, false, true]);
+      expect(obs.emptyBefore).toBe(true);
+      expect(obs.emptyAfter).toBe(false);
     });
 
     // C3 — Deque FFI boundary: elements (rich JSON) marshal through push ->
@@ -2874,11 +2896,20 @@ describe("keyed state (unit)", () => {
   // straight through to the native clear.
   it("map has() rides native contains and deque clear() passes through", async () => {
     const m = new MapState(
-      { contains: async (key) => key === "present" },
+      {
+        contains: async (key) => key === "present",
+        containsMany: async (keys) => keys.map((key) => key === "present"),
+        isEmpty: async () => false,
+      },
       RAW_ITEMS,
     );
     await expect(m.has("present")).resolves.toBe(true);
     await expect(m.has("absent")).resolves.toBe(false);
+    await expect(m.hasMany(["absent", "present"])).resolves.toEqual([
+      false,
+      true,
+    ]);
+    await expect(m.isEmpty()).resolves.toBe(false);
 
     let cleared = false;
     const d = new DequeState(

@@ -93,6 +93,12 @@ export async function checks(): Promise<void> {
     Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
   >();
   assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTotals.hasMany>>, boolean[]>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTotals.isEmpty>>, boolean>
+  >();
   for await (const [key, total] of publishedTotals.entries("user-1")) {
     assertTrue<Equal<typeof key, string>>();
     assertTrue<Equal<typeof total, number>>();
@@ -129,6 +135,9 @@ export async function checks(): Promise<void> {
   const many = await t.getMany([incoming.key, "other"]);
   assertTrue<Equal<typeof many, (number | null)[]>>();
   assertTrue<Equal<Awaited<ReturnType<typeof t.has>>, boolean>>();
+  const presence = await t.hasMany([incoming.key, "other"]);
+  assertTrue<Equal<typeof presence, boolean[]>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.isEmpty>>, boolean>>();
   await t.delete(incoming.key);
   for await (const [key, total] of t.entries("backward")) {
     assertTrue<Equal<typeof key, string>>();
