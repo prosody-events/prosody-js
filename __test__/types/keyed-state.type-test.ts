@@ -6,6 +6,7 @@
 import {
   Configuration,
   Context,
+  Demand,
   DequeState,
   JsonValue,
   KeyQuery,
@@ -74,6 +75,13 @@ declare const publishedTags: PublishedDeque<string>;
 declare const publishedSeen: PublishedSet;
 
 export async function checks(): Promise<void> {
+  // ---- demand ----
+  assertTrue<Equal<typeof context.demand, Demand>>();
+  assertTrue<Equal<Demand["kind"], "normal" | "failure">>();
+  assertTrue<Equal<Demand["retry"], number>>();
+  // @ts-expect-error the demand is read-only
+  context.demand.retry = 2;
+
   // ---- overload resolution returns the exact handle types ----
   const c = context.state(cart);
   assertTrue<Equal<typeof c, ValueState<Cart>>>();

@@ -1008,6 +1008,7 @@ describe("ProsodyClient", () => {
     return tracer.startActiveSpan("test.transient_error", async (span) => {
       try {
         let messageCount = 0;
+        const demands = [];
         const retryEvent = new EventEmitter();
 
         class TransientErrorHandler {
@@ -1016,6 +1017,11 @@ describe("ProsodyClient", () => {
             return tracer.startActiveSpan("test.onMessage", async (span) => {
               try {
                 messageCount++;
+                demands.push({
+                  demand: context.demand,
+                  frozen: Object.isFrozen(context.demand),
+                  stable: context.demand === context.demand,
+                });
                 if (messageCount === 1) {
                   throw new Error("Transient error occurred");
                 } else {
@@ -1035,6 +1041,11 @@ describe("ProsodyClient", () => {
         });
 
         await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
+        // The first attempt is normal demand; the retry carries ordinal 1.
+        expect(demands.slice(0, 2)).toEqual([
+          { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
+          { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },
+        ]);
       } finally {
         span.end();
       }

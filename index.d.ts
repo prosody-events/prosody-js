@@ -81,10 +81,28 @@ export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
 export type ExciseMessage = NativeExciseMessage;
 
 /**
+ * The demand that started a handler invocation.
+ */
+export interface Demand {
+  /** `"normal"` for a first attempt, or `"failure"` for a retry. */
+  readonly kind: "normal" | "failure";
+  /**
+   * The retry ordinal: 0 for normal demand and 1 on the first retry. It is
+   * an estimate. Keep an exact attempt count in keyed state if you need one.
+   */
+  readonly retry: number;
+}
+
+/**
  * Wrapper around `MessageContext` for use in Node.js bindings.
  * Automatically injects OpenTelemetry context for all operations.
  */
 export declare class Context {
+  /**
+   * The demand that started this handler invocation. The value is frozen.
+   */
+  get demand(): Demand;
+
   /**
    * Checks whether cancellation has been signaled.
    * Cancellation includes message-level cancellation (e.g., timeout) and partition shutdown. During shutdown, cancellation is delayed until near the end of the shutdown timeout to allow in-flight work to complete.

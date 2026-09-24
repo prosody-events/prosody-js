@@ -2101,6 +2101,8 @@ class DequeState extends StateHandle {
 class Context {
   constructor(nativeContext) {
     this.nativeContext = nativeContext;
+    // The frozen demand, read from the native context on first access.
+    this.cachedDemand = undefined;
     // Cache of vended state wrappers, keyed by collection name (names are
     // unique per registration), so repeated state(def) calls within one event
     // return the same handle.
@@ -2114,6 +2116,19 @@ class Context {
    */
   get shouldCancel() {
     return this.nativeContext.shouldCancel;
+  }
+
+  /**
+   * The demand that started this handler invocation. `kind` is `"normal"` for
+   * a first attempt and `"failure"` for a retry after a failure. `retry` is
+   * the retry ordinal: 0 for normal demand and 1 on the first retry. The
+   * ordinal is an estimate. Keep an exact attempt count in keyed state if you
+   * need one.
+   * @returns {Readonly<{kind: "normal"|"failure", retry: number}>} The frozen demand.
+   */
+  get demand() {
+    this.cachedDemand ??= Object.freeze({ ...this.nativeContext.demand });
+    return this.cachedDemand;
   }
 
   /**
