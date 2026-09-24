@@ -2,8 +2,9 @@
 
 use super::{
     Arc, BinaryPayload, BoxMapState, ConsumerMessage, FutureExt, HashMap, Message, MessageItem,
-    NativeJsonMapCursor, NativeMapKeyCursor, NativeMessageMapCursor, TextMapCompositePropagator,
-    json_payload, json_value, message_value, napi, op_context, parse_direction, state_error,
+    NativeJsonMapCursor, NativeKeyCursor, NativeKeyQuery, NativeMessageMapCursor,
+    TextMapCompositePropagator, json_payload, json_value, message_value, napi, op_context,
+    state_error,
 };
 
 /// JSON ordered-map state handle for one event.
@@ -149,40 +150,42 @@ impl NativeJsonMapState {
             .map_err(|e| state_error(&e))
     }
 
-    /// Opens a demand-driven cursor over the live entries in key order.
+    /// Opens a demand-driven cursor over the selected entries.
     ///
     /// Synchronous — it performs no I/O. The first chunk pull starts the read
     /// under that pull's trace context. Entries are yielded as `(key, value)`
     /// pairs.
     ///
-    /// @param direction The scan direction (`"forward"` or `"backward"`).
+    /// @param query The query options.
     /// @returns A cursor over the map entries.
-    /// @throws Error if the direction token is invalid.
+    /// @throws Error (transient) if an option is invalid.
     #[napi(writable = false)]
-    pub fn scan(&self, direction: String) -> napi::Result<NativeJsonMapCursor> {
-        let dir = parse_direction(direction)?;
+    pub fn entries(&self, query: NativeKeyQuery) -> napi::Result<NativeJsonMapCursor> {
         Ok(NativeJsonMapCursor {
-            cursor: self.state.entries().direction(dir).stream(),
+            cursor: self
+                .state
+                .entries()
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
 
-    /// Opens a demand-driven cursor over the live KEYS in key order.
+    /// Opens a demand-driven cursor over the selected KEYS.
     ///
     /// Skips the value codec and the resolver (no value decode, no Kafka
     /// fetch), so a message-backed map enumerates keys with zero Kafka
     /// fetches — but it still reads presence, so it is not zero-I/O.
-    /// Synchronous like `scan`: the first chunk pull starts the read. Yields
-    /// bare keys.
+    /// Synchronous like `entries`: the first chunk pull starts the read.
+    /// Yields bare keys.
     ///
-    /// @param direction The scan direction (`"forward"` or `"backward"`).
+    /// @param query The query options.
     /// @returns A cursor over the map keys.
-    /// @throws Error if the direction token is invalid.
+    /// @throws Error (transient) if an option is invalid.
     #[napi(writable = false)]
-    pub fn keys(&self, direction: String) -> napi::Result<NativeMapKeyCursor> {
-        let dir = parse_direction(direction)?;
-        Ok(NativeMapKeyCursor {
-            cursor: self.state.keys().direction(dir).stream(),
+    pub fn keys(&self, query: NativeKeyQuery) -> napi::Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self.state.keys().with_query(query.into_query()?).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -289,22 +292,24 @@ impl NativeMessageMapState {
             .map_err(|e| state_error(&e))
     }
 
-    /// Opens a cursor over entries in key order.
+    /// Opens a cursor over the selected entries.
     #[napi(writable = false)]
-    pub fn scan(&self, direction: String) -> napi::Result<NativeMessageMapCursor> {
-        let dir = parse_direction(direction)?;
+    pub fn entries(&self, query: NativeKeyQuery) -> napi::Result<NativeMessageMapCursor> {
         Ok(NativeMessageMapCursor {
-            cursor: self.state.entries().direction(dir).stream(),
+            cursor: self
+                .state
+                .entries()
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
 
-    /// Opens a cursor over keys in key order.
+    /// Opens a cursor over the selected keys.
     #[napi(writable = false)]
-    pub fn keys(&self, direction: String) -> napi::Result<NativeMapKeyCursor> {
-        let dir = parse_direction(direction)?;
-        Ok(NativeMapKeyCursor {
-            cursor: self.state.keys().direction(dir).stream(),
+    pub fn keys(&self, query: NativeKeyQuery) -> napi::Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self.state.keys().with_query(query.into_query()?).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

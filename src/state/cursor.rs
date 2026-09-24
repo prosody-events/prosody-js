@@ -54,7 +54,7 @@ native_cursor!(
     (String, Message),
     |(key, message)| Ok((key, Message::new(message)))
 );
-native_cursor!(NativeMapKeyCursor, String, String, Ok);
+native_cursor!(NativeKeyCursor, String, String, Ok);
 
 /// Pulls one ready chunk from a cursor and converts its items.
 ///

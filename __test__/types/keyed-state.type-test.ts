@@ -8,9 +8,11 @@ import {
   Context,
   DequeState,
   JsonValue,
+  KeyQuery,
   MapState,
   Message,
   PermanentStateError,
+  PositionQuery,
   PublishedDeque,
   PublishedMap,
   PublishedValue,
@@ -137,6 +139,66 @@ export async function checks(): Promise<void> {
     assertTrue<Equal<typeof v, number>>();
     void v;
   }
+
+  // ---- queries: every option, reusable as plain values ----
+  const page: KeyQuery = {
+    direction: "backward",
+    prefix: "user-",
+    after: "user-9",
+    before: "user-1",
+    limit: 50,
+  };
+  for await (const [key, total] of t.entries(page)) {
+    assertTrue<Equal<typeof key, string>>();
+    assertTrue<Equal<typeof total, number>>();
+    void key;
+    void total;
+  }
+  for await (const key of t.keys({ from: "a", to: "b" })) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const v of t.values({ limit: 1 })) {
+    assertTrue<Equal<typeof v, number>>();
+    void v;
+  }
+  const window: PositionQuery = { from: 1, before: 10, limit: 5 };
+  for await (const item of d.values(window)) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  for await (const item of d.values({ direction: "backward", after: 3 })) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  for await (const [key] of publishedTotals.entries("user-1", page)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const key of publishedTotals.keys("user-1", { prefix: "a" })) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const total of publishedTotals.values("user-1", { to: "z" })) {
+    assertTrue<Equal<typeof total, number>>();
+    void total;
+  }
+  for await (const tag of publishedTags.values("user-1", window)) {
+    assertTrue<Equal<typeof tag, string>>();
+    void tag;
+  }
+  // @ts-expect-error from and after are exclusive
+  t.keys({ from: "a", after: "b" });
+  // @ts-expect-error to and before are exclusive
+  t.entries({ to: "a", before: "b" });
+  // @ts-expect-error key bounds are strings
+  t.keys({ from: 1 });
+  // @ts-expect-error deque positions are numbers
+  d.values({ from: "a" });
+  // @ts-expect-error deque queries have no prefix
+  d.values({ prefix: "a" });
+  // @ts-expect-error the query direction is the closed ScanDirection set
+  t.values({ direction: "sideways" });
 
   // ---- deque ----
   await d.push("a");

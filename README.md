@@ -744,6 +744,38 @@ Do not reuse a durable name for a different collection kind or payload type. Cre
 
 All operations are asynchronous. Map and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
+### Query a collection
+
+Map `entries`, `keys`, and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the cells it selects.
+
+| Option           | Effect                                                  |
+| ---------------- | ------------------------------------------------------- |
+| `direction`      | `"forward"` (the default) or `"backward"`               |
+| `from` / `after` | Start at a bound, or start after it. Set at most one.   |
+| `to` / `before`  | Stop at a bound, or stop before it. Set at most one.    |
+| `prefix`         | Keep keys that start with a prefix. Keys only.          |
+| `limit`          | Return at most this many items. Use a positive integer. |
+
+Bounds are in query order, so a backward query starts at the high end. Bounds and `prefix` narrow the selection. Deque positions count from the front and cannot be negative.
+
+To page through a map, pass the last key of the previous page as `after`:
+
+```typescript
+const ORDERS = map<Order>("orders");
+
+async function orderPage(context: Context, after?: string) {
+  const page: [string, Order][] = [];
+  for await (const entry of context
+    .state(ORDERS)
+    .entries({ after, limit: 50 })) {
+    page.push(entry);
+  }
+  return page; // Pass page.at(-1)?.[0] as `after` for the next page.
+}
+```
+
+Set `direction: "backward"` to page from the highest key down.
+
 Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
 
 ### When keyed-state changes become visible
@@ -1217,9 +1249,9 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
-- `entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>`
-- `keys(direction?: ScanDirection): AsyncIterableIterator<string>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<V>`
+- `entries(options?: ScanDirection | KeyQuery): AsyncIterableIterator<[string, V]>`
+- `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
 - `commit(): Promise<void>`
 - `rollback(): Promise<void>`
@@ -1234,14 +1266,16 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `isEmpty(): Promise<boolean>`
 - `clear(): Promise<void>`
 - `at(index: number): Promise<T | null>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<T>`
+- `values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
 - `commit(): Promise<void>`
 - `rollback(): Promise<void>`
 
 `ScanDirection`: `"forward" | "backward"`.
 
-Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
+`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
 `StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
 

@@ -37,7 +37,7 @@ const handler = {
 
     const totals = context.state(TOTALS);
     await totals.set(message.key, message.payload.total);
-    for await (const [key, total] of totals) {
+    for await (const [key, total] of totals.entries({ limit: 10 })) {
       console.info(`${key}=${total.toFixed(2)}`);
     }
 

@@ -1,8 +1,8 @@
 //! Native read-only views over published keyed state.
 
 use crate::state::{
-    NativeJsonDequeCursor, NativeJsonMapCursor, NativeMapKeyCursor, json_text, op_context,
-    parse_direction,
+    NativeJsonDequeCursor, NativeJsonMapCursor, NativeKeyCursor, NativeKeyQuery,
+    NativePositionQuery, json_text, op_context,
 };
 use napi::{Error, Result};
 use napi_derive::napi;
@@ -106,22 +106,28 @@ impl NativePublishedMap {
             .map_err(|error| read_error(&error))
     }
 
-    /// Opens an ordered entry cursor.
+    /// Opens a cursor over the selected entries.
     #[napi(writable = false)]
-    pub fn scan(&self, key: String, direction: String) -> Result<NativeJsonMapCursor> {
-        let direction = parse_direction(direction)?;
+    pub fn entries(&self, key: String, query: NativeKeyQuery) -> Result<NativeJsonMapCursor> {
         Ok(NativeJsonMapCursor {
-            cursor: self.inner.entries(key).direction(direction).stream(),
+            cursor: self
+                .inner
+                .entries(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
 
-    /// Opens an ordered key cursor.
+    /// Opens a cursor over the selected keys.
     #[napi(writable = false)]
-    pub fn keys(&self, key: String, direction: String) -> Result<NativeMapKeyCursor> {
-        let direction = parse_direction(direction)?;
-        Ok(NativeMapKeyCursor {
-            cursor: self.inner.keys(key).direction(direction).stream(),
+    pub fn keys(&self, key: String, query: NativeKeyQuery) -> Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self
+                .inner
+                .keys(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -216,12 +222,15 @@ impl NativePublishedDeque {
         value.map(json_text).transpose()
     }
 
-    /// Opens an ordered element cursor.
+    /// Opens a cursor over the selected elements.
     #[napi(writable = false)]
-    pub fn scan(&self, key: String, direction: String) -> Result<NativeJsonDequeCursor> {
-        let direction = parse_direction(direction)?;
+    pub fn values(&self, key: String, query: NativePositionQuery) -> Result<NativeJsonDequeCursor> {
         Ok(NativeJsonDequeCursor {
-            cursor: self.inner.values(key).direction(direction).stream(),
+            cursor: self
+                .inner
+                .values(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

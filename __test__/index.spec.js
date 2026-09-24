@@ -175,7 +175,7 @@ test("published scans return an async iterator and open lazily", async () => {
     close: jest.fn().mockResolvedValue(undefined),
   };
   const scan = jest.fn().mockReturnValue(cursor);
-  const entries = new PublishedMap({ scan }).entries("user-1");
+  const entries = new PublishedMap({ entries: scan }).entries("user-1");
 
   expect(scan).not.toHaveBeenCalled();
   expect(entries[Symbol.asyncIterator]()).toBe(entries);
@@ -2044,6 +2044,86 @@ describe("ProsodyClient", () => {
       expect(obs.ok).toBe(true);
     });
 
+    // C7b — query options cross the native layer into core queries. Each case
+    // changes the result when its option is dropped or mistranslated, so every
+    // option and the direction are checked end to end. Selection semantics
+    // beyond this mapping are core's and are tested there.
+    it("queries select keys and positions with every option", async () => {
+      const K = nonce();
+      client = await makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          const d = ctx.state(STATE_DEFS.backlog);
+          const collect = async (iterator) => {
+            const items = [];
+            for await (const item of iterator) items.push(item);
+            return items;
+          };
+          try {
+            for (const [i, key] of ["a1", "a2", "a3", "b1"].entries()) {
+              await m.set(key, i);
+            }
+            for (const item of [0, 1, 2, 3, 4]) await d.push(item);
+            messageStream.push({
+              keys: {
+                none: await collect(m.keys()),
+                backward: await collect(m.keys("backward")),
+                prefix: await collect(m.keys({ prefix: "a" })),
+                from: await collect(m.keys({ from: "a2" })),
+                after: await collect(m.keys({ after: "a2" })),
+                to: await collect(m.keys({ to: "a2" })),
+                before: await collect(m.keys({ before: "a2" })),
+                limit: await collect(m.keys({ limit: 2 })),
+                page: await collect(
+                  m.keys({ direction: "backward", after: "b1", limit: 2 }),
+                ),
+              },
+              entries: await collect(m.entries({ prefix: "b" })),
+              values: await collect(m.values({ from: "a3" })),
+              positions: {
+                from: await collect(d.values({ from: 1 })),
+                after: await collect(d.values({ after: 1 })),
+                to: await collect(d.values({ to: 1 })),
+                before: await collect(d.values({ before: 1 })),
+                limit: await collect(d.values({ limit: 2 })),
+                page: await collect(
+                  d.values({ direction: "backward", after: 3, limit: 2 }),
+                ),
+              },
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.keys).toEqual({
+        none: ["a1", "a2", "a3", "b1"],
+        backward: ["b1", "a3", "a2", "a1"],
+        prefix: ["a1", "a2", "a3"],
+        from: ["a2", "a3", "b1"],
+        after: ["a3", "b1"],
+        to: ["a1", "a2"],
+        before: ["a1"],
+        limit: ["a1", "a2"],
+        page: ["a3", "a2"],
+      });
+      expect(obs.entries).toEqual([["b1", 3]]);
+      expect(obs.values).toEqual([2, 3]);
+      expect(obs.positions).toEqual({
+        from: [1, 2, 3, 4],
+        after: [2, 3, 4],
+        to: [0, 1],
+        before: [0],
+        limit: [0, 1],
+        page: [2, 1],
+      });
+    });
+
     // C8a — binding an unregistered name rejects PermanentStateError at vend.
     it("binding an unregistered collection name throws PermanentStateError", async () => {
       client = await makeStateClient();
@@ -2438,7 +2518,7 @@ describe("keyed state (unit)", () => {
   // A1 — return() (early break) awaits the native close() exactly once.
   it("iterator return() awaits the native cursor close exactly once", async () => {
     const fake = makeGatedCursor();
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const it = m.entries();
     await it.next();
 
@@ -2464,7 +2544,7 @@ describe("keyed state (unit)", () => {
       ["a", "v1"],
       ["b", "v2"],
     ]);
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const v of m.values()) collected.push(v);
     expect(collected).toEqual(["v1", "v2"]);
@@ -2481,7 +2561,7 @@ describe("keyed state (unit)", () => {
       ],
       3,
     );
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const entry of m.entries()) collected.push(entry);
     expect(collected).toEqual([
@@ -2519,7 +2599,7 @@ describe("keyed state (unit)", () => {
       },
       close: (...args) => fake.cursor.close(...args),
     };
-    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
+    const it = new MapState({ entries: () => cursor }, RAW_ITEMS).entries();
 
     await expect(
       Promise.all([it.next(), it.next(), it.next()]),
@@ -2546,7 +2626,7 @@ describe("keyed state (unit)", () => {
         closed += 1;
       },
     };
-    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
+    const it = new MapState({ entries: () => cursor }, RAW_ITEMS).entries();
     const next = it.next();
     const returned = it.return("stop");
 
@@ -2573,7 +2653,7 @@ describe("keyed state (unit)", () => {
         counts.closed += 1;
       },
     };
-    const m = new MapState({ scan: () => cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => cursor }, RAW_ITEMS);
     const it = m.entries();
     await expect(it.next()).rejects.toBeInstanceOf(TransientStateError);
     expect(counts.closed).toBe(1);
@@ -2652,6 +2732,109 @@ describe("keyed state (unit)", () => {
     for await (const key of m.keys()) collected.push(key);
     expect(collected).toEqual(["apple", "berry", "cherry"]);
     expect(fake.closedCount()).toBe(1);
+  });
+
+  // A5e — query options reach every native cursor opener as given. A bare
+  // direction stands for { direction }, and no options mean an empty query.
+  it("query options reach every native cursor opener", async () => {
+    const opened = [];
+    const opener =
+      (name) =>
+      (...args) => {
+        opened.push([name, ...args]);
+        return makeFiniteCursor([]).cursor;
+      };
+    const drain = async (iterator) => {
+      // eslint-disable-next-line no-unused-vars
+      for await (const _item of iterator);
+    };
+    const keys = {
+      direction: "backward",
+      prefix: "user-",
+      after: "user-9",
+      before: "user-1",
+      limit: 2,
+    };
+    const positions = { direction: "backward", from: 9, to: 1, limit: 3 };
+    const m = new MapState(
+      { entries: opener("entries"), keys: opener("keys") },
+      RAW_ITEMS,
+    );
+    const d = new DequeState({ values: opener("values") }, RAW_ITEMS);
+    const pm = new PublishedMap({
+      entries: opener("published.entries"),
+      keys: opener("published.keys"),
+    });
+    const pd = new PublishedDeque({ values: opener("published.values") });
+
+    await drain(m.entries(keys));
+    await drain(m.keys("backward"));
+    await drain(m.values());
+    await drain(d.values(positions));
+    await drain(d.values("backward"));
+    await drain(pm.entries("u", keys));
+    await drain(pm.keys("u", { from: "a", to: "b" }));
+    await drain(pm.values("u", { after: "a" }));
+    await drain(pd.values("u", positions));
+
+    expect(opened).toEqual([
+      ["entries", keys],
+      ["keys", { direction: "backward" }],
+      ["entries", {}],
+      ["values", positions],
+      ["values", { direction: "backward" }],
+      ["published.entries", "u", keys],
+      ["published.keys", "u", { from: "a", to: "b" }],
+      ["published.entries", "u", { after: "a" }],
+      ["published.values", "u", positions],
+    ]);
+  });
+
+  // A5f — option shapes that core cannot represent throw at the call, before
+  // any native cursor opens. Setting both edges of a pair is rejected because
+  // an options object has no call order to pick a winner.
+  it.each([
+    ["zero limit", { limit: 0 }, RangeError],
+    ["negative limit", { limit: -1 }, RangeError],
+    ["fractional limit", { limit: 2.5 }, RangeError],
+    ["string limit", { limit: "5" }, TypeError],
+    ["from with after", { from: "a", after: "b" }, TypeError],
+    ["to with before", { to: "a", before: "b" }, TypeError],
+    ["numeric key bound", { from: 1 }, TypeError],
+    ["numeric prefix", { prefix: 1 }, TypeError],
+    ["number options", 42, TypeError],
+    ["null options", null, TypeError],
+  ])("key query rejects %s", (_label, options, ErrorClass) => {
+    const native = { entries: jest.fn(), keys: jest.fn() };
+    const m = new MapState(native, RAW_ITEMS);
+    const pm = new PublishedMap(native);
+    expect(() => m.entries(options)).toThrow(ErrorClass);
+    expect(() => m.keys(options)).toThrow(ErrorClass);
+    expect(() => m.values(options)).toThrow(ErrorClass);
+    expect(() => pm.entries("u", options)).toThrow(ErrorClass);
+    expect(() => pm.keys("u", options)).toThrow(ErrorClass);
+    expect(() => pm.values("u", options)).toThrow(ErrorClass);
+    expect(native.entries).not.toHaveBeenCalled();
+    expect(native.keys).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["negative position", { from: -1 }, RangeError],
+    ["fractional position", { after: 1.5 }, RangeError],
+    ["unsafe position", { to: 2 ** 53 }, RangeError],
+    ["string position", { before: "1" }, TypeError],
+    ["from with after", { from: 1, after: 2 }, TypeError],
+    ["to with before", { to: 1, before: 2 }, TypeError],
+    ["zero limit", { limit: 0 }, RangeError],
+  ])("position query rejects %s", (_label, options, ErrorClass) => {
+    const native = { values: jest.fn() };
+    expect(() => new DequeState(native, RAW_ITEMS).values(options)).toThrow(
+      ErrorClass,
+    );
+    expect(() => new PublishedDeque(native).values("u", options)).toThrow(
+      ErrorClass,
+    );
+    expect(native.values).not.toHaveBeenCalled();
   });
 
   // A5d — DequeState.at() routes the endpoints to the peeks (native.peekFront /

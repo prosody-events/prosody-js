@@ -147,7 +147,7 @@ fn permanent_error(message: String) -> Error {
 /// @returns The matching `Direction`.
 /// @throws Error (transient) if the token is neither `"forward"` nor
 /// `"backward"` (a caller mistake — retries, not discarded).
-pub(crate) fn parse_direction(direction: impl AsRef<str>) -> napi::Result<Direction> {
+fn parse_direction(direction: impl AsRef<str>) -> napi::Result<Direction> {
     match direction.as_ref() {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
@@ -250,14 +250,16 @@ macro_rules! transaction_methods {
 mod cursor;
 mod deque;
 mod map;
+mod query;
 mod value;
 
 pub(crate) use cursor::{
-    NativeJsonDequeCursor, NativeJsonMapCursor, NativeMapKeyCursor, NativeMessageDequeCursor,
+    NativeJsonDequeCursor, NativeJsonMapCursor, NativeKeyCursor, NativeMessageDequeCursor,
     NativeMessageMapCursor,
 };
 pub(crate) use deque::{NativeJsonDequeState, NativeMessageDequeState};
 pub(crate) use map::{NativeJsonMapState, NativeMessageMapState};
+pub(crate) use query::{NativeKeyQuery, NativePositionQuery};
 pub(crate) use value::{NativeJsonValueState, NativeMessageValueState};
 
 transaction_methods!(NativeJsonValueState);

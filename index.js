@@ -968,6 +968,96 @@ function messageDeque(name, options) {
 }
 
 /**
+ * Checks the shared query options. A bare direction string stands for
+ * `{ direction }`. The native layer reads only the known fields.
+ * @param {string|object} [options] - A scan direction or a query object.
+ * @returns {object} The query object.
+ * @throws {TypeError} If `options` has the wrong type, or if both edges of
+ *   an exclusive pair are set.
+ * @throws {RangeError} If `limit` is not a positive safe integer.
+ * @private
+ */
+function queryOptions(options) {
+  if (options === undefined) return {};
+  if (typeof options === "string") return { direction: options };
+  if (options === null || typeof options !== "object") {
+    throw new TypeError(
+      `query: expected a scan direction or an options object, got ${describeValue(options)}`,
+    );
+  }
+  for (const [start, end] of [
+    ["from", "after"],
+    ["to", "before"],
+  ]) {
+    if (options[start] !== undefined && options[end] !== undefined) {
+      throw new TypeError(`query: set ${start} or ${end}, not both`);
+    }
+  }
+  checkCount(options, "limit", 1);
+  return options;
+}
+
+/**
+ * Checks a whole-number query option.
+ * @param {object} options - The query object.
+ * @param {string} field - The option name.
+ * @param {number} min - The smallest valid value.
+ * @throws {TypeError} If the value is not a number.
+ * @throws {RangeError} If the value is not a safe integer of at least `min`.
+ * @private
+ */
+function checkCount(options, field, min) {
+  const count = options[field];
+  if (count === undefined) return;
+  if (typeof count !== "number") {
+    throw new TypeError(
+      `${field}: expected a number, got ${describeValue(count)}`,
+    );
+  }
+  if (!Number.isSafeInteger(count) || count < min) {
+    throw new RangeError(
+      `${field}: expected a safe integer of at least ${min}, got ${count}`,
+    );
+  }
+}
+
+/**
+ * Checks the options of a map or set query.
+ * @param {string|object} [options] - A scan direction or a key query.
+ * @returns {object} The key query.
+ * @throws {TypeError|RangeError} If an option is invalid.
+ * @private
+ */
+function keyQuery(options) {
+  const query = queryOptions(options);
+  for (const field of ["prefix", "from", "after", "to", "before"]) {
+    const key = query[field];
+    if (key !== undefined && typeof key !== "string") {
+      throw new TypeError(
+        `${field}: expected a string key, got ${describeValue(key)}`,
+      );
+    }
+  }
+  return query;
+}
+
+/**
+ * Checks the options of a deque query. Positions count from the front and
+ * must be non-negative.
+ * @param {string|object} [options] - A scan direction or a position query.
+ * @returns {object} The position query.
+ * @throws {TypeError|RangeError} If an option is invalid.
+ * @private
+ */
+function positionQuery(options) {
+  const query = queryOptions(options);
+  for (const field of ["from", "after", "to", "before"]) {
+    checkCount(query, field, 0);
+  }
+  return query;
+}
+
+/**
  * Adapts a chunked native scan cursor to the item-oriented JS async-iterator
  * protocol. A fresh carrier is propagated per native chunk without recording
  * a span, while individual `next()` calls drain the retained chunk without
@@ -1125,23 +1215,26 @@ class PublishedMap {
     return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
   }
 
-  entries(key, direction = "forward") {
+  entries(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateSync(() => this.native.scan(key, direction)),
+      () => stateSync(() => this.native.entries(key, query)),
       ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
     );
   }
 
-  keys(key, direction = "forward") {
+  keys(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateSync(() => this.native.keys(key, direction)),
+      () => stateSync(() => this.native.keys(key, query)),
       (mapKey) => mapKey,
     );
   }
 
-  values(key, direction = "forward") {
+  values(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateSync(() => this.native.scan(key, direction)),
+      () => stateSync(() => this.native.entries(key, query)),
       (entry) => jsonItems.decode(entry[1]),
     );
   }
@@ -1372,9 +1465,10 @@ class PublishedDeque {
     );
   }
 
-  values(key, direction = "forward") {
+  values(key, options) {
+    const query = positionQuery(options);
     return stateIterator(
-      () => stateSync(() => this.native.scan(key, direction)),
+      () => stateSync(() => this.native.values(key, query)),
       jsonItems.decode,
     );
   }
@@ -1566,17 +1660,21 @@ class MapState extends StateHandle {
   }
 
   /**
-   * Opens an async iterator over the live entries in key order. Each yielded
-   * item is a `[key, value]` pair. Valid only within the handler invocation
-   * (attempt) that opened it; early exit closes the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * Opens an async iterator over the selected entries in key order. Each
+   * yielded item is a `[key, value]` pair. Valid only within the handler
+   * invocation (attempt) that opened it; early exit closes the underlying
+   * cursor.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  entries(direction = "forward") {
+  entries(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction)),
+      stateSync(() => this.native.entries(query)),
       ([key, item]) => [key, this.items.decode(item)],
     );
   }
@@ -1587,37 +1685,43 @@ class MapState extends StateHandle {
    * Kafka fetches; it still reads presence, so it is not zero-I/O. Valid only
    * within the handler invocation (attempt) that opened it; early exit closes
    * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<string>} The keys iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  keys(direction = "forward") {
+  keys(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.keys(direction)),
+      stateSync(() => this.native.keys(query)),
       (key) => key,
     );
   }
 
   /**
-   * Opens an async iterator over the live values in key order. Valid only
+   * Opens an async iterator over the selected values in key order. Valid only
    * within the handler invocation (attempt) that opened it; early exit closes
    * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  values(direction = "forward") {
+  values(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction)),
+      stateSync(() => this.native.entries(query)),
       ([, item]) => this.items.decode(item),
     );
   }
 
   /**
    * Forward iteration over `[key, value]` entries — equivalent to
-   * `entries("forward")`. Valid only within the handler invocation (attempt).
+   * `entries()`. Valid only within the handler invocation (attempt).
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
    */
   [Symbol.asyncIterator]() {
@@ -1765,23 +1869,26 @@ class DequeState extends StateHandle {
   }
 
   /**
-   * Opens an async iterator over the live elements in index order. Valid only
-   * within the handler invocation (attempt) that opened it; early exit closes
-   * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * Opens an async iterator over the selected elements in index order. Valid
+   * only within the handler invocation (attempt) that opened it; early exit
+   * closes the underlying cursor.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   position query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  values(direction = "forward") {
+  values(options) {
+    const query = positionQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction)),
+      stateSync(() => this.native.values(query)),
       (item) => this.items.decode(item),
     );
   }
 
   /**
-   * Forward iteration over the elements — equivalent to `values("forward")`.
+   * Forward iteration over the elements — equivalent to `values()`.
    * Valid only within the handler invocation (attempt).
    * @returns {AsyncIterableIterator<*>} The values iterator.
    */

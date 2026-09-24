@@ -197,6 +197,57 @@ export declare class Context {
  */
 export type ScanDirection = "forward" | "backward";
 
+/**
+ * The start of a query. `from` includes its bound and `after` excludes it.
+ * Set at most one. The start is in query order, so a backward query starts
+ * at the high end.
+ */
+export type QueryStart<B> =
+  | { readonly from?: B; readonly after?: never }
+  | { readonly from?: never; readonly after?: B };
+
+/**
+ * The end of a query. `to` includes its bound and `before` excludes it. Set
+ * at most one. The end is in query order.
+ */
+export type QueryEnd<B> =
+  | { readonly to?: B; readonly before?: never }
+  | { readonly to?: never; readonly before?: B };
+
+/** The options that every query accepts. */
+export interface QueryOptions {
+  /** The query order. Defaults to `"forward"`. */
+  readonly direction?: ScanDirection;
+  /**
+   * The maximum number of results. Must be a positive safe integer. A
+   * `RangeError` reports any other number.
+   */
+  readonly limit?: number;
+}
+
+/**
+ * Query options for map entries, map keys, and set members. Every option is
+ * optional. Bounds and `prefix` narrow the selection and never widen it.
+ * Setting both edges of a pair throws a `TypeError`.
+ *
+ * For keyset paging, set `after` to the last key of the previous page and
+ * `limit` to the page size.
+ */
+export type KeyQuery = QueryOptions & {
+  /** Keeps keys that start with this prefix. */
+  readonly prefix?: string;
+} & QueryStart<string> &
+  QueryEnd<string>;
+
+/**
+ * Query options for deque values. Positions count from the front. Each
+ * position must be a non-negative safe integer; a `RangeError` reports any
+ * other number. Negative positions are not resolved against the length.
+ */
+export type PositionQuery = QueryOptions &
+  QueryStart<number> &
+  QueryEnd<number>;
+
 /** Options accepted by every keyed-state definition constructor. */
 export interface StateDefinitionOptions {
   /**
@@ -491,25 +542,29 @@ export declare class MapState<V = JsonValue> {
   /** Removes every entry. */
   clear(): Promise<void>;
   /**
-   * Async iterator over the live `[key, value]` entries in key order. Valid
-   * only within the handler invocation (attempt) that opened it; early exit
-   * from a `for await` loop closes the underlying cursor.
+   * Async iterator over the live `[key, value]` entries in key order. Pass a
+   * direction or a {@link KeyQuery} to select entries. Valid only within the
+   * handler invocation (attempt) that opened it; early exit from a
+   * `for await` loop closes the underlying cursor.
    */
-  entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>;
+  entries(
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<[string, V]>;
   /**
-   * Async iterator over the live keys in key order. Skips the value decode and
-   * the resolver, so a message-backed map enumerates keys with zero Kafka
+   * Async iterator over the live keys in key order. Takes the same options as
+   * {@link MapState#entries}. Skips the value decode and the resolver, so a message-backed map enumerates keys with zero Kafka
    * fetches; it still reads presence, so it is not zero-I/O. Valid only within
    * the handler invocation (attempt) that opened it; early exit from a
    * `for await` loop closes the underlying cursor.
    */
-  keys(direction?: ScanDirection): AsyncIterableIterator<string>;
+  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
   /**
-   * Async iterator over the live values in key order. Valid only within the
-   * handler invocation (attempt) that opened it; early exit from a `for await`
-   * loop closes the underlying cursor.
+   * Async iterator over the live values in key order. Takes the same options
+   * as {@link MapState#entries}. Valid only within the handler invocation
+   * (attempt) that opened it; early exit from a `for await` loop closes the
+   * underlying cursor.
    */
-  values(direction?: ScanDirection): AsyncIterableIterator<V>;
+  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>;
   /**
    * Forward iteration over `[key, value]` entries. Valid only within the
    * handler invocation (attempt) that opened it.
@@ -571,11 +626,12 @@ export declare class DequeState<T = JsonValue> {
    */
   at(index: number): Promise<T | null>;
   /**
-   * Async iterator over the live elements in index order. Valid only within
-   * the handler invocation (attempt) that opened it; early exit from a
-   * `for await` loop closes the underlying cursor.
+   * Async iterator over the live elements in index order. Pass a direction or
+   * a {@link PositionQuery} to select elements. Valid only within the handler
+   * invocation (attempt) that opened it; early exit from a `for await` loop
+   * closes the underlying cursor.
    */
-  values(direction?: ScanDirection): AsyncIterableIterator<T>;
+  values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>;
   /**
    * Forward iteration over the elements. Valid only within the handler
    * invocation (attempt) that opened it.
@@ -836,10 +892,16 @@ export declare class PublishedMap<V = JsonValue> {
   has(key: string, mapKey: string): Promise<boolean>;
   entries(
     key: string,
-    direction?: ScanDirection,
+    options?: ScanDirection | KeyQuery,
   ): AsyncIterableIterator<[string, V]>;
-  keys(key: string, direction?: ScanDirection): AsyncIterableIterator<string>;
-  values(key: string, direction?: ScanDirection): AsyncIterableIterator<V>;
+  keys(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
+  values(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<V>;
 }
 
 /** Read-only published deque collection. */
@@ -847,7 +909,10 @@ export declare class PublishedDeque<T = JsonValue> {
   length(key: string): Promise<number>;
   isEmpty(key: string): Promise<boolean>;
   at(key: string, index: number): Promise<T | null>;
-  values(key: string, direction?: ScanDirection): AsyncIterableIterator<T>;
+  values(
+    key: string,
+    options?: ScanDirection | PositionQuery,
+  ): AsyncIterableIterator<T>;
 }
 
 /**
