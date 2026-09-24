@@ -90,3 +90,7 @@ verbose_file_reads = "warn"
 [profile.release]
 codegen-units = 1
 lto = "fat"
+
+# Temporary: build against unreleased prosody main. Remove after release.
+[patch.crates-io]
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "80887f8d69ff4f6862a3ba23241a60da618a8734" }
