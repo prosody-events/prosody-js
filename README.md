@@ -752,7 +752,7 @@ Do not reuse a durable name for a different collection kind or payload type. Cre
 | Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                                      |
 | Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `set`, `delete`, `entries`, `keys`, `clear` |
 | Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear`                       |
-| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `values`, `clear`                            |
+| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `keys`, `values`, `clear`                    |
 
 All operations are asynchronous. Map, set, and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
@@ -1319,7 +1319,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
 
-`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 

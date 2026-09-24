@@ -253,7 +253,9 @@ export interface QueryOptions {
 /**
  * Query options for map entries, map keys, and set members. Every option is
  * optional. Bounds and `prefix` narrow the selection and never widen it.
- * Setting both edges of a pair throws a `TypeError`.
+ * Setting both edges of a pair, an unknown option, or an unknown direction
+ * throws a `TypeError`. The call copies the options, so a later change to the
+ * object has no effect on the query.
  *
  * For keyset paging, set `after` to the last key of the previous page and
  * `limit` to the page size.

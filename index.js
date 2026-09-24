@@ -988,17 +988,41 @@ function messageDeque(name, options) {
   );
 }
 
+/** The options a map or set query accepts. @private */
+const KEY_QUERY_FIELDS = new Set([
+  "direction",
+  "limit",
+  "prefix",
+  "from",
+  "after",
+  "to",
+  "before",
+]);
+
+/** The options a deque query accepts. @private */
+const POSITION_QUERY_FIELDS = new Set([
+  "direction",
+  "limit",
+  "from",
+  "after",
+  "to",
+  "before",
+]);
+
 /**
- * Checks the shared query options. A bare direction string stands for
- * `{ direction }`. The native layer reads only the known fields.
+ * Checks the shared query options and copies them into a fresh object. A
+ * bare direction string stands for `{ direction }`. The copy holds only the
+ * set, checked fields, so a later change to the caller's object cannot reach
+ * the native layer.
  * @param {string|object} [options] - A scan direction or a query object.
- * @returns {object} The query object.
- * @throws {TypeError} If `options` has the wrong type, or if both edges of
- *   an exclusive pair are set.
+ * @param {Set<string>} fields - The option names this query accepts.
+ * @returns {object} The checked query.
+ * @throws {TypeError} If `options` has the wrong type, has an unknown option,
+ *   sets both edges of an exclusive pair, or sets an unknown direction.
  * @throws {RangeError} If `limit` is not a positive safe integer.
  * @private
  */
-function queryOptions(options) {
+function queryOptions(options, fields) {
   if (options === undefined) return {};
   if (typeof options === "string") return { direction: options };
   if (options === null || typeof options !== "object") {
@@ -1006,16 +1030,33 @@ function queryOptions(options) {
       `query: expected a scan direction or an options object, got ${describeValue(options)}`,
     );
   }
+  const query = {};
+  for (const [field, value] of Object.entries(options)) {
+    if (!fields.has(field)) {
+      throw new TypeError(`query: unknown option ${describeValue(field)}`);
+    }
+    if (value !== undefined) query[field] = value;
+  }
   for (const [start, end] of [
     ["from", "after"],
     ["to", "before"],
   ]) {
-    if (options[start] !== undefined && options[end] !== undefined) {
+    if (query[start] !== undefined && query[end] !== undefined) {
       throw new TypeError(`query: set ${start} or ${end}, not both`);
     }
   }
-  checkCount(options, "limit", 1);
-  return options;
+  const { direction } = query;
+  if (
+    direction !== undefined &&
+    direction !== "forward" &&
+    direction !== "backward"
+  ) {
+    throw new TypeError(
+      `direction: expected "forward" or "backward", got ${describeValue(direction)}`,
+    );
+  }
+  checkCount(query, "limit", 1);
+  return query;
 }
 
 /**
@@ -1050,7 +1091,7 @@ function checkCount(options, field, min) {
  * @private
  */
 function keyQuery(options) {
-  const query = queryOptions(options);
+  const query = queryOptions(options, KEY_QUERY_FIELDS);
   for (const field of ["prefix", "from", "after", "to", "before"]) {
     const key = query[field];
     if (key !== undefined && typeof key !== "string") {
@@ -1071,7 +1112,7 @@ function keyQuery(options) {
  * @private
  */
 function positionQuery(options) {
-  const query = queryOptions(options);
+  const query = queryOptions(options, POSITION_QUERY_FIELDS);
   for (const field of ["from", "after", "to", "before"]) {
     checkCount(query, field, 0);
   }

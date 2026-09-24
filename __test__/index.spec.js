@@ -3009,6 +3009,53 @@ describe("keyed state (unit)", () => {
     ]);
   });
 
+  // A5g — every query copies its options at the call. Published readers open
+  // their cursor on the first pull, so a later change to the caller's object
+  // must not reach the native layer.
+  it("queries snapshot their options at the call", async () => {
+    const opened = [];
+    const opener =
+      (name) =>
+      (...args) => {
+        opened.push([name, ...args]);
+        return makeFiniteCursor([]).cursor;
+      };
+    const drain = async (iterator) => {
+      // eslint-disable-next-line no-unused-vars
+      for await (const _item of iterator);
+    };
+    const pm = new PublishedMap({
+      entries: opener("entries"),
+      keys: opener("keys"),
+    });
+    const ps = new PublishedSet({ keys: opener("set.keys") });
+    const pd = new PublishedDeque({ values: opener("values") });
+    const m = new MapState({ keys: opener("owned.keys") }, RAW_ITEMS);
+
+    const keys = { after: "b" };
+    const positions = { after: 1 };
+    const iterators = [
+      pm.entries("u", keys),
+      pm.keys("u", keys),
+      pm.values("u", keys),
+      ps.values("u", keys),
+      pd.values("u", positions),
+      m.keys(keys),
+    ];
+    Object.assign(keys, { from: "a", limit: 1.5 });
+    Object.assign(positions, { from: 0, limit: 1.5 });
+    for (const iterator of iterators) await drain(iterator);
+
+    expect(opened).toEqual([
+      ["owned.keys", { after: "b" }],
+      ["entries", "u", { after: "b" }],
+      ["keys", "u", { after: "b" }],
+      ["entries", "u", { after: "b" }],
+      ["set.keys", "u", { after: "b" }],
+      ["values", "u", { after: 1 }],
+    ]);
+  });
+
   // A5f — option shapes that core cannot represent throw at the call, before
   // any native cursor opens. Setting both edges of a pair is rejected because
   // an options object has no call order to pick a winner.
@@ -3023,6 +3070,10 @@ describe("keyed state (unit)", () => {
     ["numeric prefix", { prefix: 1 }, TypeError],
     ["number options", 42, TypeError],
     ["null options", null, TypeError],
+    ["misspelled option", { befor: "a" }, TypeError],
+    ["range option", { range: ["a", "b"] }, TypeError],
+    ["unknown direction", { direction: "reverse" }, TypeError],
+    ["numeric direction", { direction: 5 }, TypeError],
   ])("key query rejects %s", (_label, options, ErrorClass) => {
     const native = { entries: jest.fn(), keys: jest.fn() };
     const m = new MapState(native, RAW_ITEMS);
@@ -3047,6 +3098,9 @@ describe("keyed state (unit)", () => {
     ["from with after", { from: 1, after: 2 }, TypeError],
     ["to with before", { to: 1, before: 2 }, TypeError],
     ["zero limit", { limit: 0 }, RangeError],
+    ["prefix option", { prefix: "a" }, TypeError],
+    ["range option", { range: [1, 2] }, TypeError],
+    ["unknown direction", { direction: "sideways" }, TypeError],
   ])("position query rejects %s", (_label, options, ErrorClass) => {
     const native = { values: jest.fn() };
     expect(() => new DequeState(native, RAW_ITEMS).values(options)).toThrow(
@@ -3279,6 +3333,15 @@ describe("keyed state configuration validation", () => {
       );
     },
   );
+
+  // A client that only reads published state needs no topic list.
+  it("opens a published reader without subscribed topics", async () => {
+    const client = await makeClient(
+      makeConfig({ subscribedTopics: undefined, subsystem: "readers" }),
+    );
+    const reader = await client.state("accounts", map("balances"));
+    expect(reader).toBeInstanceOf(PublishedMap);
+  });
 
   it("accepts the full canonical collection set", async () => {
     await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
