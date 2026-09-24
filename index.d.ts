@@ -255,6 +255,12 @@ export type PositionQuery = QueryOptions &
   QueryStart<number> &
   QueryEnd<number>;
 
+/**
+ * The effect of `commit()` or `rollback()`. `"applied"` means the call wrote or
+ * discarded buffered operations. `"noOp"` means nothing was buffered.
+ */
+export type StoreOutcome = "applied" | "noOp";
+
 /** Options accepted by every keyed-state definition constructor. */
 export interface StateDefinitionOptions {
   /**
@@ -522,11 +528,14 @@ export declare class ValueState<T = JsonValue> {
   clear(): Promise<void>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -613,11 +622,14 @@ export declare class MapState<V = JsonValue> {
   [Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -657,11 +669,14 @@ export declare class SetState {
   [Symbol.asyncIterator](): AsyncIterableIterator<string>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -724,11 +739,14 @@ export declare class DequeState<T = JsonValue> {
   [Symbol.asyncIterator](): AsyncIterableIterator<T>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**

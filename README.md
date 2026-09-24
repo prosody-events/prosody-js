@@ -800,6 +800,8 @@ This transaction applies only to keyed state. Some workflows need state changes 
 - `commit()` commits the collection's pending changes before the handler ends. A later handler failure does not remove them.
 - `rollback()` discards pending changes since the last `commit()`. It cannot undo committed changes.
 
+Both resolve to a `StoreOutcome`: `"applied"` when the call wrote or discarded pending changes, or `"noOp"` when the collection had no pending changes.
+
 ### Published state
 
 Some callers need only the current value for a key. They can accept a stale value or a race with a concurrent update.
@@ -1252,8 +1254,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `get(): Promise<T | null>`
 - `set(value: T): Promise<void>`
 - `clear(): Promise<void>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `MapState<V>` (keys are `string`):
 
@@ -1269,8 +1271,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
 - `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `SetState` (members are `string`):
 
@@ -1283,8 +1285,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
 - `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<string>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `DequeState<T>`:
 
@@ -1298,10 +1300,12 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `at(index: number): Promise<T | null>`
 - `values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `ScanDirection`: `"forward" | "backward"`.
+
+`StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
 
 `KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 

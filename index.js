@@ -1574,7 +1574,8 @@ class StateHandle {
   /**
    * Durably commits the buffered operations mid-handler (at-least-once; the
    * committed floor survives a later rollback or a failed event).
-   * @returns {Promise<void>} Resolves with no value — the erased seam drops the outcome.
+   * @returns {Promise<"applied"|"noOp">} `"applied"` when buffered operations
+   *   were written, or `"noOp"` when nothing was buffered.
    * @throws {PermanentStateError|TransientStateError} On a categorized commit failure.
    */
   commit() {
@@ -1583,7 +1584,8 @@ class StateHandle {
 
   /**
    * Discards buffered uncommitted operations back to the last committed floor.
-   * @returns {Promise<void>} Resolves with no value.
+   * @returns {Promise<"applied"|"noOp">} `"applied"` when buffered operations
+   *   were discarded, or `"noOp"` when nothing was buffered.
    */
   rollback() {
     return stateOp((carrier) => this.native.rollback(carrier));

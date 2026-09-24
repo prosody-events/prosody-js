@@ -35,7 +35,7 @@ use prosody::consumer::event_context::{
     StateCursor,
 };
 use prosody::consumer::message::ConsumerMessage;
-use prosody::state::Direction;
+use prosody::state::{Direction, StoreOutcome};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -217,6 +217,27 @@ fn message_value(item: Option<ConsumerMessage<BinaryPayload>>) -> Option<Message
     item.map(Message::new)
 }
 
+/// The effect of a commit or a rollback.
+///
+/// `"applied"` means the call wrote or discarded buffered operations.
+/// `"noOp"` means nothing was buffered.
+#[napi(string_enum = "camelCase")]
+pub enum NativeStoreOutcome {
+    /// The call wrote or discarded buffered operations.
+    Applied,
+    /// Nothing was buffered.
+    NoOp,
+}
+
+impl From<StoreOutcome> for NativeStoreOutcome {
+    fn from(outcome: StoreOutcome) -> Self {
+        match outcome {
+            StoreOutcome::Applied => Self::Applied,
+            StoreOutcome::NoOp => Self::NoOp,
+        }
+    }
+}
+
 /// Maximum number of immediately-ready scan items transported through N-API
 /// in one vector. Core owns ready draining, error ordering, and pull
 /// serialization; this binding owns only the transport cap and conversion.
@@ -228,21 +249,27 @@ macro_rules! transaction_methods {
         impl $name {
             /// Durably commits the buffered operations.
             #[napi(writable = false)]
-            pub async fn commit(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
+            pub async fn commit(
+                &self,
+                otel_context: HashMap<String, String>,
+            ) -> napi::Result<NativeStoreOutcome> {
                 let context = op_context(&self.propagator, &otel_context);
                 self.state
                     .commit()
                     .with_context(context)
                     .await
-                    .map_err(|error| state_error(&error))?;
-                Ok(())
+                    .map(NativeStoreOutcome::from)
+                    .map_err(|error| state_error(&error))
             }
 
             /// Discards the buffered operations.
             #[napi(writable = false)]
-            pub async fn rollback(&self, otel_context: HashMap<String, String>) {
+            pub async fn rollback(
+                &self,
+                otel_context: HashMap<String, String>,
+            ) -> NativeStoreOutcome {
                 let context = op_context(&self.propagator, &otel_context);
-                self.state.rollback().with_context(context).await;
+                self.state.rollback().with_context(context).await.into()
             }
         }
     };

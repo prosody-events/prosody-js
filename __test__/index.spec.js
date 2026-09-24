@@ -1987,13 +1987,16 @@ describe("ProsodyClient", () => {
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
           try {
+            const outcomes = [];
             await c.set({ v: A });
-            await c.commit();
+            outcomes.push(await c.commit());
+            outcomes.push(await c.commit());
             await c.set({ v: B });
             const before = await c.get();
-            await c.rollback();
+            outcomes.push(await c.rollback());
+            outcomes.push(await c.rollback());
             const after = await c.get();
-            messageStream.push({ before: before.v, after: after.v });
+            messageStream.push({ before: before.v, after: after.v, outcomes });
           } catch (e) {
             messageStream.push({ error: e.message });
           }
@@ -2005,6 +2008,8 @@ describe("ProsodyClient", () => {
       expect(obs.error).toBeUndefined();
       expect(obs.before).toBe(B);
       expect(obs.after).toBe(A);
+      // Each call reports whether it drained buffered operations.
+      expect(obs.outcomes).toEqual(["applied", "noOp", "applied", "noOp"]);
     });
 
     // C5c — commit()/rollback() on a MAP handle exercise the distinct native

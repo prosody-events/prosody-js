@@ -19,6 +19,7 @@ import {
   PublishedValue,
   SetDefinition,
   SetState,
+  StoreOutcome,
   TransientStateError,
   ValueState,
   deque,
@@ -303,9 +304,21 @@ export async function checks(): Promise<void> {
   await lv.set(incoming);
   await om.set("latest", incoming);
 
-  // ---- commit/rollback are void (owner directive: no "applied"/"noop") ----
-  assertTrue<Equal<Awaited<ReturnType<typeof c.commit>>, void>>();
-  assertTrue<Equal<Awaited<ReturnType<typeof c.rollback>>, void>>();
+  // ---- commit/rollback resolve to the store outcome on every handle ----
+  assertTrue<Equal<StoreOutcome, "applied" | "noOp">>();
+  assertTrue<Equal<Awaited<ReturnType<typeof c.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof c.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof d.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof d.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.commit>>, StoreOutcome>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof members.rollback>>, StoreOutcome>
+  >();
+  // @ts-expect-error the outcome is a closed string set
+  const badOutcome: StoreOutcome = "noop";
+  void badOutcome;
 
   // ---- unparameterized Message retains the safe JSON default ----
   const defaultMessage = null as unknown as Message;
