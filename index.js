@@ -1576,7 +1576,7 @@ class MapState extends StateHandle {
    */
   entries(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.scan(direction)),
       ([key, item]) => [key, this.items.decode(item)],
     );
   }
@@ -1594,7 +1594,7 @@ class MapState extends StateHandle {
    */
   keys(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.keys(direction, injectedCarrier())),
+      stateSync(() => this.native.keys(direction)),
       (key) => key,
     );
   }
@@ -1610,7 +1610,7 @@ class MapState extends StateHandle {
    */
   values(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.scan(direction)),
       ([, item]) => this.items.decode(item),
     );
   }
@@ -1775,7 +1775,7 @@ class DequeState extends StateHandle {
    */
   values(direction = "forward") {
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.scan(direction)),
       (item) => this.items.decode(item),
     );
   }

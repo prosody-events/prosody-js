@@ -223,23 +223,15 @@ impl NativeJsonDequeState {
 
     /// Opens a demand-driven cursor over the live elements in index order.
     ///
-    /// Synchronous — it performs no I/O. The extracted JavaScript context is
-    /// active while core constructs its semantic stream span; chunk pulls do
-    /// not create binding spans.
+    /// Synchronous — it performs no I/O. The first chunk pull starts the read
+    /// under that pull's trace context.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
-    /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns A cursor over the deque elements.
     /// @throws Error if the direction token is invalid.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeJsonDequeCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn scan(&self, direction: String) -> napi::Result<NativeJsonDequeCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeJsonDequeCursor {
             cursor: self.state.values().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
@@ -409,14 +401,8 @@ impl NativeMessageDequeState {
 
     /// Opens a cursor over the live elements.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeMessageDequeCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn scan(&self, direction: String) -> napi::Result<NativeMessageDequeCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeMessageDequeCursor {
             cursor: self.state.values().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),

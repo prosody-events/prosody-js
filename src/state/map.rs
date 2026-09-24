@@ -151,23 +151,16 @@ impl NativeJsonMapState {
 
     /// Opens a demand-driven cursor over the live entries in key order.
     ///
-    /// Synchronous — it performs no I/O. The extracted JavaScript context is
-    /// active while core constructs its semantic stream span; chunk pulls do
-    /// not create binding spans. Entries are yielded as `(key, value)` pairs.
+    /// Synchronous — it performs no I/O. The first chunk pull starts the read
+    /// under that pull's trace context. Entries are yielded as `(key, value)`
+    /// pairs.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
-    /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns A cursor over the map entries.
     /// @throws Error if the direction token is invalid.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeJsonMapCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn scan(&self, direction: String) -> napi::Result<NativeJsonMapCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeJsonMapCursor {
             cursor: self.state.entries().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
@@ -179,22 +172,15 @@ impl NativeJsonMapState {
     /// Skips the value codec and the resolver (no value decode, no Kafka
     /// fetch), so a message-backed map enumerates keys with zero Kafka
     /// fetches — but it still reads presence, so it is not zero-I/O.
-    /// Synchronous like `scan`: the extracted JavaScript context is active
-    /// while core constructs its semantic stream span. Yields bare keys.
+    /// Synchronous like `scan`: the first chunk pull starts the read. Yields
+    /// bare keys.
     ///
     /// @param direction The scan direction (`"forward"` or `"backward"`).
-    /// @param otelContext The OpenTelemetry context for tracing.
     /// @returns A cursor over the map keys.
     /// @throws Error if the direction token is invalid.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn keys(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeMapKeyCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn keys(&self, direction: String) -> napi::Result<NativeMapKeyCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeMapKeyCursor {
             cursor: self.state.keys().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
@@ -305,14 +291,8 @@ impl NativeMessageMapState {
 
     /// Opens a cursor over entries in key order.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeMessageMapCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn scan(&self, direction: String) -> napi::Result<NativeMessageMapCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeMessageMapCursor {
             cursor: self.state.entries().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
@@ -321,14 +301,8 @@ impl NativeMessageMapState {
 
     /// Opens a cursor over keys in key order.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn keys(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeMapKeyCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn keys(&self, direction: String) -> napi::Result<NativeMapKeyCursor> {
+        let dir = parse_direction(direction)?;
         Ok(NativeMapKeyCursor {
             cursor: self.state.keys().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),

@@ -9,9 +9,10 @@
 //!
 //! Every operation extracts the JS-side carrier and activates it while polling
 //! the erased future, allowing core's semantic collection span to join the
-//! event trace without an extra N-API binding span. Scans activate the carrier
-//! while core constructs its stream span; pulls transport vectors of up to 256
-//! immediately-ready items without creating per-chunk binding spans.
+//! event trace without an extra N-API binding span. Opening a scan performs no
+//! read and takes no carrier. Each pull activates its own carrier and
+//! transports a vector of up to 256 immediately-ready items without creating
+//! per-chunk binding spans.
 //!
 //! Errors carry their category (`"permanent"` / `"transient"`) as the message
 //! of the JavaScript error's `cause`, a machine-readable data channel the
