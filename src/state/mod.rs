@@ -31,7 +31,8 @@ use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
 use prosody::codec::{BinaryPayload, ErasedStateCodec};
 use prosody::consumer::event_context::{
-    BoxDequeState, BoxMapState, BoxValueState, ErasedCategory, ErasedStateError, StateCursor,
+    BoxDequeState, BoxMapState, BoxSetState, BoxValueState, ErasedCategory, ErasedStateError,
+    StateCursor,
 };
 use prosody::consumer::message::ConsumerMessage;
 use prosody::state::Direction;
@@ -251,6 +252,7 @@ mod cursor;
 mod deque;
 mod map;
 mod query;
+mod set;
 mod value;
 
 pub(crate) use cursor::{
@@ -260,11 +262,13 @@ pub(crate) use cursor::{
 pub(crate) use deque::{NativeJsonDequeState, NativeMessageDequeState};
 pub(crate) use map::{NativeJsonMapState, NativeMessageMapState};
 pub(crate) use query::{NativeKeyQuery, NativePositionQuery};
+pub(crate) use set::NativeSetState;
 pub(crate) use value::{NativeJsonValueState, NativeMessageValueState};
 
 transaction_methods!(NativeJsonValueState);
 transaction_methods!(NativeMessageValueState);
 transaction_methods!(NativeJsonMapState);
+transaction_methods!(NativeSetState);
 transaction_methods!(NativeMessageMapState);
 transaction_methods!(NativeJsonDequeState);
 transaction_methods!(NativeMessageDequeState);

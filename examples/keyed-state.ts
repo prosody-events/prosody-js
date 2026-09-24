@@ -2,6 +2,7 @@ import {
   ProsodyClient,
   map,
   messageDeque,
+  set,
   value,
   type EventHandler,
 } from "../index";
@@ -18,6 +19,7 @@ interface Cart {
 const CART = value<Cart>("cart", { ttlSeconds: 30 * 24 * 60 * 60 });
 const TOTALS = map<number>("totals");
 const BACKLOG = messageDeque<OrderEvent>("backlog", { capacity: 100 });
+const SEEN = set("seen-orders");
 
 const handler = {
   async onExcise(context, message) {
@@ -25,10 +27,15 @@ const handler = {
     await context.state(CART).clear();
     await context.state(TOTALS).clear();
     await context.state(BACKLOG).clear();
+    await context.state(SEEN).clear();
     return null;
   },
 
   async onMessage(context, message) {
+    const seen = context.state(SEEN);
+    if (await seen.has(message.payload.orderId)) return null;
+    await seen.add(message.payload.orderId);
+
     const cart = context.state(CART);
     const current = (await cart.get()) ?? { items: [] };
     await cart.set({
@@ -58,7 +65,7 @@ async function main(): Promise<void> {
     mock: true,
     groupId: "keyed-state-example",
     subscribedTopics: "orders",
-    stateCollections: [CART, TOTALS, BACKLOG],
+    stateCollections: [CART, TOTALS, BACKLOG, SEEN],
   });
 
   await client.subscribe(handler);

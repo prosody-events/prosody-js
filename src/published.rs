@@ -9,7 +9,9 @@ use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
 use opentelemetry::trace::FutureExt;
 use prosody::codec::BinaryPayload;
-use prosody::high_level::erased::{SharedDequeReader, SharedMapReader, SharedValueReader};
+use prosody::high_level::erased::{
+    SharedDequeReader, SharedMapReader, SharedSetReader, SharedValueReader,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -128,6 +130,72 @@ impl NativePublishedMap {
                 .keys(key)
                 .with_query(query.into_query()?)
                 .stream(),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+}
+
+/// A read-only published set collection.
+#[napi]
+pub struct NativePublishedSet {
+    pub(crate) inner: SharedSetReader,
+    pub(crate) propagator: Arc<TextMapCompositePropagator>,
+}
+
+#[napi]
+impl NativePublishedSet {
+    /// Reports whether the committed set contains a member.
+    #[napi(writable = false)]
+    pub async fn contains(
+        &self,
+        key: String,
+        member: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .contains(key, member)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Tests committed membership aligned with the supplied members.
+    #[napi(writable = false)]
+    pub async fn contains_many(
+        &self,
+        key: String,
+        members: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Vec<bool>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .contains_many(key, members)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reports whether the committed set has no members.
+    #[napi(writable = false)]
+    pub async fn is_empty(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .is_empty(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Opens a cursor over the selected members.
+    #[napi(writable = false)]
+    pub fn keys(&self, key: String, query: NativeKeyQuery) -> Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self.inner.keys(key).with_query(query.into_query()?).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

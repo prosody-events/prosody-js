@@ -182,6 +182,13 @@ export declare class Context {
    */
   state<V>(definition: MapDefinition<V>): MapState<V>;
   /**
+   * Binds a registered set collection of string members. Valid only within
+   * this event attempt; throws {@link PermanentStateError} on an unregistered
+   * name or identity mismatch.
+   * @param definition - A definition from {@link set}.
+   */
+  state(definition: SetDefinition): SetState;
+  /**
    * Binds a registered deque JSON collection. Valid only within this event
    * attempt; throws {@link PermanentStateError} on an unregistered name or
    * identity mismatch.
@@ -274,10 +281,13 @@ export interface PublishedStateDefinitionOptions extends StateDefinitionOptions 
 export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
-   * disables ordered-scan tracking). Map collections only.
+   * disables ordered-scan tracking). Map and set collections only.
    */
   keysetLimit?: number;
 }
+
+/** Options accepted by the set definition constructor. */
+export type SetDefinitionOptions = MapDefinitionOptions;
 
 /** Options accepted by the deque definition constructors. */
 export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
@@ -338,6 +348,17 @@ export interface MapDefinition<V = JsonValue> extends DefinitionBrand {
   readonly readCache?: ReadCacheOptions | false;
   readonly keysetLimit?: number;
   readonly [StateItem]?: V;
+}
+
+/** A frozen set collection definition. A set stores string members only. */
+export interface SetDefinition extends DefinitionBrand {
+  readonly name: string;
+  readonly kind: "set";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
+  readonly keysetLimit?: number;
 }
 
 /** A frozen deque JSON collection definition. */
@@ -413,6 +434,19 @@ export function map<V = JsonValue>(
   name: string,
   options?: MapDefinitionOptions,
 ): MapDefinition<V>;
+
+/**
+ * Declares a presence-only ordered set of string members. The returned frozen
+ * definition is used both in `Configuration.stateCollections` and with
+ * `Context.state()`. A set has no payload.
+ * @param name - The collection name (unique per client).
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `keysetLimit` settings.
+ */
+export function set(
+  name: string,
+  options?: SetDefinitionOptions,
+): SetDefinition;
 
 /**
  * Declares a double-ended-queue JSON collection. The returned frozen definition
@@ -570,6 +604,50 @@ export declare class MapState<V = JsonValue> {
    * handler invocation (attempt) that opened it.
    */
   [Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>;
+  /**
+   * Durably commits the buffered operations mid-handler (at-least-once).
+   * Resolves with no value — the erased seam drops the store outcome.
+   */
+  commit(): Promise<void>;
+  /** Discards buffered uncommitted operations back to the committed floor. */
+  rollback(): Promise<void>;
+}
+
+/**
+ * Handle over a presence-only ordered set of string members, vended by
+ * `Context.state()`. It mirrors the JavaScript `Set` with asynchronous
+ * methods. Valid only within the handler invocation (attempt) that vended it.
+ */
+export declare class SetState {
+  /** Vended only by {@link Context#state}; not constructible directly. */
+  private constructor(native: unknown);
+  /** Adds `member` to the set. */
+  add(member: string): Promise<void>;
+  /** Reports whether `member` belongs to the set. */
+  has(member: string): Promise<boolean>;
+  /**
+   * Tests several members in one read. `result[i]` answers `members[i]`.
+   */
+  hasMany(members: readonly string[]): Promise<boolean[]>;
+  /**
+   * Removes `member`. An absent member is not an error. Unlike `Set#delete`,
+   * this returns no "was present" flag, because that flag needs a read.
+   */
+  delete(member: string): Promise<void>;
+  /** Removes every member. */
+  clear(): Promise<void>;
+  /** Reports whether the set has no live members. */
+  isEmpty(): Promise<boolean>;
+  /**
+   * Async iterator over the members in order. Pass a direction or a
+   * {@link KeyQuery} to select members. Early exit from a `for await` loop
+   * closes the underlying cursor.
+   */
+  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  /** The same iterator as {@link SetState#keys}, as on the JavaScript `Set`. */
+  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  /** Forward iteration over the members. */
+  [Symbol.asyncIterator](): AsyncIterableIterator<string>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
    * Resolves with no value — the erased seam drops the store outcome.
@@ -791,6 +869,8 @@ export declare class ProsodyClient {
     subsystem: string,
     definition: MapDefinition<V>,
   ): Promise<PublishedMap<V>>;
+  /** Opens a read-only view of a published set collection. */
+  state(subsystem: string, definition: SetDefinition): Promise<PublishedSet>;
   /** Opens a read-only view of a published JSON deque collection. */
   state<T>(
     subsystem: string,
@@ -902,6 +982,21 @@ export declare class PublishedMap<V = JsonValue> {
     key: string,
     options?: ScanDirection | KeyQuery,
   ): AsyncIterableIterator<V>;
+}
+
+/** Read-only published set collection. */
+export declare class PublishedSet {
+  has(key: string, member: string): Promise<boolean>;
+  hasMany(key: string, members: readonly string[]): Promise<boolean[]>;
+  isEmpty(key: string): Promise<boolean>;
+  keys(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
+  values(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
 }
 
 /** Read-only published deque collection. */

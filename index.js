@@ -236,14 +236,15 @@ class ProsodyClient {
   /**
    * Opens a read-only view of another consumer group's published collection.
    * @param {string} subsystem - The publisher's subsystem.
-   * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
-   * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
+   * @param {Readonly<object>} definition - A JSON value, map, or deque
+   *   definition, or a set definition.
+   * @returns {Promise<PublishedValue|PublishedMap|PublishedSet|PublishedDeque>} The reader.
    */
   async state(subsystem, definition) {
     const access = stateDefinitionAccess.get(definition);
     if (access?.published === undefined) {
       throw new TypeError(
-        "definition must be a JSON value, map, or deque definition",
+        "definition must be a JSON value, map, or deque definition, or a set definition",
       );
     }
     const readCache = definition.readCache;
@@ -822,8 +823,8 @@ function stateSync(operation) {
  * keyset rules, duplicate names) is core-owned and happens at client
  * construction and registration — this layer only shapes and freezes.
  * @param {string} name - The collection name.
- * @param {string} kind - `"value"`, `"map"`, or `"deque"`.
- * @param {string} payload - `"json"` or `"message"`.
+ * @param {string} kind - `"value"`, `"map"`, `"set"`, or `"deque"`.
+ * @param {string|undefined} payload - `"json"` or `"message"`; a set has none.
  * @param {object} [options] - Optional ttlSeconds / readUncommitted, map-only
  *   keysetLimit, and deque-only capacity.
  * @returns {Readonly<object>} The frozen definition.
@@ -844,6 +845,13 @@ const MAP_ACCESS = Object.freeze({
   published: async (client, subsystem, collection, ttl, disabled) =>
     new PublishedMap(
       await client.publishedMap(subsystem, collection, ttl, disabled),
+    ),
+});
+const SET_ACCESS = Object.freeze({
+  owned: (context, collection) => new SetState(context.setState(collection)),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedSet(
+      await client.publishedSet(subsystem, collection, ttl, disabled),
     ),
 });
 const DEQUE_ACCESS = Object.freeze({
@@ -868,7 +876,8 @@ const MESSAGE_DEQUE_ACCESS = Object.freeze({
 });
 
 function stateDefinition(name, kind, payload, access, options = {}) {
-  const definition = { name, kind, payload };
+  const definition = { name, kind };
+  if (payload !== undefined) definition.payload = payload;
   if (options.ttlSeconds !== undefined)
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
@@ -904,6 +913,18 @@ function value(name, options) {
  */
 function map(name, options) {
   return stateDefinition(name, "map", "json", MAP_ACCESS, options);
+}
+
+/**
+ * Declares a presence-only ordered set of string members. A set has no
+ * payload.
+ * @param {string} name - The collection name (unique per client).
+ * @param {object} [options] - `ttlSeconds`, `readUncommitted`, `published`,
+ *   `readCache`, and `keysetLimit`.
+ * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
+ */
+function set(name, options) {
+  return stateDefinition(name, "set", undefined, SET_ACCESS, options);
 }
 
 /**
@@ -1237,6 +1258,42 @@ class PublishedMap {
       () => stateSync(() => this.native.entries(key, query)),
       (entry) => jsonItems.decode(entry[1]),
     );
+  }
+}
+
+/**
+ * Read-only handle over a published set collection. It is independent of
+ * subscription and remains valid for the lifetime of its client.
+ */
+class PublishedSet {
+  constructor(native) {
+    this.native = native;
+  }
+
+  has(key, member) {
+    return stateOp((carrier) => this.native.contains(key, member, carrier));
+  }
+
+  hasMany(key, members) {
+    return stateOp((carrier) =>
+      this.native.containsMany(key, members, carrier),
+    );
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  keys(key, options) {
+    const query = keyQuery(options);
+    return stateIterator(
+      () => stateSync(() => this.native.keys(key, query)),
+      (member) => member,
+    );
+  }
+
+  values(key, options) {
+    return this.keys(key, options);
   }
 }
 
@@ -1730,6 +1787,114 @@ class MapState extends StateHandle {
 }
 
 /**
+ * Handle over a presence-only ordered set of string members, vended by
+ * {@link Context#state}. It mirrors the JavaScript `Set`: `add`, `has`,
+ * `delete`, `clear`, `keys`, and `values`, all asynchronous. Handles and
+ * iterators are valid only within the handler invocation that vended them.
+ */
+class SetState extends StateHandle {
+  /**
+   * @param {object} native - The vended native set handle.
+   */
+  constructor(native) {
+    super(native, undefined);
+  }
+
+  /**
+   * Adds `member` to the set.
+   * @param {string} member - The member to add.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  add(member) {
+    return stateOp((carrier) => this.native.insert(member, carrier));
+  }
+
+  /**
+   * Reports whether `member` belongs to the set.
+   * @param {string} member - The member to test.
+   * @returns {Promise<boolean>} True when the set contains `member`.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  has(member) {
+    return stateOp((carrier) => this.native.contains(member, carrier));
+  }
+
+  /**
+   * Tests several members in one read. `result[i]` answers `members[i]`.
+   * @param {string[]} members - The members to test, in order.
+   * @returns {Promise<boolean[]>} One result per member.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  hasMany(members) {
+    return stateOp((carrier) => this.native.containsMany(members, carrier));
+  }
+
+  /**
+   * Removes `member`. An absent member is not an error. Unlike `Set#delete`,
+   * this returns no "was present" flag, because that flag needs a read.
+   * @param {string} member - The member to remove.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  delete(member) {
+    return stateOp((carrier) => this.native.remove(member, carrier));
+  }
+
+  /**
+   * Removes every member.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  clear() {
+    return stateOp((carrier) => this.native.clear(carrier));
+  }
+
+  /**
+   * Reports whether the set has no live members.
+   * @returns {Promise<boolean>} True when the set is empty.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  isEmpty() {
+    return stateOp((carrier) => this.native.isEmpty(carrier));
+  }
+
+  /**
+   * Opens an async iterator over the selected members in order.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
+   * @throws {TransientStateError} If the direction token is invalid.
+   */
+  keys(options) {
+    const query = keyQuery(options);
+    return stateIterator(
+      stateSync(() => this.native.keys(query)),
+      (member) => member,
+    );
+  }
+
+  /**
+   * The same iterator as {@link SetState#keys}, as on the JavaScript `Set`.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   */
+  values(options) {
+    return this.keys(options);
+  }
+
+  /**
+   * Forward iteration over the members — equivalent to `values()`.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   */
+  [Symbol.asyncIterator]() {
+    return this.values();
+  }
+}
+
+/**
  * Typed handle over a double-ended-queue keyed-state collection, vended by
  * {@link Context#state}. Core records one semantic span per operation; this
  * binding propagates context without adding an N-API span. Handles and
@@ -1981,7 +2146,7 @@ class Context {
    * typed handle over it.
    *
    * Pass a definition built by one of the definition constructors ({@link value},
-   * {@link map}, {@link deque}, {@link messageValue}, {@link messageMap},
+   * {@link map}, {@link set}, {@link deque}, {@link messageValue}, {@link messageMap},
    * {@link messageDeque}) — the same frozen object placed in
    * `Configuration.stateCollections`. The returned handle (and any iterator it
    * opens) is scoped to this single event attempt; do not retain it past the
@@ -1991,7 +2156,7 @@ class Context {
    * and is rejected core-side at vend.
    *
    * @param {object} definition - A frozen definition from a definition constructor.
-   * @returns {ValueState|MapState|DequeState} The typed state handle.
+   * @returns {ValueState|MapState|SetState|DequeState} The typed state handle.
    * @throws {TransientStateError} If the definition is malformed — a missing or
    *   non-string `name`, or an unrecognized `kind`/`payload` (a caller mistake,
    *   so transient rather than a message-discarding permanent).
@@ -2029,8 +2194,10 @@ module.exports = {
   ProsodyClient,
   PublishedDeque,
   PublishedMap,
+  PublishedSet,
   PublishedValue,
   TransientError,
+  SetState,
   TransientStateError,
   ValueState,
   deque,
@@ -2044,6 +2211,7 @@ module.exports = {
   messageMap,
   messageValue,
   permanent,
+  set,
   setLogger,
   setLoggerIfUnset,
   shutdownTelemetry,

@@ -23,7 +23,7 @@ use prosody::loader::KafkaLoader;
 use prosody::loader::KafkaLoaderConfiguration;
 use prosody::producer::ProducerConfigurationBuilder;
 use prosody::state::descriptor::{
-    MapDescriptor, StateDescriptor, deque_state, map_state, value_state,
+    MapDescriptor, StateDescriptor, deque_state, map_state, set_state, value_state,
 };
 use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
@@ -303,12 +303,13 @@ pub struct StateCollectionConfig {
     /// within the definition set.
     pub name: String,
 
-    /// The collection kind: `"value"`, `"map"`, or `"deque"`.
+    /// The collection kind: `"value"`, `"map"`, `"set"`, or `"deque"`.
     pub kind: String,
 
     /// The item payload: `"json"` (JSON values) or `"message"` (the full Kafka
-    /// message the handler received).
-    pub payload: String,
+    /// message the handler received). Required for value, map, and deque
+    /// collections. Set collections store members only and take no payload.
+    pub payload: Option<String>,
 
     /// Optional per-write TTL in whole seconds. Must be a whole number >= 1
     /// (fractional, negative, and non-finite values are rejected) and must
@@ -322,10 +323,10 @@ pub struct StateCollectionConfig {
     /// Whether other consumer groups may read this collection.
     pub published: Option<bool>,
 
-    /// Optional map-only keyset bound (`0..=4096`; default 128 core-side; `0`
-    /// disables ordered-scan tracking). The binding rejects values that cannot
-    /// map to an unsigned integer. Prosody enforces the semantic ceiling.
-    /// Invalid on value or deque collections.
+    /// Optional keyset bound for map and set collections (`0..=4096`; default
+    /// 128 core-side; `0` disables ordered-scan tracking). The binding rejects
+    /// values that cannot map to an unsigned integer. Prosody enforces the
+    /// semantic ceiling. Invalid on value or deque collections.
     pub keyset_limit: Option<f64>,
 
     /// Optional deque-only capacity (bounded backlog). Must be a whole number
@@ -690,16 +691,10 @@ enum CollectionKind {
     Value,
     /// A `String`-keyed ordered map.
     Map,
+    /// A presence-only ordered set of `String` members.
+    Set,
     /// A deque.
     Deque,
-}
-
-/// The item payload of a keyed-state collection.
-enum CollectionPayload {
-    /// JSON values.
-    Json,
-    /// The full Kafka message the handler received.
-    Message,
 }
 
 /// Parses a collection-kind token.
@@ -707,31 +702,17 @@ enum CollectionPayload {
 /// @param index The collection's index in `stateCollections`.
 /// @param kind The kind token.
 /// @returns The parsed kind.
-/// @throws Error if the token is not `"value"`, `"map"`, or `"deque"`.
+/// @throws Error if the token is not `"value"`, `"map"`, `"set"`, or
+///   `"deque"`.
 fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
     match kind {
         "value" => Ok(CollectionKind::Value),
         "map" => Ok(CollectionKind::Map),
+        "set" => Ok(CollectionKind::Set),
         "deque" => Ok(CollectionKind::Deque),
         other => Err(Error::from_reason(format!(
-            "stateCollections[{index}].kind: expected \"value\", \"map\", or \"deque\", got \
-             {other:?}"
-        ))),
-    }
-}
-
-/// Parses a collection-payload token.
-///
-/// @param index The collection's index in `stateCollections`.
-/// @param payload The payload token.
-/// @returns The parsed payload.
-/// @throws Error if the token is not `"json"` or `"message"`.
-fn parse_payload(index: usize, payload: &str) -> Result<CollectionPayload> {
-    match payload {
-        "json" => Ok(CollectionPayload::Json),
-        "message" => Ok(CollectionPayload::Message),
-        other => Err(Error::from_reason(format!(
-            "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
+            "stateCollections[{index}].kind: expected \"value\", \"map\", \"set\", or \
+             \"deque\", got {other:?}"
         ))),
     }
 }
@@ -804,6 +785,36 @@ fn with_keyset<KC, V>(
     }
 }
 
+/// Parses the keyset bound for map and set collections when configured.
+///
+/// @param index The collection's index (for error messages).
+/// @param collection The collection configuration.
+/// @param kind The parsed collection kind.
+/// @returns The validated keyset bound, if any.
+/// @throws Error (permanent) if the bound is set on a value or deque
+///   collection or is not a whole number.
+fn parse_keyset_limit(
+    index: usize,
+    collection: &StateCollectionConfig,
+    kind: CollectionKind,
+) -> Result<Option<u32>> {
+    let Some(value) = collection.keyset_limit else {
+        return Ok(None);
+    };
+    if !matches!(kind, CollectionKind::Map | CollectionKind::Set) {
+        return Err(Error::from_reason(format!(
+            "stateCollections[{index}].keysetLimit: only valid for map and set collections"
+        )));
+    }
+    whole_number_field(
+        value,
+        &format!("stateCollections[{index}].keysetLimit"),
+        0,
+        u32::MAX,
+    )
+    .map(Some)
+}
+
 /// Parses the deque-only capacity bound when configured.
 ///
 /// @param index The collection's index (for error messages).
@@ -860,7 +871,6 @@ fn register_state_collection(
     collection: &StateCollectionConfig,
 ) -> Result<()> {
     let kind = parse_kind(index, &collection.kind)?;
-    let payload = parse_payload(index, &collection.payload)?;
 
     let ttl_seconds = match collection.ttl_seconds {
         Some(value) => Some(whole_number_field(
@@ -872,29 +882,31 @@ fn register_state_collection(
         None => None,
     };
 
-    let keyset_limit = match collection.keyset_limit {
-        Some(value) => {
-            if !matches!(kind, CollectionKind::Map) {
-                return Err(Error::from_reason(format!(
-                    "stateCollections[{index}].keysetLimit: only valid for map collections"
-                )));
-            }
-            Some(whole_number_field(
-                value,
-                &format!("stateCollections[{index}].keysetLimit"),
-                0,
-                u32::MAX,
-            )?)
-        }
-        None => None,
-    };
+    let keyset_limit = parse_keyset_limit(index, collection, kind)?;
 
     let capacity = parse_capacity(index, collection, kind)?;
 
     let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
-    match (kind, payload) {
-        (CollectionKind::Value, CollectionPayload::Json) => {
+    match (kind, collection.payload.as_deref()) {
+        (CollectionKind::Set, None) => {
+            let mut descriptor = with_def(
+                set_state::<Utf8KeyCodec>(name),
+                ttl_seconds,
+                read_uncommitted,
+                collection.published,
+            );
+            if let Some(limit) = keyset_limit {
+                descriptor = descriptor.keyset_limit(limit as usize);
+            }
+            let _ = keyed.register(descriptor);
+        }
+        (CollectionKind::Set, Some(_)) => {
+            return Err(Error::from_reason(format!(
+                "stateCollections[{index}].payload: not valid for set collections"
+            )));
+        }
+        (CollectionKind::Value, Some("json")) => {
             let _ = keyed.register(with_def(
                 value_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -902,7 +914,7 @@ fn register_state_collection(
                 collection.published,
             ));
         }
-        (CollectionKind::Map, CollectionPayload::Json) => {
+        (CollectionKind::Map, Some("json")) => {
             let descriptor = with_def(
                 map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -911,7 +923,7 @@ fn register_state_collection(
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
-        (CollectionKind::Deque, CollectionPayload::Json) => {
+        (CollectionKind::Deque, Some("json")) => {
             let mut descriptor = with_def(
                 deque_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -923,7 +935,7 @@ fn register_state_collection(
             }
             let _ = keyed.register(descriptor);
         }
-        (CollectionKind::Value, CollectionPayload::Message) => {
+        (CollectionKind::Value, Some("message")) => {
             let _ = keyed.register(with_def(
                 message_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -931,7 +943,7 @@ fn register_state_collection(
                 collection.published,
             ));
         }
-        (CollectionKind::Map, CollectionPayload::Message) => {
+        (CollectionKind::Map, Some("message")) => {
             let descriptor = with_def(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -940,7 +952,7 @@ fn register_state_collection(
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
-        (CollectionKind::Deque, CollectionPayload::Message) => {
+        (CollectionKind::Deque, Some("message")) => {
             let mut descriptor = with_def(
                 message_deque_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -951,6 +963,12 @@ fn register_state_collection(
                 descriptor = descriptor.capacity(bound);
             }
             let _ = keyed.register(descriptor);
+        }
+        (_, other) => {
+            return Err(Error::from_reason(format!(
+                "stateCollections[{index}].payload: expected \"json\" or \"message\", got \
+                 {other:?}"
+            )));
         }
     }
 

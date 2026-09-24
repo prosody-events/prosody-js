@@ -15,7 +15,10 @@ import {
   PositionQuery,
   PublishedDeque,
   PublishedMap,
+  PublishedSet,
   PublishedValue,
+  SetDefinition,
+  SetState,
   TransientStateError,
   ValueState,
   deque,
@@ -24,6 +27,7 @@ import {
   messageDeque,
   messageMap,
   messageValue,
+  set,
   value,
 } from "../../index";
 
@@ -48,10 +52,15 @@ const lastOrder = messageValue<OrderEvent>("last-order");
 const orderIndex = messageMap<OrderEvent>("order-index");
 const backlog = messageDeque<OrderEvent>("backlog");
 const defaultJson = value("default-json");
+const seen = set("seen", {
+  ttlSeconds: 86400,
+  keysetLimit: 64,
+  published: true,
+});
 
 // The SAME definition objects serialize into the client configuration.
 const config: Configuration = {
-  stateCollections: [cart, totals, tags, lastOrder, orderIndex, backlog],
+  stateCollections: [cart, totals, tags, seen, lastOrder, orderIndex, backlog],
   stateOwnedCacheSize: "64 MiB",
 };
 void config;
@@ -61,6 +70,7 @@ declare const incoming: Message<OrderEvent>;
 declare const publishedCart: PublishedValue<Cart>;
 declare const publishedTotals: PublishedMap<number>;
 declare const publishedTags: PublishedDeque<string>;
+declare const publishedSeen: PublishedSet;
 
 export async function checks(): Promise<void> {
   // ---- overload resolution returns the exact handle types ----
@@ -200,6 +210,50 @@ export async function checks(): Promise<void> {
   // @ts-expect-error the query direction is the closed ScanDirection set
   t.values({ direction: "sideways" });
 
+  // ---- set ----
+  const members = context.state(seen);
+  assertTrue<Equal<typeof members, SetState>>();
+  assertTrue<Equal<typeof seen, SetDefinition>>();
+  assertTrue<Equal<typeof seen.keysetLimit, number | undefined>>();
+  await members.add("m1");
+  await members.delete("m1");
+  await members.clear();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.has>>, boolean>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.isEmpty>>, boolean>>();
+  const present = await members.hasMany(["m1", "m2"]);
+  assertTrue<Equal<typeof present, boolean[]>>();
+  for await (const member of members) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of members.values({ prefix: "m", limit: 2 })) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of members.keys("backward")) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  assertTrue<Equal<Awaited<ReturnType<typeof publishedSeen.has>>, boolean>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedSeen.hasMany>>, boolean[]>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedSeen.isEmpty>>, boolean>
+  >();
+  for await (const member of publishedSeen.values("user-1", { after: "m" })) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of publishedSeen.keys("user-1")) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  // @ts-expect-error set members are strings
+  await members.add(1);
+  // @ts-expect-error capacity is deque-only (set options reject it)
+  set("s2", { capacity: 5 });
+
   // ---- deque ----
   await d.push("a");
   await d.unshift("z");
@@ -287,6 +341,8 @@ export async function checks(): Promise<void> {
   new MapState();
   // @ts-expect-error DequeState has a private constructor
   new DequeState();
+  // @ts-expect-error SetState has a private constructor
+  new SetState();
 
   // ---- a top-level null write is a compile error (null is not storable) ----
   const nv = value<string | null>("nv");

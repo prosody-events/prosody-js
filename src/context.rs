@@ -6,7 +6,7 @@
 
 use crate::state::{
     NativeJsonDequeState, NativeJsonMapState, NativeJsonValueState, NativeMessageDequeState,
-    NativeMessageMapState, NativeMessageValueState, state_error,
+    NativeMessageMapState, NativeMessageValueState, NativeSetState, state_error,
 };
 use chrono::{DateTime, Utc};
 use napi::Error;
@@ -207,6 +207,25 @@ impl NativeContext {
     pub fn map_state(&self, name: String) -> napi::Result<NativeJsonMapState> {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
         Ok(NativeJsonMapState {
+            state: handle,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named set collection.
+    ///
+    /// Vending verifies the collection's registration (core-side); no span is
+    /// opened here.
+    ///
+    /// @param name The registered collection name.
+    /// @returns The set-state handle for this event's transaction.
+    /// @throws Error (permanent) if the name is unregistered or its registered
+    ///   identity mismatches.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    pub fn set_state(&self, name: String) -> napi::Result<NativeSetState> {
+        let handle = self.context.set_state(&name).map_err(|e| state_error(&e))?;
+        Ok(NativeSetState {
             state: handle,
             propagator: Arc::clone(&self.propagator),
         })

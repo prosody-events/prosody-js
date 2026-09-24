@@ -15,9 +15,12 @@ const {
   messageValue,
   messageMap,
   messageDeque,
+  set,
   MapState,
+  SetState,
   DequeState,
   PublishedMap,
+  PublishedSet,
   PublishedDeque,
   PermanentStateError,
   TransientStateError,
@@ -206,9 +209,18 @@ test("descriptors retain their owned and published access strategies", async () 
       publishedCalls.push(["deque", ...args]);
       return {};
     },
+    publishedSet: async (...args) => {
+      publishedCalls.push(["set", ...args]);
+      return {};
+    },
   };
 
-  const definitions = [value("cart"), map("items"), deque("jobs")];
+  const definitions = [
+    value("cart"),
+    map("items"),
+    deque("jobs"),
+    set("tags", { readCache: { ttlMs: 250 } }),
+  ];
   await Promise.all(
     definitions.map((definition) => client.state("accounts", definition)),
   );
@@ -218,7 +230,9 @@ test("descriptors retain their owned and published access strategies", async () 
     ["value", "accounts", "cart"],
     ["map", "accounts", "items"],
     ["deque", "accounts", "jobs"],
+    ["set", "accounts", "tags"],
   ]);
+  expect(publishedCalls[3]).toEqual(["set", "accounts", "tags", 250, false]);
 
   const ownedCalls = [];
   const nativeContext = {};
@@ -226,6 +240,7 @@ test("descriptors retain their owned and published access strategies", async () 
     "valueState",
     "mapState",
     "dequeState",
+    "setState",
     "messageValueState",
     "messageMapState",
     "messageDequeState",
@@ -240,6 +255,7 @@ test("descriptors retain their owned and published access strategies", async () 
     value("value"),
     map("map"),
     deque("deque"),
+    set("set"),
     messageValue("message-value"),
     messageMap("message-map"),
     messageDeque("message-deque"),
@@ -248,10 +264,118 @@ test("descriptors retain their owned and published access strategies", async () 
     ["valueState", "value"],
     ["mapState", "map"],
     ["dequeState", "deque"],
+    ["setState", "set"],
     ["messageValueState", "message-value"],
     ["messageMapState", "message-map"],
     ["messageDequeState", "message-deque"],
   ]);
+});
+
+test("set definitions carry set options and no payload", () => {
+  expect(
+    set("tags", { ttlSeconds: 60, keysetLimit: 8, published: true }),
+  ).toEqual({
+    name: "tags",
+    kind: "set",
+    ttlSeconds: 60,
+    keysetLimit: 8,
+    published: true,
+  });
+  expect(Object.isFrozen(set("tags"))).toBe(true);
+});
+
+test("set handles and published sets call the native set methods", async () => {
+  const calls = [];
+  const record =
+    (name, result) =>
+    (...args) => {
+      calls.push([name, ...args.slice(0, -1)]);
+      return Promise.resolve(result);
+    };
+  const members = new SetState({
+    insert: record("insert"),
+    contains: record("contains", true),
+    containsMany: record("containsMany", [true, false]),
+    remove: record("remove"),
+    clear: record("clear"),
+    isEmpty: record("isEmpty", false),
+  });
+  await expect(members.add("a")).resolves.toBeUndefined();
+  await expect(members.has("a")).resolves.toBe(true);
+  await expect(members.hasMany(["a", "b"])).resolves.toEqual([true, false]);
+  await expect(members.delete("a")).resolves.toBeUndefined();
+  await expect(members.clear()).resolves.toBeUndefined();
+  await expect(members.isEmpty()).resolves.toBe(false);
+
+  const reader = new PublishedSet({
+    contains: record("published.contains", false),
+    containsMany: record("published.containsMany", [false]),
+    isEmpty: record("published.isEmpty", true),
+  });
+  await expect(reader.has("u", "a")).resolves.toBe(false);
+  await expect(reader.hasMany("u", ["a"])).resolves.toEqual([false]);
+  await expect(reader.isEmpty("u")).resolves.toBe(true);
+
+  expect(calls).toEqual([
+    ["insert", "a"],
+    ["contains", "a"],
+    ["containsMany", ["a", "b"]],
+    ["remove", "a"],
+    ["clear"],
+    ["isEmpty"],
+    ["published.contains", "u", "a"],
+    ["published.containsMany", "u", ["a"]],
+    ["published.isEmpty", "u"],
+  ]);
+});
+
+test("set iterators yield bare members through the key cursor", async () => {
+  const opened = [];
+  const cursor = (items) => {
+    let done = false;
+    return {
+      nextChunk: async () => {
+        if (done) return null;
+        done = true;
+        return items;
+      },
+      close: async () => {},
+    };
+  };
+  const keys = (...args) => {
+    opened.push(args);
+    return cursor(["apple", "berry"]);
+  };
+  const collect = async (iterator) => {
+    const items = [];
+    for await (const item of iterator) items.push(item);
+    return items;
+  };
+  const members = new SetState({ keys });
+  const reader = new PublishedSet({ keys });
+
+  expect(await collect(members)).toEqual(["apple", "berry"]);
+  expect(await collect(members.values({ prefix: "a" }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(members.keys("backward"))).toEqual(["apple", "berry"]);
+  expect(await collect(reader.values("u", { limit: 1 }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(reader.keys("u"))).toEqual(["apple", "berry"]);
+  expect(opened).toEqual([
+    [{}],
+    [{ prefix: "a" }],
+    [{ direction: "backward" }],
+    ["u", { limit: 1 }],
+    ["u", {}],
+  ]);
+  expect(() => members.keys({ limit: 0 })).toThrow(RangeError);
+  expect(() => reader.values("u", { from: "a", after: "b" })).toThrow(
+    TypeError,
+  );
 });
 
 test("request maps native subsystem outcomes", async () => {
@@ -444,6 +568,7 @@ const STATE_DEFS = {
   cart: value("cart"),
   totals: map("totals", { keysetLimit: 256 }),
   backlog: deque("backlog"),
+  members: set("members", { keysetLimit: 64 }),
   lastMsg: messageValue("last-msg"),
   msgIndex: messageMap("msg-index"),
   msgLog: messageDeque("msg-log"),
@@ -2124,6 +2249,53 @@ describe("ProsodyClient", () => {
       });
     });
 
+    // C7c — set FFI boundary: every set method reaches core and answers in
+    // the JS shapes. Members round-trip as strings, batch presence aligns with
+    // its input, and iteration yields bare members in key order.
+    it("set adds, tests, removes, and iterates members", async () => {
+      const K = nonce();
+      client = await makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx) => {
+          const s = ctx.state(STATE_DEFS.members);
+          const collect = async (iterator) => {
+            const items = [];
+            for await (const item of iterator) items.push(item);
+            return items;
+          };
+          try {
+            const emptyBefore = await s.isEmpty();
+            for (const member of ["b", "a", "café", "c"]) await s.add(member);
+            await s.delete("c");
+            await s.delete("never-added");
+            messageStream.push({
+              emptyBefore,
+              emptyAfter: await s.isEmpty(),
+              has: [await s.has("a"), await s.has("c")],
+              hasMany: await s.hasMany(["café", "c", "a", "a"]),
+              all: await collect(s),
+              backward: await collect(s.values("backward")),
+              page: await collect(s.keys({ after: "a", limit: 1 })),
+            });
+            await s.clear();
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.emptyBefore).toBe(true);
+      expect(obs.emptyAfter).toBe(false);
+      expect(obs.has).toEqual([true, false]);
+      expect(obs.hasMany).toEqual([true, false, true, true]);
+      expect(obs.all).toEqual(["a", "b", "café"]);
+      expect(obs.backward).toEqual(["café", "b", "a"]);
+      expect(obs.page).toEqual(["b"]);
+    });
+
     // C8a — binding an unregistered name rejects PermanentStateError at vend.
     it("binding an unregistered collection name throws PermanentStateError", async () => {
       client = await makeStateClient();
@@ -2970,6 +3142,30 @@ describe("keyed state configuration validation", () => {
     await rejectsConfig(
       makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
       /keysetLimit: only valid for map/,
+    );
+  });
+
+  it("accepts set options and rejects set payloads and capacity", async () => {
+    await makeClient(
+      makeConfig({
+        stateCollections: [
+          set("s", { ttlSeconds: 60, keysetLimit: 0, readUncommitted: true }),
+        ],
+      }),
+    );
+    await rejectsConfig(
+      makeConfig({
+        stateCollections: [{ name: "s", kind: "set", payload: "json" }],
+      }),
+      /payload: not valid for set collections/,
+    );
+    await rejectsConfig(
+      makeConfig({ stateCollections: [set("s", { capacity: 5 })] }),
+      /capacity: only valid for deque/,
+    );
+    await rejectsConfig(
+      makeConfig({ stateCollections: [{ name: "v", kind: "value" }] }),
+      /payload: expected/,
     );
   });
 
