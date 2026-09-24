@@ -6,7 +6,7 @@
 
 import type {
   AdminClient,
-  Configuration,
+  Configuration as NativeConfiguration,
   ConsumerState,
   ExciseMessage as NativeExciseMessage,
   Message as NativeMessage,
@@ -15,14 +15,18 @@ import type {
   Timer,
 } from "./bindings";
 
-export {
-  AdminClient,
-  Configuration,
-  ConsumerState,
-  ReadCacheConfiguration,
-  Timer,
-  Mode,
-};
+export { AdminClient, ConsumerState, ReadCacheConfiguration, Timer, Mode };
+
+/** Configuration options for the Prosody client. */
+export interface Configuration extends NativeConfiguration {
+  /**
+   * Prosody ignores this option. Keyed-state recovery uses the commit
+   * evidence in each collection, so it needs no delay. Setting it emits one
+   * `DeprecationWarning`.
+   * @deprecated Remove this option. It has no effect.
+   */
+  stateRecoveryDelaySeconds?: number;
+}
 
 /** Exports all pending telemetry data. */
 export function flushTelemetry(): void;

@@ -3278,6 +3278,25 @@ describe("keyed state configuration validation", () => {
     },
   );
 
+  // The recovery delay no longer reaches core. Any value, even one the old
+  // validation rejected, is accepted, and the first use warns once.
+  it("accepts the deprecated stateRecoveryDelaySeconds and warns once", async () => {
+    const emitWarning = jest.spyOn(process, "emitWarning");
+    try {
+      await makeClient(makeConfig({}));
+      expect(emitWarning).not.toHaveBeenCalled();
+      await makeClient(makeConfig({ stateRecoveryDelaySeconds: -1 }));
+      await makeClient(makeConfig({ stateRecoveryDelaySeconds: 30 }));
+      expect(emitWarning).toHaveBeenCalledTimes(1);
+      expect(emitWarning).toHaveBeenCalledWith(
+        expect.stringMatching(/stateRecoveryDelaySeconds has no effect/),
+        expect.objectContaining({ type: "DeprecationWarning" }),
+      );
+    } finally {
+      emitWarning.mockRestore();
+    }
+  });
+
   it("accepts the full canonical collection set", async () => {
     await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
   });
