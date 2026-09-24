@@ -8,11 +8,8 @@ use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
 use opentelemetry::trace::FutureExt;
-use prosody::codec::JsonBinaryCodec;
-use prosody::high_level::erased::{
-    ErasedDirection, SharedDequeReader, SharedMapReader, SharedValueReader,
-};
-use prosody::state::Direction;
+use prosody::codec::BinaryPayload;
+use prosody::high_level::erased::{SharedDequeReader, SharedMapReader, SharedValueReader};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -23,7 +20,7 @@ fn read_error(error: &impl ToString) -> Error {
 /// A read-only published value collection.
 #[napi]
 pub struct NativePublishedValue {
-    pub(crate) inner: SharedValueReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedValueReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -50,7 +47,7 @@ impl NativePublishedValue {
 /// A read-only published map collection.
 #[napi]
 pub struct NativePublishedMap {
-    pub(crate) inner: SharedMapReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedMapReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -111,50 +108,20 @@ impl NativePublishedMap {
 
     /// Opens an ordered entry cursor.
     #[napi(writable = false)]
-    pub async fn scan(
-        &self,
-        key: String,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> Result<NativeJsonMapCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
-        let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .stream(key, direction)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
+    pub fn scan(&self, key: String, direction: String) -> Result<NativeJsonMapCursor> {
+        let direction = parse_direction(direction)?;
         Ok(NativeJsonMapCursor {
-            cursor: inner,
+            cursor: self.inner.entries(key).direction(direction).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
 
     /// Opens an ordered key cursor.
     #[napi(writable = false)]
-    pub async fn keys(
-        &self,
-        key: String,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> Result<NativeMapKeyCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
-        let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .keys(key, direction)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
+    pub fn keys(&self, key: String, direction: String) -> Result<NativeMapKeyCursor> {
+        let direction = parse_direction(direction)?;
         Ok(NativeMapKeyCursor {
-            cursor: inner,
+            cursor: self.inner.keys(key).direction(direction).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -163,7 +130,7 @@ impl NativePublishedMap {
 /// A read-only published deque collection.
 #[napi]
 pub struct NativePublishedDeque {
-    pub(crate) inner: SharedDequeReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedDequeReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -251,25 +218,10 @@ impl NativePublishedDeque {
 
     /// Opens an ordered element cursor.
     #[napi(writable = false)]
-    pub async fn scan(
-        &self,
-        key: String,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> Result<NativeJsonDequeCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
-        let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .stream(key, direction)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
+    pub fn scan(&self, key: String, direction: String) -> Result<NativeJsonDequeCursor> {
+        let direction = parse_direction(direction)?;
         Ok(NativeJsonDequeCursor {
-            cursor: inner,
+            cursor: self.inner.values(key).direction(direction).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

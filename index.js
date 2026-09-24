@@ -982,8 +982,8 @@ function messageDeque(name, options) {
  *
  * Owned cursors remain attempt-fenced. Published cursors remain valid with
  * their standalone reader.
- * @param {object|(() => Promise<object>)} source - The native scan cursor, or
- *   a lazy asynchronous cursor opener.
+ * @param {object|(() => object)} source - The native scan cursor, or a lazy
+ *   cursor opener.
  * @param {(item: *) => *} transform - Maps each raw item to the yielded value.
  * @returns {AsyncIterableIterator<*>} The async iterator.
  * @private
@@ -996,7 +996,7 @@ function stateIterator(source, transform) {
   let queue = Promise.resolve();
   const openCursor = async () => {
     if (cursor === undefined) {
-      cursor = typeof source === "function" ? await source() : source;
+      cursor = typeof source === "function" ? source() : source;
     }
     return cursor;
   };
@@ -1127,21 +1127,21 @@ class PublishedMap {
 
   entries(key, direction = "forward") {
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.scan(key, direction)),
       ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
     );
   }
 
   keys(key, direction = "forward") {
     return stateIterator(
-      () => stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      () => stateSync(() => this.native.keys(key, direction)),
       (mapKey) => mapKey,
     );
   }
 
   values(key, direction = "forward") {
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.scan(key, direction)),
       (entry) => jsonItems.decode(entry[1]),
     );
   }
@@ -1374,7 +1374,7 @@ class PublishedDeque {
 
   values(key, direction = "forward") {
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.scan(key, direction)),
       jsonItems.decode,
     );
   }

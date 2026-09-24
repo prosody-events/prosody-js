@@ -241,7 +241,7 @@ impl NativeJsonDequeState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeJsonDequeCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.values().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -418,7 +418,7 @@ impl NativeMessageDequeState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeMessageDequeCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.values().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

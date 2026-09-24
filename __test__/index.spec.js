@@ -174,7 +174,7 @@ test("published scans return an async iterator and open lazily", async () => {
       .mockResolvedValueOnce(null),
     close: jest.fn().mockResolvedValue(undefined),
   };
-  const scan = jest.fn().mockResolvedValue(cursor);
+  const scan = jest.fn().mockReturnValue(cursor);
   const entries = new PublishedMap({ scan }).entries("user-1");
 
   expect(scan).not.toHaveBeenCalled();

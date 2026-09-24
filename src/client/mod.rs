@@ -53,12 +53,12 @@ impl NativeClient {
         let consumer_builders = build_consumer_builders(&config)?;
         let cassandra = build_cassandra_config(&config);
 
-        let client = new_erased(
+        let client = Box::pin(new_erased(
             config.mode.unwrap_or_default().into(),
             &mut producer_config,
             &consumer_builders,
             &cassandra,
-        )
+        ))
         .await
         .map_err(|error| Error::from_reason(error.to_string()))?;
 

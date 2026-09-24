@@ -30,7 +30,7 @@ use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
 use prosody::codec::{BinaryPayload, ErasedStateCodec};
 use prosody::consumer::event_context::{
-    BoxDequeState, BoxMapState, BoxStateCursor, BoxValueState, ErasedCategory, ErasedStateError,
+    BoxDequeState, BoxMapState, BoxValueState, ErasedCategory, ErasedStateError, StateCursor,
 };
 use prosody::consumer::message::ConsumerMessage;
 use prosody::state::Direction;
@@ -146,8 +146,8 @@ fn permanent_error(message: String) -> Error {
 /// @returns The matching `Direction`.
 /// @throws Error (transient) if the token is neither `"forward"` nor
 /// `"backward"` (a caller mistake — retries, not discarded).
-pub(crate) fn parse_direction(direction: &str) -> napi::Result<Direction> {
-    match direction {
+pub(crate) fn parse_direction(direction: impl AsRef<str>) -> napi::Result<Direction> {
+    match direction.as_ref() {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
         other => Err(transient_error(format!(
@@ -232,7 +232,8 @@ macro_rules! transaction_methods {
                     .commit()
                     .with_context(context)
                     .await
-                    .map_err(|error| state_error(&error))
+                    .map_err(|error| state_error(&error))?;
+                Ok(())
             }
 
             /// Discards the buffered operations.

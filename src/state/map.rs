@@ -169,7 +169,7 @@ impl NativeJsonMapState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeJsonMapCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.entries().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -196,7 +196,7 @@ impl NativeJsonMapState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeMapKeyCursor {
-            cursor: self.state.keys(dir),
+            cursor: self.state.keys().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -314,7 +314,7 @@ impl NativeMessageMapState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeMessageMapCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.entries().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -330,7 +330,7 @@ impl NativeMessageMapState {
         let dir = parse_direction(&direction)?;
         let _guard = op_context(&self.propagator, &otel_context).attach();
         Ok(NativeMapKeyCursor {
-            cursor: self.state.keys(dir),
+            cursor: self.state.keys().direction(dir).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
