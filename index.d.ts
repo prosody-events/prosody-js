@@ -271,7 +271,8 @@ export type KeyQuery = QueryOptions & {
 /**
  * Query options for deque values. Positions count from the front. Each
  * position must be a non-negative safe integer; a `RangeError` reports any
- * other number. Negative positions are not resolved against the length.
+ * other number. Negative positions are not resolved against the length. To
+ * read the last N elements, use `values({ direction: "backward", limit: N })`.
  */
 export type PositionQuery = QueryOptions &
   QueryStart<number> &

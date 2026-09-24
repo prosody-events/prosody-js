@@ -3041,6 +3041,8 @@ describe("keyed state (unit)", () => {
     ["negative position", { from: -1 }, RangeError],
     ["fractional position", { after: 1.5 }, RangeError],
     ["unsafe position", { to: 2 ** 53 }, RangeError],
+    ["infinite position", { from: Infinity }, RangeError],
+    ["NaN position", { after: NaN }, RangeError],
     ["string position", { before: "1" }, TypeError],
     ["from with after", { from: 1, after: 2 }, TypeError],
     ["to with before", { to: 1, before: 2 }, TypeError],

@@ -779,7 +779,7 @@ Map `entries`, `keys`, and `values` and set `keys` and `values` accept a directi
 | `prefix`         | Keep keys that start with a prefix. Keys only.          |
 | `limit`          | Return at most this many items. Use a positive integer. |
 
-Bounds are in query order, so a backward query starts at the high end. Bounds and `prefix` narrow the selection. Deque positions count from the front and cannot be negative.
+Bounds are in query order, so a backward query starts at the high end. Bounds and `prefix` narrow the selection. Deque positions count from the front and cannot be negative. To read the last N elements, use `values({ direction: "backward", limit: N })`.
 
 To page through a map or a set, pass the last key of the previous page as `after`:
 
