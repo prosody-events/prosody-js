@@ -10,7 +10,7 @@ The JavaScript client reports values it cannot convert to Prosody types. Prosody
 | ------------------------------------------------ | ------------------------------------------------------------------------- | --------------- |
 | `bootstrapServers` / `PROSODY_BOOTSTRAP_SERVERS` | Kafka servers to connect to                                               | -               |
 | `groupId` / `PROSODY_GROUP_ID`                   | Consumer group name                                                       | -               |
-| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from                                                       | -               |
+| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from. Omit it for a client that only reads published state | -               |
 | `allowedEvents` / `PROSODY_ALLOWED_EVENTS`       | Only process events matching these prefixes                               | (all)           |
 | `sourceSystem` / `PROSODY_SOURCE_SYSTEM`         | Tag for outgoing messages (prevents reprocessing)                         | `<groupId>`     |
 | `mock` / `PROSODY_MOCK`                          | Use in-memory Kafka for testing                                           | false           |
