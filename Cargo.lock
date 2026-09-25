@@ -2040,7 +2040,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.6.0"
-source = "git+https://github.com/prosody-events/prosody?rev=80887f8d69ff4f6862a3ba23241a60da618a8734#80887f8d69ff4f6862a3ba23241a60da618a8734"
+source = "git+https://github.com/prosody-events/prosody?rev=7bb6f780208ab95bb294fb1bb5e11ad637336aa1#7bb6f780208ab95bb294fb1bb5e11ad637336aa1"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -2133,7 +2133,7 @@ dependencies = [
 [[package]]
 name = "prosody-macros"
 version = "0.6.0"
-source = "git+https://github.com/prosody-events/prosody?rev=80887f8d69ff4f6862a3ba23241a60da618a8734#80887f8d69ff4f6862a3ba23241a60da618a8734"
+source = "git+https://github.com/prosody-events/prosody?rev=7bb6f780208ab95bb294fb1bb5e11ad637336aa1#7bb6f780208ab95bb294fb1bb5e11ad637336aa1"
 dependencies = [
  "proc-macro2",
  "quote",
