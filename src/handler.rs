@@ -236,6 +236,7 @@ impl JsHandler {
     async fn handle_record<C, P, F, Fut>(
         &self,
         context: C,
+        demand: DemandType,
         message: ConsumerMessage<P>,
         call: F,
     ) -> Result<BinaryPayload, JsHandlerError>
@@ -247,7 +248,7 @@ impl JsHandler {
     {
         let span = message.span();
         let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+            NativeContext::new(context.boxed(), demand, Arc::clone(&self.inner.propagator));
         let mut carrier = HashMap::with_capacity(2);
         self.inner
             .propagator
@@ -330,21 +331,21 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param message The consumer message to process.
-    /// @param `_demand_type` Whether this is normal processing or failure
+    /// @param `demand` Whether this is normal processing or failure
     /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
     /// execution fails or if error categorization fails.
     async fn on_message<C>(
         &self,
         context: C,
         message: ConsumerMessage<Self::Payload>,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
         debug!("processing message");
         let result = self
-            .handle_record(context, message, |context, message, carrier| {
+            .handle_record(context, demand, message, |context, message, carrier| {
                 self.inner
                     .on_message
                     .call_async(Ok((context, Message::new(message), carrier)))
@@ -360,12 +361,12 @@ impl FallibleHandler for JsHandler {
         &self,
         context: C,
         message: ConsumerMessage<()>,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        self.handle_record(context, message, |context, message, carrier| {
+        self.handle_record(context, demand, message, |context, message, carrier| {
             self.inner
                 .on_excise
                 .call_async(Ok((context, ExciseMessage::from(message), carrier)))
@@ -382,14 +383,14 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param trigger The timer trigger to process.
-    /// @param `_demand_type` Whether this is normal processing or failure
+    /// @param `demand` Whether this is normal processing or failure
     /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
     /// execution fails or if error categorization fails.
     async fn on_timer<C>(
         &self,
         context: C,
         trigger: Trigger,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
@@ -410,7 +411,7 @@ impl FallibleHandler for JsHandler {
             .inject_context(&span.context(), &mut carrier);
 
         let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+            NativeContext::new(context.boxed(), demand, Arc::clone(&self.inner.propagator));
         let timer: Timer = trigger.into();
 
         debug!("processing timer");

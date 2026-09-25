@@ -1,18 +1,17 @@
 //! Native read-only views over published keyed state.
 
 use crate::state::{
-    NativeJsonDequeCursor, NativeJsonMapCursor, NativeMapKeyCursor, json_text, op_context,
-    parse_direction,
+    NativeJsonDequeCursor, NativeJsonMapCursor, NativeKeyCursor, NativeKeyQuery,
+    NativePositionQuery, json_text, op_context,
 };
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
 use opentelemetry::trace::FutureExt;
-use prosody::codec::JsonBinaryCodec;
+use prosody::codec::BinaryPayload;
 use prosody::high_level::erased::{
-    ErasedDirection, SharedDequeReader, SharedMapReader, SharedValueReader,
+    SharedDequeReader, SharedMapReader, SharedSetReader, SharedValueReader,
 };
-use prosody::state::Direction;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -23,7 +22,7 @@ fn read_error(error: &impl ToString) -> Error {
 /// A read-only published value collection.
 #[napi]
 pub struct NativePublishedValue {
-    pub(crate) inner: SharedValueReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedValueReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -50,7 +49,7 @@ impl NativePublishedValue {
 /// A read-only published map collection.
 #[napi]
 pub struct NativePublishedMap {
-    pub(crate) inner: SharedMapReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedMapReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -109,52 +108,129 @@ impl NativePublishedMap {
             .map_err(|error| read_error(&error))
     }
 
-    /// Opens an ordered entry cursor.
+    /// Tests committed presence aligned with the supplied map keys.
     #[napi(writable = false)]
-    pub async fn scan(
+    pub async fn contains_many(
         &self,
         key: String,
-        direction: String,
+        map_keys: Vec<String>,
         otel_context: HashMap<String, String>,
-    ) -> Result<NativeJsonMapCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
+    ) -> Result<Vec<bool>> {
         let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .stream(key, direction)
+        self.inner
+            .contains_many(key, map_keys)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))?;
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reports whether the committed map is empty.
+    #[napi(writable = false)]
+    pub async fn is_empty(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .is_empty(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Opens a cursor over the selected entries.
+    #[napi(writable = false)]
+    pub fn entries(&self, key: String, query: NativeKeyQuery) -> Result<NativeJsonMapCursor> {
         Ok(NativeJsonMapCursor {
-            cursor: inner,
+            cursor: self
+                .inner
+                .entries(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
 
-    /// Opens an ordered key cursor.
+    /// Opens a cursor over the selected keys.
     #[napi(writable = false)]
-    pub async fn keys(
+    pub fn keys(&self, key: String, query: NativeKeyQuery) -> Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self
+                .inner
+                .keys(key)
+                .with_query(query.into_query()?)
+                .stream(),
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+}
+
+/// A read-only published set collection.
+#[napi]
+pub struct NativePublishedSet {
+    pub(crate) inner: SharedSetReader,
+    pub(crate) propagator: Arc<TextMapCompositePropagator>,
+}
+
+#[napi]
+impl NativePublishedSet {
+    /// Reports whether the committed set contains a member.
+    #[napi(writable = false)]
+    pub async fn contains(
         &self,
         key: String,
-        direction: String,
+        member: String,
         otel_context: HashMap<String, String>,
-    ) -> Result<NativeMapKeyCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
+    ) -> Result<bool> {
         let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .keys(key, direction)
+        self.inner
+            .contains(key, member)
             .with_context(context)
             .await
-            .map_err(|error| read_error(&error))?;
-        Ok(NativeMapKeyCursor {
-            cursor: inner,
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Tests committed membership aligned with the supplied members.
+    #[napi(writable = false)]
+    pub async fn contains_many(
+        &self,
+        key: String,
+        members: Vec<String>,
+        otel_context: HashMap<String, String>,
+    ) -> Result<Vec<bool>> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .contains_many(key, members)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Reports whether the committed set has no members.
+    #[napi(writable = false)]
+    pub async fn is_empty(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        let context = op_context(&self.propagator, &otel_context);
+        self.inner
+            .is_empty(key)
+            .with_context(context)
+            .await
+            .map_err(|error| read_error(&error))
+    }
+
+    /// Opens a cursor over the selected members.
+    #[napi(writable = false)]
+    pub fn keys(&self, key: String, query: NativeKeyQuery) -> Result<NativeKeyCursor> {
+        Ok(NativeKeyCursor {
+            cursor: self
+                .inner
+                .keys(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -163,7 +239,7 @@ impl NativePublishedMap {
 /// A read-only published deque collection.
 #[napi]
 pub struct NativePublishedDeque {
-    pub(crate) inner: SharedDequeReader<JsonBinaryCodec>,
+    pub(crate) inner: SharedDequeReader<BinaryPayload>,
     pub(crate) propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -249,27 +325,15 @@ impl NativePublishedDeque {
         value.map(json_text).transpose()
     }
 
-    /// Opens an ordered element cursor.
+    /// Opens a cursor over the selected elements.
     #[napi(writable = false)]
-    pub async fn scan(
-        &self,
-        key: String,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> Result<NativeJsonDequeCursor> {
-        let direction = match parse_direction(&direction)? {
-            Direction::Forward => ErasedDirection::Forward,
-            Direction::Backward => ErasedDirection::Backward,
-        };
-        let context = op_context(&self.propagator, &otel_context);
-        let inner = self
-            .inner
-            .stream(key, direction)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
+    pub fn values(&self, key: String, query: NativePositionQuery) -> Result<NativeJsonDequeCursor> {
         Ok(NativeJsonDequeCursor {
-            cursor: inner,
+            cursor: self
+                .inner
+                .values(key)
+                .with_query(query.into_query()?)
+                .stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

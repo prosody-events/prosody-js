@@ -571,6 +571,17 @@ default, all errors are considered transient.
 
 The error classes and decorators apply to `onMessage`, `onExcise`, and `onTimer`.
 
+A handler can read `context.demand` to learn whether it runs for a retry. The retry ordinal is 1 on the first retry. It is an estimate, so keep an exact attempt count in keyed state if you need one:
+
+```typescript
+async onMessage(context, message) {
+  if (context.demand.kind === "failure") {
+    console.warn(`retry ${context.demand.retry} for ${message.key}`);
+  }
+  return null;
+}
+```
+
 #### Using Decorators
 
 If you're using TypeScript or a JavaScript environment that supports decorators, you can use the `@permanent` decorator
@@ -736,13 +747,57 @@ A definition sets a collection's durable name, kind, and options. Register it on
 
 Do not reuse a durable name for a different collection kind or payload type. Create handles inside the handler. Do not retain handles or iterators.
 
-| Collection         | JSON payload | Kafka message     | Main operations                                                      |
-| ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
-| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                |
-| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `set`, `delete`, `entries`, `keys`, `clear` |
-| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear` |
+| Collection         | JSON payload | Kafka message     | Main operations                                                                            |
+| ------------------ | ------------ | ----------------- | ------------------------------------------------------------------------------------------ |
+| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                                      |
+| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `set`, `delete`, `entries`, `keys`, `clear` |
+| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear`                       |
+| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `keys`, `values`, `clear`                    |
 
-All operations are asynchronous. Map and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
+All operations are asynchronous. Map, set, and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
+
+A set stores string members and no values. Its methods follow the JavaScript `Set`, but each returns a promise. Use a set to record which IDs a key has seen:
+
+```typescript
+const SEEN = set("seen-orders", { ttlSeconds: 7 * 24 * 60 * 60 });
+
+// In a handler:
+const seen = context.state(SEEN);
+if (await seen.has(message.payload.orderId)) return null;
+await seen.add(message.payload.orderId);
+```
+
+### Query a collection
+
+Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the cells it selects.
+
+| Option           | Effect                                                  |
+| ---------------- | ------------------------------------------------------- |
+| `direction`      | `"forward"` (the default) or `"backward"`               |
+| `from` / `after` | Start at a bound, or start after it. Set at most one.   |
+| `to` / `before`  | Stop at a bound, or stop before it. Set at most one.    |
+| `prefix`         | Keep keys that start with a prefix. Keys only.          |
+| `limit`          | Return at most this many items. Use a positive integer. |
+
+Bounds are in query order, so a backward query starts at the high end. Bounds and `prefix` narrow the selection. Deque positions count from the front and cannot be negative. To read the last N elements, use `values({ direction: "backward", limit: N })`.
+
+To page through a map or a set, pass the last key of the previous page as `after`:
+
+```typescript
+const ORDERS = map<Order>("orders");
+
+async function orderPage(context: Context, after?: string) {
+  const page: [string, Order][] = [];
+  for await (const entry of context
+    .state(ORDERS)
+    .entries({ after, limit: 50 })) {
+    page.push(entry);
+  }
+  return page; // Pass page.at(-1)?.[0] as `after` for the next page.
+}
+```
+
+Set `direction: "backward"` to page from the highest key down.
 
 Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
 
@@ -755,6 +810,8 @@ This transaction applies only to keyed state. Some workflows need state changes 
 - `readUncommitted: true` persists keyed-state changes before Prosody records the event as complete. If the process stops between these steps, Prosody can process the same event again. The retry sees state changes from the earlier attempt. You must make these keyed-state changes idempotent. Each retry must produce the same state.
 - `commit()` commits the collection's pending changes before the handler ends. A later handler failure does not remove them.
 - `rollback()` discards pending changes since the last `commit()`. It cannot undo committed changes.
+
+Both resolve to a `StoreOutcome`: `"applied"` when the call wrote or discarded pending changes, or `"noOp"` when the collection had no pending changes.
 
 ### Published state
 
@@ -777,7 +834,7 @@ const currentOrder = context.state(CURRENT_ORDER);
 await currentOrder.set({ sku: "book" });
 ```
 
-Read published state from a handler or other application code. The Prosody client does not need an active subscription.
+Read published state from a handler or other application code. The Prosody client does not need an active subscription. A client that only reads published state does not need `subscribedTopics`.
 
 Use the subsystem and the same definition to open a reader:
 
@@ -788,7 +845,7 @@ const currentOrder = await orderReader.get("customer-123");
 
 The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one.
 
-Map and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
+Map, set, and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
 
 The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache.
 
@@ -1098,6 +1155,7 @@ your changes before merging to `main`.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
+- `state(subsystem: string, definition: SetDefinition): Promise<PublishedSet>`: Open a read-only published set.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
@@ -1145,6 +1203,7 @@ Represents the current event context:
 
 - `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
 - `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
+- `demand: Demand`: Why the handler runs. `kind` is `"normal"` or `"failure"`. `retry` is the retry ordinal: 0 for normal demand and 1 on the first retry. The ordinal is an estimate. Keep an exact attempt count in keyed state if you need one.
 
 Timer scheduling methods:
 
@@ -1156,7 +1215,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
+- `state(definition): ValueState<T> | MapState<V> | SetState | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
 
 ### Timer
 
@@ -1194,35 +1253,52 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 - `value<T = JsonValue>(name: string, options?: PublishedStateDefinitionOptions): ValueDefinition<T>`
 - `map<V = JsonValue>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
+- `set(name: string, options?: SetDefinitionOptions): SetDefinition`
 - `deque<T = JsonValue>(name: string, options?: DequeDefinitionOptions): DequeDefinition<T>`
 - `messageValue<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
 - `messageMap<P = JsonValue>(name: string, options?: MessageMapDefinitionOptions): MessageMapDefinition<P>`
 - `messageDeque<P = JsonValue>(name: string, options?: MessageDequeDefinitionOptions): MessageDequeDefinition<P>`
 
-`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options.
+`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options. `SetDefinitionOptions` is the map option type: publication options and `keysetLimit`.
 
 `ValueState<T>`:
 
 - `get(): Promise<T | null>`
 - `set(value: T): Promise<void>`
 - `clear(): Promise<void>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `MapState<V>` (keys are `string`):
 
 - `get(key: string): Promise<V | null>`
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`
 - `has(key: string): Promise<boolean>`
+- `hasMany(keys: readonly string[]): Promise<boolean[]>`
+- `isEmpty(): Promise<boolean>`
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
-- `entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>`
-- `keys(direction?: ScanDirection): AsyncIterableIterator<string>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<V>`
+- `entries(options?: ScanDirection | KeyQuery): AsyncIterableIterator<[string, V]>`
+- `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
+
+`SetState` (members are `string`):
+
+- `add(member: string): Promise<void>`
+- `has(member: string): Promise<boolean>`
+- `hasMany(members: readonly string[]): Promise<boolean[]>`
+- `delete(member: string): Promise<void>`
+- `clear(): Promise<void>`
+- `isEmpty(): Promise<boolean>`
+- `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
+- `[Symbol.asyncIterator](): AsyncIterableIterator<string>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `DequeState<T>`:
 
@@ -1234,22 +1310,26 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `isEmpty(): Promise<boolean>`
 - `clear(): Promise<void>`
 - `at(index: number): Promise<T | null>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<T>`
+- `values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `ScanDirection`: `"forward" | "backward"`.
 
-Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
+`StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
+
+`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, or both edges of a pair. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
 `StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
 
 JSON definitions also accept `readCache`. This option applies when the definition opens published state. It is not part of `StateCollectionConfig`.
 
-The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
+The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `SetDefinition`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
 
-All definitions expose `name`, `kind`, `payload`, `ttlSeconds`, and `readUncommitted`. JSON definitions also expose `published` and `readCache`. Map definitions expose `keysetLimit`. Deque definitions expose `capacity`.
+All definitions expose `name`, `kind`, `ttlSeconds`, and `readUncommitted`. Every definition except a set exposes `payload`. JSON and set definitions also expose `published` and `readCache`. Map and set definitions expose `keysetLimit`. Deque definitions expose `capacity`.
 
 Errors:
 

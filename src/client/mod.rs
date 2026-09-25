@@ -2,7 +2,9 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
-use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
+use crate::published::{
+    NativePublishedDeque, NativePublishedMap, NativePublishedSet, NativePublishedValue,
+};
 use napi::bindgen_prelude::Promise;
 use napi::{Error, Result};
 use napi_derive::napi;
@@ -53,12 +55,12 @@ impl NativeClient {
         let consumer_builders = build_consumer_builders(&config)?;
         let cassandra = build_cassandra_config(&config);
 
-        let client = new_erased(
+        let client = Box::pin(new_erased(
             config.mode.unwrap_or_default().into(),
             &mut producer_config,
             &consumer_builders,
             &cassandra,
-        )
+        ))
         .await
         .map_err(|error| Error::from_reason(error.to_string()))?;
 
@@ -120,6 +122,26 @@ impl NativeClient {
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
         Ok(NativePublishedMap {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published set collection.
+    #[napi(writable = false)]
+    pub async fn published_set(
+        &self,
+        subsystem: String,
+        name: String,
+        cache_ms: Option<u32>,
+        cache_disabled: Option<bool>,
+    ) -> Result<NativePublishedSet> {
+        let inner = self
+            .client
+            .set_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .await
+            .map_err(|error| Error::from_reason(error.to_string()))?;
+        Ok(NativePublishedSet {
             inner,
             propagator: Arc::clone(&self.propagator),
         })

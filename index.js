@@ -236,14 +236,15 @@ class ProsodyClient {
   /**
    * Opens a read-only view of another consumer group's published collection.
    * @param {string} subsystem - The publisher's subsystem.
-   * @param {Readonly<object>} definition - A JSON value, map, or deque definition.
-   * @returns {Promise<PublishedValue|PublishedMap|PublishedDeque>} The reader.
+   * @param {Readonly<object>} definition - A JSON value, map, or deque
+   *   definition, or a set definition.
+   * @returns {Promise<PublishedValue|PublishedMap|PublishedSet|PublishedDeque>} The reader.
    */
   async state(subsystem, definition) {
     const access = stateDefinitionAccess.get(definition);
     if (access?.published === undefined) {
       throw new TypeError(
-        "definition must be a JSON value, map, or deque definition",
+        "definition must be a JSON value, map, or deque definition, or a set definition",
       );
     }
     const readCache = definition.readCache;
@@ -822,8 +823,8 @@ function stateSync(operation) {
  * keyset rules, duplicate names) is core-owned and happens at client
  * construction and registration — this layer only shapes and freezes.
  * @param {string} name - The collection name.
- * @param {string} kind - `"value"`, `"map"`, or `"deque"`.
- * @param {string} payload - `"json"` or `"message"`.
+ * @param {string} kind - `"value"`, `"map"`, `"set"`, or `"deque"`.
+ * @param {string|undefined} payload - `"json"` or `"message"`; a set has none.
  * @param {object} [options] - Optional ttlSeconds / readUncommitted, map-only
  *   keysetLimit, and deque-only capacity.
  * @returns {Readonly<object>} The frozen definition.
@@ -844,6 +845,13 @@ const MAP_ACCESS = Object.freeze({
   published: async (client, subsystem, collection, ttl, disabled) =>
     new PublishedMap(
       await client.publishedMap(subsystem, collection, ttl, disabled),
+    ),
+});
+const SET_ACCESS = Object.freeze({
+  owned: (context, collection) => new SetState(context.setState(collection)),
+  published: async (client, subsystem, collection, ttl, disabled) =>
+    new PublishedSet(
+      await client.publishedSet(subsystem, collection, ttl, disabled),
     ),
 });
 const DEQUE_ACCESS = Object.freeze({
@@ -868,7 +876,8 @@ const MESSAGE_DEQUE_ACCESS = Object.freeze({
 });
 
 function stateDefinition(name, kind, payload, access, options = {}) {
-  const definition = { name, kind, payload };
+  const definition = { name, kind };
+  if (payload !== undefined) definition.payload = payload;
   if (options.ttlSeconds !== undefined)
     definition.ttlSeconds = options.ttlSeconds;
   if (options.readUncommitted !== undefined)
@@ -904,6 +913,18 @@ function value(name, options) {
  */
 function map(name, options) {
   return stateDefinition(name, "map", "json", MAP_ACCESS, options);
+}
+
+/**
+ * Declares a presence-only ordered set of string members. A set has no
+ * payload.
+ * @param {string} name - The collection name (unique per client).
+ * @param {object} [options] - `ttlSeconds`, `readUncommitted`, `published`,
+ *   `readCache`, and `keysetLimit`.
+ * @returns {Readonly<object>} A frozen definition for `stateCollections` and `state()`.
+ */
+function set(name, options) {
+  return stateDefinition(name, "set", undefined, SET_ACCESS, options);
 }
 
 /**
@@ -967,6 +988,137 @@ function messageDeque(name, options) {
   );
 }
 
+/** The options a map or set query accepts. @private */
+const KEY_QUERY_FIELDS = new Set([
+  "direction",
+  "limit",
+  "prefix",
+  "from",
+  "after",
+  "to",
+  "before",
+]);
+
+/** The options a deque query accepts. @private */
+const POSITION_QUERY_FIELDS = new Set([
+  "direction",
+  "limit",
+  "from",
+  "after",
+  "to",
+  "before",
+]);
+
+/**
+ * Checks the shared query options and copies them into a fresh object. A
+ * bare direction string stands for `{ direction }`. The copy holds only the
+ * set, checked fields, so a later change to the caller's object cannot reach
+ * the native layer.
+ * @param {string|object} [options] - A scan direction or a query object.
+ * @param {Set<string>} fields - The option names this query accepts.
+ * @returns {object} The checked query.
+ * @throws {TypeError} If `options` has the wrong type, has an unknown option,
+ *   sets both edges of an exclusive pair, or sets an unknown direction.
+ * @throws {RangeError} If `limit` is not a positive safe integer.
+ * @private
+ */
+function queryOptions(options, fields) {
+  if (options === undefined) return {};
+  if (typeof options === "string") return { direction: options };
+  if (options === null || typeof options !== "object") {
+    throw new TypeError(
+      `query: expected a scan direction or an options object, got ${describeValue(options)}`,
+    );
+  }
+  const query = {};
+  for (const [field, value] of Object.entries(options)) {
+    if (!fields.has(field)) {
+      throw new TypeError(`query: unknown option ${describeValue(field)}`);
+    }
+    if (value !== undefined) query[field] = value;
+  }
+  for (const [start, end] of [
+    ["from", "after"],
+    ["to", "before"],
+  ]) {
+    if (query[start] !== undefined && query[end] !== undefined) {
+      throw new TypeError(`query: set ${start} or ${end}, not both`);
+    }
+  }
+  const { direction } = query;
+  if (
+    direction !== undefined &&
+    direction !== "forward" &&
+    direction !== "backward"
+  ) {
+    throw new TypeError(
+      `direction: expected "forward" or "backward", got ${describeValue(direction)}`,
+    );
+  }
+  checkCount(query, "limit", 1);
+  return query;
+}
+
+/**
+ * Checks a whole-number query option.
+ * @param {object} options - The query object.
+ * @param {string} field - The option name.
+ * @param {number} min - The smallest valid value.
+ * @throws {TypeError} If the value is not a number.
+ * @throws {RangeError} If the value is not a safe integer of at least `min`.
+ * @private
+ */
+function checkCount(options, field, min) {
+  const count = options[field];
+  if (count === undefined) return;
+  if (typeof count !== "number") {
+    throw new TypeError(
+      `${field}: expected a number, got ${describeValue(count)}`,
+    );
+  }
+  if (!Number.isSafeInteger(count) || count < min) {
+    throw new RangeError(
+      `${field}: expected a safe integer of at least ${min}, got ${count}`,
+    );
+  }
+}
+
+/**
+ * Checks the options of a map or set query.
+ * @param {string|object} [options] - A scan direction or a key query.
+ * @returns {object} The key query.
+ * @throws {TypeError|RangeError} If an option is invalid.
+ * @private
+ */
+function keyQuery(options) {
+  const query = queryOptions(options, KEY_QUERY_FIELDS);
+  for (const field of ["prefix", "from", "after", "to", "before"]) {
+    const key = query[field];
+    if (key !== undefined && typeof key !== "string") {
+      throw new TypeError(
+        `${field}: expected a string key, got ${describeValue(key)}`,
+      );
+    }
+  }
+  return query;
+}
+
+/**
+ * Checks the options of a deque query. Positions count from the front and
+ * must be non-negative.
+ * @param {string|object} [options] - A scan direction or a position query.
+ * @returns {object} The position query.
+ * @throws {TypeError|RangeError} If an option is invalid.
+ * @private
+ */
+function positionQuery(options) {
+  const query = queryOptions(options, POSITION_QUERY_FIELDS);
+  for (const field of ["from", "after", "to", "before"]) {
+    checkCount(query, field, 0);
+  }
+  return query;
+}
+
 /**
  * Adapts a chunked native scan cursor to the item-oriented JS async-iterator
  * protocol. A fresh carrier is propagated per native chunk without recording
@@ -982,8 +1134,8 @@ function messageDeque(name, options) {
  *
  * Owned cursors remain attempt-fenced. Published cursors remain valid with
  * their standalone reader.
- * @param {object|(() => Promise<object>)} source - The native scan cursor, or
- *   a lazy asynchronous cursor opener.
+ * @param {object|(() => object)} source - The native scan cursor, or a lazy
+ *   cursor opener.
  * @param {(item: *) => *} transform - Maps each raw item to the yielded value.
  * @returns {AsyncIterableIterator<*>} The async iterator.
  * @private
@@ -996,7 +1148,7 @@ function stateIterator(source, transform) {
   let queue = Promise.resolve();
   const openCursor = async () => {
     if (cursor === undefined) {
-      cursor = typeof source === "function" ? await source() : source;
+      cursor = typeof source === "function" ? source() : source;
     }
     return cursor;
   };
@@ -1125,25 +1277,74 @@ class PublishedMap {
     return stateOp((carrier) => this.native.contains(key, mapKey, carrier));
   }
 
-  entries(key, direction = "forward") {
+  hasMany(key, mapKeys) {
+    return stateOp((carrier) =>
+      this.native.containsMany(key, mapKeys, carrier),
+    );
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  entries(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.entries(key, query)),
       ([mapKey, value]) => [mapKey, jsonItems.decode(value)],
     );
   }
 
-  keys(key, direction = "forward") {
+  keys(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateOp((carrier) => this.native.keys(key, direction, carrier)),
+      () => stateSync(() => this.native.keys(key, query)),
       (mapKey) => mapKey,
     );
   }
 
-  values(key, direction = "forward") {
+  values(key, options) {
+    const query = keyQuery(options);
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.entries(key, query)),
       (entry) => jsonItems.decode(entry[1]),
     );
+  }
+}
+
+/**
+ * Read-only handle over a published set collection. It is independent of
+ * subscription and remains valid for the lifetime of its client.
+ */
+class PublishedSet {
+  constructor(native) {
+    this.native = native;
+  }
+
+  has(key, member) {
+    return stateOp((carrier) => this.native.contains(key, member, carrier));
+  }
+
+  hasMany(key, members) {
+    return stateOp((carrier) =>
+      this.native.containsMany(key, members, carrier),
+    );
+  }
+
+  isEmpty(key) {
+    return stateOp((carrier) => this.native.isEmpty(key, carrier));
+  }
+
+  keys(key, options) {
+    const query = keyQuery(options);
+    return stateIterator(
+      () => stateSync(() => this.native.keys(key, query)),
+      (member) => member,
+    );
+  }
+
+  values(key, options) {
+    return this.keys(key, options);
   }
 }
 
@@ -1372,9 +1573,10 @@ class PublishedDeque {
     );
   }
 
-  values(key, direction = "forward") {
+  values(key, options) {
+    const query = positionQuery(options);
     return stateIterator(
-      () => stateOp((carrier) => this.native.scan(key, direction, carrier)),
+      () => stateSync(() => this.native.values(key, query)),
       jsonItems.decode,
     );
   }
@@ -1413,7 +1615,8 @@ class StateHandle {
   /**
    * Durably commits the buffered operations mid-handler (at-least-once; the
    * committed floor survives a later rollback or a failed event).
-   * @returns {Promise<void>} Resolves with no value — the erased seam drops the outcome.
+   * @returns {Promise<"applied"|"noOp">} `"applied"` when buffered operations
+   *   were written, or `"noOp"` when nothing was buffered.
    * @throws {PermanentStateError|TransientStateError} On a categorized commit failure.
    */
   commit() {
@@ -1422,7 +1625,8 @@ class StateHandle {
 
   /**
    * Discards buffered uncommitted operations back to the last committed floor.
-   * @returns {Promise<void>} Resolves with no value.
+   * @returns {Promise<"applied"|"noOp">} `"applied"` when buffered operations
+   *   were discarded, or `"noOp"` when nothing was buffered.
    */
   rollback() {
     return stateOp((carrier) => this.native.rollback(carrier));
@@ -1523,6 +1727,26 @@ class MapState extends StateHandle {
   }
 
   /**
+   * Tests several keys for presence in one read. `result[i]` answers
+   * `keys[i]`. Like {@link MapState#has}, it skips the value decode.
+   * @param {string[]} keys - The keys to test, in order.
+   * @returns {Promise<boolean[]>} One presence result per key.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  hasMany(keys) {
+    return stateOp((carrier) => this.native.containsMany(keys, carrier));
+  }
+
+  /**
+   * Reports whether the map holds no live entries.
+   * @returns {Promise<boolean>} True when the map is empty.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  isEmpty() {
+    return stateOp((carrier) => this.native.isEmpty(carrier));
+  }
+
+  /**
    * Inserts or overwrites `key`. Writing JSON `null` (or an unrepresentable
    * value) is a caller mistake, rejected with a {@link TransientStateError} —
    * use {@link MapState#delete} to remove an entry instead. The error is
@@ -1566,17 +1790,21 @@ class MapState extends StateHandle {
   }
 
   /**
-   * Opens an async iterator over the live entries in key order. Each yielded
-   * item is a `[key, value]` pair. Valid only within the handler invocation
-   * (attempt) that opened it; early exit closes the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * Opens an async iterator over the selected entries in key order. Each
+   * yielded item is a `[key, value]` pair. Valid only within the handler
+   * invocation (attempt) that opened it; early exit closes the underlying
+   * cursor.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  entries(direction = "forward") {
+  entries(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.entries(query)),
       ([key, item]) => [key, this.items.decode(item)],
     );
   }
@@ -1587,41 +1815,155 @@ class MapState extends StateHandle {
    * Kafka fetches; it still reads presence, so it is not zero-I/O. Valid only
    * within the handler invocation (attempt) that opened it; early exit closes
    * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<string>} The keys iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  keys(direction = "forward") {
+  keys(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.keys(direction, injectedCarrier())),
+      stateSync(() => this.native.keys(query)),
       (key) => key,
     );
   }
 
   /**
-   * Opens an async iterator over the live values in key order. Valid only
+   * Opens an async iterator over the selected values in key order. Valid only
    * within the handler invocation (attempt) that opened it; early exit closes
    * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  values(direction = "forward") {
+  values(options) {
+    const query = keyQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.entries(query)),
       ([, item]) => this.items.decode(item),
     );
   }
 
   /**
    * Forward iteration over `[key, value]` entries — equivalent to
-   * `entries("forward")`. Valid only within the handler invocation (attempt).
+   * `entries()`. Valid only within the handler invocation (attempt).
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
    */
   [Symbol.asyncIterator]() {
     return this.entries();
+  }
+}
+
+/**
+ * Handle over a presence-only ordered set of string members, vended by
+ * {@link Context#state}. It mirrors the JavaScript `Set`: `add`, `has`,
+ * `delete`, `clear`, `keys`, and `values`, all asynchronous. Handles and
+ * iterators are valid only within the handler invocation that vended them.
+ */
+class SetState extends StateHandle {
+  /**
+   * @param {object} native - The vended native set handle.
+   */
+  constructor(native) {
+    super(native, undefined);
+  }
+
+  /**
+   * Adds `member` to the set.
+   * @param {string} member - The member to add.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  add(member) {
+    return stateOp((carrier) => this.native.insert(member, carrier));
+  }
+
+  /**
+   * Reports whether `member` belongs to the set.
+   * @param {string} member - The member to test.
+   * @returns {Promise<boolean>} True when the set contains `member`.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  has(member) {
+    return stateOp((carrier) => this.native.contains(member, carrier));
+  }
+
+  /**
+   * Tests several members in one read. `result[i]` answers `members[i]`.
+   * @param {string[]} members - The members to test, in order.
+   * @returns {Promise<boolean[]>} One result per member.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  hasMany(members) {
+    return stateOp((carrier) => this.native.containsMany(members, carrier));
+  }
+
+  /**
+   * Removes `member`. An absent member is not an error. Unlike `Set#delete`,
+   * this returns no "was present" flag, because that flag needs a read.
+   * @param {string} member - The member to remove.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  delete(member) {
+    return stateOp((carrier) => this.native.remove(member, carrier));
+  }
+
+  /**
+   * Removes every member.
+   * @returns {Promise<void>}
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  clear() {
+    return stateOp((carrier) => this.native.clear(carrier));
+  }
+
+  /**
+   * Reports whether the set has no live members.
+   * @returns {Promise<boolean>} True when the set is empty.
+   * @throws {PermanentStateError|TransientStateError} On a categorized store failure.
+   */
+  isEmpty() {
+    return stateOp((carrier) => this.native.isEmpty(carrier));
+  }
+
+  /**
+   * Opens an async iterator over the selected members in order.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
+   * @throws {TransientStateError} If the direction token is invalid.
+   */
+  keys(options) {
+    const query = keyQuery(options);
+    return stateIterator(
+      stateSync(() => this.native.keys(query)),
+      (member) => member,
+    );
+  }
+
+  /**
+   * The same iterator as {@link SetState#keys}, as on the JavaScript `Set`.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   key query.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   */
+  values(options) {
+    return this.keys(options);
+  }
+
+  /**
+   * Forward iteration over the members — equivalent to `values()`.
+   * @returns {AsyncIterableIterator<string>} The members iterator.
+   */
+  [Symbol.asyncIterator]() {
+    return this.values();
   }
 }
 
@@ -1765,23 +2107,26 @@ class DequeState extends StateHandle {
   }
 
   /**
-   * Opens an async iterator over the live elements in index order. Valid only
-   * within the handler invocation (attempt) that opened it; early exit closes
-   * the underlying cursor.
-   * @param {"forward"|"backward"} [direction="forward"] - The scan direction.
+   * Opens an async iterator over the selected elements in index order. Valid
+   * only within the handler invocation (attempt) that opened it; early exit
+   * closes the underlying cursor.
+   * @param {"forward"|"backward"|object} [options] - A scan direction or a
+   *   position query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
+   * @throws {TypeError|RangeError} If a query option has the wrong shape.
    * @throws {TransientStateError} If the direction token is invalid (a caller
    *   mistake — retries, not discarded).
    */
-  values(direction = "forward") {
+  values(options) {
+    const query = positionQuery(options);
     return stateIterator(
-      stateSync(() => this.native.scan(direction, injectedCarrier())),
+      stateSync(() => this.native.values(query)),
       (item) => this.items.decode(item),
     );
   }
 
   /**
-   * Forward iteration over the elements — equivalent to `values("forward")`.
+   * Forward iteration over the elements — equivalent to `values()`.
    * Valid only within the handler invocation (attempt).
    * @returns {AsyncIterableIterator<*>} The values iterator.
    */
@@ -1797,6 +2142,8 @@ class DequeState extends StateHandle {
 class Context {
   constructor(nativeContext) {
     this.nativeContext = nativeContext;
+    // The frozen demand, read from the native context on first access.
+    this.cachedDemand = undefined;
     // Cache of vended state wrappers, keyed by collection name (names are
     // unique per registration), so repeated state(def) calls within one event
     // return the same handle.
@@ -1810,6 +2157,19 @@ class Context {
    */
   get shouldCancel() {
     return this.nativeContext.shouldCancel;
+  }
+
+  /**
+   * The demand that started this handler invocation. `kind` is `"normal"` for
+   * a first attempt and `"failure"` for a retry after a failure. `retry` is
+   * the retry ordinal: 0 for normal demand and 1 on the first retry. The
+   * ordinal is an estimate. Keep an exact attempt count in keyed state if you
+   * need one.
+   * @returns {Readonly<{kind: "normal"|"failure", retry: number}>} The frozen demand.
+   */
+  get demand() {
+    this.cachedDemand ??= Object.freeze({ ...this.nativeContext.demand });
+    return this.cachedDemand;
   }
 
   /**
@@ -1874,7 +2234,7 @@ class Context {
    * typed handle over it.
    *
    * Pass a definition built by one of the definition constructors ({@link value},
-   * {@link map}, {@link deque}, {@link messageValue}, {@link messageMap},
+   * {@link map}, {@link set}, {@link deque}, {@link messageValue}, {@link messageMap},
    * {@link messageDeque}) — the same frozen object placed in
    * `Configuration.stateCollections`. The returned handle (and any iterator it
    * opens) is scoped to this single event attempt; do not retain it past the
@@ -1884,7 +2244,7 @@ class Context {
    * and is rejected core-side at vend.
    *
    * @param {object} definition - A frozen definition from a definition constructor.
-   * @returns {ValueState|MapState|DequeState} The typed state handle.
+   * @returns {ValueState|MapState|SetState|DequeState} The typed state handle.
    * @throws {TransientStateError} If the definition is malformed — a missing or
    *   non-string `name`, or an unrecognized `kind`/`payload` (a caller mistake,
    *   so transient rather than a message-discarding permanent).
@@ -1922,8 +2282,10 @@ module.exports = {
   ProsodyClient,
   PublishedDeque,
   PublishedMap,
+  PublishedSet,
   PublishedValue,
   TransientError,
+  SetState,
   TransientStateError,
   ValueState,
   deque,
@@ -1937,6 +2299,7 @@ module.exports = {
   messageMap,
   messageValue,
   permanent,
+  set,
   setLogger,
   setLoggerIfUnset,
   shutdownTelemetry,

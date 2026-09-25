@@ -2,8 +2,9 @@
 
 use super::{
     Arc, BinaryPayload, BoxDequeState, ConsumerMessage, FutureExt, HashMap, Message, MessageItem,
-    NativeJsonDequeCursor, NativeMessageDequeCursor, TextMapCompositePropagator, json_payload,
-    json_value, message_value, napi, op_context, parse_direction, state_error, transient_error,
+    NativeJsonDequeCursor, NativeMessageDequeCursor, NativePositionQuery,
+    TextMapCompositePropagator, json_payload, json_value, message_value, napi, op_context,
+    state_error, transient_error,
 };
 
 /// JSON deque state handle for one event.
@@ -221,27 +222,18 @@ impl NativeJsonDequeState {
             .map_err(|e| state_error(&e))
     }
 
-    /// Opens a demand-driven cursor over the live elements in index order.
+    /// Opens a demand-driven cursor over the selected elements.
     ///
-    /// Synchronous — it performs no I/O. The extracted JavaScript context is
-    /// active while core constructs its semantic stream span; chunk pulls do
-    /// not create binding spans.
+    /// Synchronous — it performs no I/O. The first chunk pull starts the read
+    /// under that pull's trace context.
     ///
-    /// @param direction The scan direction (`"forward"` or `"backward"`).
-    /// @param otelContext The OpenTelemetry context for tracing.
+    /// @param query The query options. Positions count from the front.
     /// @returns A cursor over the deque elements.
-    /// @throws Error if the direction token is invalid.
+    /// @throws Error (transient) if an option is invalid.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeJsonDequeCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn values(&self, query: NativePositionQuery) -> napi::Result<NativeJsonDequeCursor> {
         Ok(NativeJsonDequeCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.values().with_query(query.into_query()?).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }
@@ -407,18 +399,11 @@ impl NativeMessageDequeState {
             .map_err(|e| state_error(&e))
     }
 
-    /// Opens a cursor over the live elements.
+    /// Opens a cursor over the selected elements.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
-    pub fn scan(
-        &self,
-        direction: String,
-        otel_context: HashMap<String, String>,
-    ) -> napi::Result<NativeMessageDequeCursor> {
-        let dir = parse_direction(&direction)?;
-        let _guard = op_context(&self.propagator, &otel_context).attach();
+    pub fn values(&self, query: NativePositionQuery) -> napi::Result<NativeMessageDequeCursor> {
         Ok(NativeMessageDequeCursor {
-            cursor: self.state.scan(dir),
+            cursor: self.state.values().with_query(query.into_query()?).stream(),
             propagator: Arc::clone(&self.propagator),
         })
     }

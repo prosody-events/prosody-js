@@ -81,10 +81,28 @@ export interface Message<P = JsonValue> extends Omit<NativeMessage, "payload"> {
 export type ExciseMessage = NativeExciseMessage;
 
 /**
+ * The demand that started a handler invocation.
+ */
+export interface Demand {
+  /** `"normal"` for a first attempt, or `"failure"` for a retry. */
+  readonly kind: "normal" | "failure";
+  /**
+   * The retry ordinal: 0 for normal demand and 1 on the first retry. It is
+   * an estimate. Keep an exact attempt count in keyed state if you need one.
+   */
+  readonly retry: number;
+}
+
+/**
  * Wrapper around `MessageContext` for use in Node.js bindings.
  * Automatically injects OpenTelemetry context for all operations.
  */
 export declare class Context {
+  /**
+   * The demand that started this handler invocation. The value is frozen.
+   */
+  get demand(): Demand;
+
   /**
    * Checks whether cancellation has been signaled.
    * Cancellation includes message-level cancellation (e.g., timeout) and partition shutdown. During shutdown, cancellation is delayed until near the end of the shutdown timeout to allow in-flight work to complete.
@@ -182,6 +200,13 @@ export declare class Context {
    */
   state<V>(definition: MapDefinition<V>): MapState<V>;
   /**
+   * Binds a registered set collection of string members. Valid only within
+   * this event attempt; throws {@link PermanentStateError} on an unregistered
+   * name or identity mismatch.
+   * @param definition - A definition from {@link set}.
+   */
+  state(definition: SetDefinition): SetState;
+  /**
    * Binds a registered deque JSON collection. Valid only within this event
    * attempt; throws {@link PermanentStateError} on an unregistered name or
    * identity mismatch.
@@ -197,11 +222,71 @@ export declare class Context {
  */
 export type ScanDirection = "forward" | "backward";
 
+/**
+ * The start of a query. `from` includes its bound and `after` excludes it.
+ * Set at most one. The start is in query order, so a backward query starts
+ * at the high end.
+ */
+export type QueryStart<B> =
+  | { readonly from?: B; readonly after?: never }
+  | { readonly from?: never; readonly after?: B };
+
+/**
+ * The end of a query. `to` includes its bound and `before` excludes it. Set
+ * at most one. The end is in query order.
+ */
+export type QueryEnd<B> =
+  | { readonly to?: B; readonly before?: never }
+  | { readonly to?: never; readonly before?: B };
+
+/** The options that every query accepts. */
+export interface QueryOptions {
+  /** The query order. Defaults to `"forward"`. */
+  readonly direction?: ScanDirection;
+  /**
+   * The maximum number of results. Must be a positive safe integer. A
+   * `RangeError` reports any other number.
+   */
+  readonly limit?: number;
+}
+
+/**
+ * Query options for map entries, map keys, and set members. Every option is
+ * optional. Bounds and `prefix` narrow the selection and never widen it.
+ * Setting both edges of a pair, an unknown option, or an unknown direction
+ * throws a `TypeError`. The call copies the options, so a later change to the
+ * object has no effect on the query.
+ *
+ * For keyset paging, set `after` to the last key of the previous page and
+ * `limit` to the page size.
+ */
+export type KeyQuery = QueryOptions & {
+  /** Keeps keys that start with this prefix. */
+  readonly prefix?: string;
+} & QueryStart<string> &
+  QueryEnd<string>;
+
+/**
+ * Query options for deque values. Positions count from the front. Each
+ * position must be a non-negative safe integer; a `RangeError` reports any
+ * other number. Negative positions are not resolved against the length. To
+ * read the last N elements, use `values({ direction: "backward", limit: N })`.
+ */
+export type PositionQuery = QueryOptions &
+  QueryStart<number> &
+  QueryEnd<number>;
+
+/**
+ * The effect of `commit()` or `rollback()`. `"applied"` means the call wrote or
+ * discarded buffered operations. `"noOp"` means nothing was buffered.
+ */
+export type StoreOutcome = "applied" | "noOp";
+
 /** Options accepted by every keyed-state definition constructor. */
 export interface StateDefinitionOptions {
   /**
    * Optional per-write TTL in whole seconds. Must be at least 1 and must
-   * exceed the client's recovery delay (enforced core-side).
+   * stay within the Cassandra TTL limit.
    */
   ttlSeconds?: number;
   /**
@@ -223,10 +308,13 @@ export interface PublishedStateDefinitionOptions extends StateDefinitionOptions 
 export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
    * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
-   * disables ordered-scan tracking). Map collections only.
+   * disables ordered-scan tracking). Map and set collections only.
    */
   keysetLimit?: number;
 }
+
+/** Options accepted by the set definition constructor. */
+export type SetDefinitionOptions = MapDefinitionOptions;
 
 /** Options accepted by the deque definition constructors. */
 export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
@@ -287,6 +375,17 @@ export interface MapDefinition<V = JsonValue> extends DefinitionBrand {
   readonly readCache?: ReadCacheOptions | false;
   readonly keysetLimit?: number;
   readonly [StateItem]?: V;
+}
+
+/** A frozen set collection definition. A set stores string members only. */
+export interface SetDefinition extends DefinitionBrand {
+  readonly name: string;
+  readonly kind: "set";
+  readonly ttlSeconds?: number;
+  readonly readUncommitted?: boolean;
+  readonly published?: boolean;
+  readonly readCache?: ReadCacheOptions | false;
+  readonly keysetLimit?: number;
 }
 
 /** A frozen deque JSON collection definition. */
@@ -364,6 +463,19 @@ export function map<V = JsonValue>(
 ): MapDefinition<V>;
 
 /**
+ * Declares a presence-only ordered set of string members. The returned frozen
+ * definition is used both in `Configuration.stateCollections` and with
+ * `Context.state()`. A set has no payload.
+ * @param name - The collection name (unique per client).
+ * @param options - Optional retention, transaction, publication, read-cache,
+ *   and `keysetLimit` settings.
+ */
+export function set(
+  name: string,
+  options?: SetDefinitionOptions,
+): SetDefinition;
+
+/**
  * Declares a double-ended-queue JSON collection. The returned frozen definition
  * is used both in `Configuration.stateCollections` and with `Context.state()`.
  * The type parameter annotates the stored element (compile-time only).
@@ -437,11 +549,14 @@ export declare class ValueState<T = JsonValue> {
   clear(): Promise<void>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -472,6 +587,13 @@ export declare class MapState<V = JsonValue> {
    */
   has(key: string): Promise<boolean>;
   /**
+   * Tests several keys for presence in one read. `result[i]` answers
+   * `keys[i]`. Like {@link MapState#has}, it skips the value decode.
+   */
+  hasMany(keys: readonly string[]): Promise<boolean[]>;
+  /** Reports whether the map holds no live entries. */
+  isEmpty(): Promise<boolean>;
+  /**
    * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
    * (via {@link !NonNullable}) because a top-level `null` is not a storable
    * value — writing one (or an unrepresentable value) is a caller mistake,
@@ -491,25 +613,29 @@ export declare class MapState<V = JsonValue> {
   /** Removes every entry. */
   clear(): Promise<void>;
   /**
-   * Async iterator over the live `[key, value]` entries in key order. Valid
-   * only within the handler invocation (attempt) that opened it; early exit
-   * from a `for await` loop closes the underlying cursor.
+   * Async iterator over the live `[key, value]` entries in key order. Pass a
+   * direction or a {@link KeyQuery} to select entries. Valid only within the
+   * handler invocation (attempt) that opened it; early exit from a
+   * `for await` loop closes the underlying cursor.
    */
-  entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>;
+  entries(
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<[string, V]>;
   /**
-   * Async iterator over the live keys in key order. Skips the value decode and
-   * the resolver, so a message-backed map enumerates keys with zero Kafka
+   * Async iterator over the live keys in key order. Takes the same options as
+   * {@link MapState#entries}. Skips the value decode and the resolver, so a message-backed map enumerates keys with zero Kafka
    * fetches; it still reads presence, so it is not zero-I/O. Valid only within
    * the handler invocation (attempt) that opened it; early exit from a
    * `for await` loop closes the underlying cursor.
    */
-  keys(direction?: ScanDirection): AsyncIterableIterator<string>;
+  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
   /**
-   * Async iterator over the live values in key order. Valid only within the
-   * handler invocation (attempt) that opened it; early exit from a `for await`
-   * loop closes the underlying cursor.
+   * Async iterator over the live values in key order. Takes the same options
+   * as {@link MapState#entries}. Valid only within the handler invocation
+   * (attempt) that opened it; early exit from a `for await` loop closes the
+   * underlying cursor.
    */
-  values(direction?: ScanDirection): AsyncIterableIterator<V>;
+  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>;
   /**
    * Forward iteration over `[key, value]` entries. Valid only within the
    * handler invocation (attempt) that opened it.
@@ -517,11 +643,61 @@ export declare class MapState<V = JsonValue> {
   [Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
+}
+
+/**
+ * Handle over a presence-only ordered set of string members, vended by
+ * `Context.state()`. It mirrors the JavaScript `Set` with asynchronous
+ * methods. Valid only within the handler invocation (attempt) that vended it.
+ */
+export declare class SetState {
+  /** Vended only by {@link Context#state}; not constructible directly. */
+  private constructor(native: unknown);
+  /** Adds `member` to the set. */
+  add(member: string): Promise<void>;
+  /** Reports whether `member` belongs to the set. */
+  has(member: string): Promise<boolean>;
+  /**
+   * Tests several members in one read. `result[i]` answers `members[i]`.
+   */
+  hasMany(members: readonly string[]): Promise<boolean[]>;
+  /**
+   * Removes `member`. An absent member is not an error. Unlike `Set#delete`,
+   * this returns no "was present" flag, because that flag needs a read.
+   */
+  delete(member: string): Promise<void>;
+  /** Removes every member. */
+  clear(): Promise<void>;
+  /** Reports whether the set has no live members. */
+  isEmpty(): Promise<boolean>;
+  /**
+   * Async iterator over the members in order. Pass a direction or a
+   * {@link KeyQuery} to select members. Early exit from a `for await` loop
+   * closes the underlying cursor.
+   */
+  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  /** The same iterator as {@link SetState#keys}, as on the JavaScript `Set`. */
+  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  /** Forward iteration over the members. */
+  [Symbol.asyncIterator](): AsyncIterableIterator<string>;
+  /**
+   * Durably commits the buffered operations mid-handler (at-least-once).
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
+   */
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -571,11 +747,12 @@ export declare class DequeState<T = JsonValue> {
    */
   at(index: number): Promise<T | null>;
   /**
-   * Async iterator over the live elements in index order. Valid only within
-   * the handler invocation (attempt) that opened it; early exit from a
-   * `for await` loop closes the underlying cursor.
+   * Async iterator over the live elements in index order. Pass a direction or
+   * a {@link PositionQuery} to select elements. Valid only within the handler
+   * invocation (attempt) that opened it; early exit from a `for await` loop
+   * closes the underlying cursor.
    */
-  values(direction?: ScanDirection): AsyncIterableIterator<T>;
+  values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>;
   /**
    * Forward iteration over the elements. Valid only within the handler
    * invocation (attempt) that opened it.
@@ -583,11 +760,14 @@ export declare class DequeState<T = JsonValue> {
   [Symbol.asyncIterator](): AsyncIterableIterator<T>;
   /**
    * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves with no value — the erased seam drops the store outcome.
+   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
-  commit(): Promise<void>;
-  /** Discards buffered uncommitted operations back to the committed floor. */
-  rollback(): Promise<void>;
+  commit(): Promise<StoreOutcome>;
+  /**
+   * Discards buffered uncommitted operations back to the committed floor.
+   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
+   */
+  rollback(): Promise<StoreOutcome>;
 }
 
 /**
@@ -735,6 +915,8 @@ export declare class ProsodyClient {
     subsystem: string,
     definition: MapDefinition<V>,
   ): Promise<PublishedMap<V>>;
+  /** Opens a read-only view of a published set collection. */
+  state(subsystem: string, definition: SetDefinition): Promise<PublishedSet>;
   /** Opens a read-only view of a published JSON deque collection. */
   state<T>(
     subsystem: string,
@@ -834,12 +1016,35 @@ export declare class PublishedMap<V = JsonValue> {
   get(key: string, mapKey: string): Promise<V | null>;
   getMany(key: string, mapKeys: string[]): Promise<Array<V | null>>;
   has(key: string, mapKey: string): Promise<boolean>;
+  hasMany(key: string, mapKeys: readonly string[]): Promise<boolean[]>;
+  isEmpty(key: string): Promise<boolean>;
   entries(
     key: string,
-    direction?: ScanDirection,
+    options?: ScanDirection | KeyQuery,
   ): AsyncIterableIterator<[string, V]>;
-  keys(key: string, direction?: ScanDirection): AsyncIterableIterator<string>;
-  values(key: string, direction?: ScanDirection): AsyncIterableIterator<V>;
+  keys(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
+  values(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<V>;
+}
+
+/** Read-only published set collection. */
+export declare class PublishedSet {
+  has(key: string, member: string): Promise<boolean>;
+  hasMany(key: string, members: readonly string[]): Promise<boolean[]>;
+  isEmpty(key: string): Promise<boolean>;
+  keys(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
+  values(
+    key: string,
+    options?: ScanDirection | KeyQuery,
+  ): AsyncIterableIterator<string>;
 }
 
 /** Read-only published deque collection. */
@@ -847,7 +1052,10 @@ export declare class PublishedDeque<T = JsonValue> {
   length(key: string): Promise<number>;
   isEmpty(key: string): Promise<boolean>;
   at(key: string, index: number): Promise<T | null>;
-  values(key: string, direction?: ScanDirection): AsyncIterableIterator<T>;
+  values(
+    key: string,
+    options?: ScanDirection | PositionQuery,
+  ): AsyncIterableIterator<T>;
 }
 
 /**

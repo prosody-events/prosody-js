@@ -15,9 +15,12 @@ const {
   messageValue,
   messageMap,
   messageDeque,
+  set,
   MapState,
+  SetState,
   DequeState,
   PublishedMap,
+  PublishedSet,
   PublishedDeque,
   PermanentStateError,
   TransientStateError,
@@ -152,6 +155,8 @@ test.each([
 test("published state uses the owned read method names", async () => {
   const mapNative = {
     contains: jest.fn().mockResolvedValue(true),
+    containsMany: jest.fn().mockResolvedValue([true, false]),
+    isEmpty: jest.fn().mockResolvedValue(true),
   };
   const dequeNative = {
     isEmpty: jest.fn().mockResolvedValue(false),
@@ -159,7 +164,19 @@ test("published state uses the owned read method names", async () => {
     peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
   };
 
-  expect(await new PublishedMap(mapNative).has("user-1", "item")).toBe(true);
+  const mapState = new PublishedMap(mapNative);
+  expect(await mapState.has("user-1", "item")).toBe(true);
+  expect(await mapState.hasMany("user-1", ["item", "gone"])).toEqual([
+    true,
+    false,
+  ]);
+  expect(mapNative.containsMany).toHaveBeenCalledWith(
+    "user-1",
+    ["item", "gone"],
+    expect.any(Object),
+  );
+  expect(await mapState.isEmpty("user-1")).toBe(true);
+  expect(mapNative.isEmpty).toHaveBeenCalledWith("user-1", expect.any(Object));
   const dequeState = new PublishedDeque(dequeNative);
   expect(await dequeState.isEmpty("user-1")).toBe(false);
   expect(await dequeState.at("user-1", 0)).toBe("first");
@@ -174,8 +191,8 @@ test("published scans return an async iterator and open lazily", async () => {
       .mockResolvedValueOnce(null),
     close: jest.fn().mockResolvedValue(undefined),
   };
-  const scan = jest.fn().mockResolvedValue(cursor);
-  const entries = new PublishedMap({ scan }).entries("user-1");
+  const scan = jest.fn().mockReturnValue(cursor);
+  const entries = new PublishedMap({ entries: scan }).entries("user-1");
 
   expect(scan).not.toHaveBeenCalled();
   expect(entries[Symbol.asyncIterator]()).toBe(entries);
@@ -206,9 +223,18 @@ test("descriptors retain their owned and published access strategies", async () 
       publishedCalls.push(["deque", ...args]);
       return {};
     },
+    publishedSet: async (...args) => {
+      publishedCalls.push(["set", ...args]);
+      return {};
+    },
   };
 
-  const definitions = [value("cart"), map("items"), deque("jobs")];
+  const definitions = [
+    value("cart"),
+    map("items"),
+    deque("jobs"),
+    set("tags", { readCache: { ttlMs: 250 } }),
+  ];
   await Promise.all(
     definitions.map((definition) => client.state("accounts", definition)),
   );
@@ -218,7 +244,9 @@ test("descriptors retain their owned and published access strategies", async () 
     ["value", "accounts", "cart"],
     ["map", "accounts", "items"],
     ["deque", "accounts", "jobs"],
+    ["set", "accounts", "tags"],
   ]);
+  expect(publishedCalls[3]).toEqual(["set", "accounts", "tags", 250, false]);
 
   const ownedCalls = [];
   const nativeContext = {};
@@ -226,6 +254,7 @@ test("descriptors retain their owned and published access strategies", async () 
     "valueState",
     "mapState",
     "dequeState",
+    "setState",
     "messageValueState",
     "messageMapState",
     "messageDequeState",
@@ -240,6 +269,7 @@ test("descriptors retain their owned and published access strategies", async () 
     value("value"),
     map("map"),
     deque("deque"),
+    set("set"),
     messageValue("message-value"),
     messageMap("message-map"),
     messageDeque("message-deque"),
@@ -248,10 +278,118 @@ test("descriptors retain their owned and published access strategies", async () 
     ["valueState", "value"],
     ["mapState", "map"],
     ["dequeState", "deque"],
+    ["setState", "set"],
     ["messageValueState", "message-value"],
     ["messageMapState", "message-map"],
     ["messageDequeState", "message-deque"],
   ]);
+});
+
+test("set definitions carry set options and no payload", () => {
+  expect(
+    set("tags", { ttlSeconds: 60, keysetLimit: 8, published: true }),
+  ).toEqual({
+    name: "tags",
+    kind: "set",
+    ttlSeconds: 60,
+    keysetLimit: 8,
+    published: true,
+  });
+  expect(Object.isFrozen(set("tags"))).toBe(true);
+});
+
+test("set handles and published sets call the native set methods", async () => {
+  const calls = [];
+  const record =
+    (name, result) =>
+    (...args) => {
+      calls.push([name, ...args.slice(0, -1)]);
+      return Promise.resolve(result);
+    };
+  const members = new SetState({
+    insert: record("insert"),
+    contains: record("contains", true),
+    containsMany: record("containsMany", [true, false]),
+    remove: record("remove"),
+    clear: record("clear"),
+    isEmpty: record("isEmpty", false),
+  });
+  await expect(members.add("a")).resolves.toBeUndefined();
+  await expect(members.has("a")).resolves.toBe(true);
+  await expect(members.hasMany(["a", "b"])).resolves.toEqual([true, false]);
+  await expect(members.delete("a")).resolves.toBeUndefined();
+  await expect(members.clear()).resolves.toBeUndefined();
+  await expect(members.isEmpty()).resolves.toBe(false);
+
+  const reader = new PublishedSet({
+    contains: record("published.contains", false),
+    containsMany: record("published.containsMany", [false]),
+    isEmpty: record("published.isEmpty", true),
+  });
+  await expect(reader.has("u", "a")).resolves.toBe(false);
+  await expect(reader.hasMany("u", ["a"])).resolves.toEqual([false]);
+  await expect(reader.isEmpty("u")).resolves.toBe(true);
+
+  expect(calls).toEqual([
+    ["insert", "a"],
+    ["contains", "a"],
+    ["containsMany", ["a", "b"]],
+    ["remove", "a"],
+    ["clear"],
+    ["isEmpty"],
+    ["published.contains", "u", "a"],
+    ["published.containsMany", "u", ["a"]],
+    ["published.isEmpty", "u"],
+  ]);
+});
+
+test("set iterators yield bare members through the key cursor", async () => {
+  const opened = [];
+  const cursor = (items) => {
+    let done = false;
+    return {
+      nextChunk: async () => {
+        if (done) return null;
+        done = true;
+        return items;
+      },
+      close: async () => {},
+    };
+  };
+  const keys = (...args) => {
+    opened.push(args);
+    return cursor(["apple", "berry"]);
+  };
+  const collect = async (iterator) => {
+    const items = [];
+    for await (const item of iterator) items.push(item);
+    return items;
+  };
+  const members = new SetState({ keys });
+  const reader = new PublishedSet({ keys });
+
+  expect(await collect(members)).toEqual(["apple", "berry"]);
+  expect(await collect(members.values({ prefix: "a" }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(members.keys("backward"))).toEqual(["apple", "berry"]);
+  expect(await collect(reader.values("u", { limit: 1 }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(reader.keys("u"))).toEqual(["apple", "berry"]);
+  expect(opened).toEqual([
+    [{}],
+    [{ prefix: "a" }],
+    [{ direction: "backward" }],
+    ["u", { limit: 1 }],
+    ["u", {}],
+  ]);
+  expect(() => members.keys({ limit: 0 })).toThrow(RangeError);
+  expect(() => reader.values("u", { from: "a", after: "b" })).toThrow(
+    TypeError,
+  );
 });
 
 test("request maps native subsystem outcomes", async () => {
@@ -444,6 +582,7 @@ const STATE_DEFS = {
   cart: value("cart"),
   totals: map("totals", { keysetLimit: 256 }),
   backlog: deque("backlog"),
+  members: set("members", { keysetLimit: 64 }),
   lastMsg: messageValue("last-msg"),
   msgIndex: messageMap("msg-index"),
   msgLog: messageDeque("msg-log"),
@@ -470,6 +609,7 @@ describe("ProsodyClient", () => {
   let tracer;
   let client;
   let topic;
+  let groupId;
   let messageStream;
 
   // Helper methods for timer tests
@@ -525,7 +665,7 @@ describe("ProsodyClient", () => {
     withCompleteHandlers(
       await ProsodyClient.create({
         bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: GROUP_NAME,
+        groupId,
         sourceSystem: SOURCE_NAME,
         subscribedTopics: topic,
         probePort: null,
@@ -565,12 +705,17 @@ describe("ProsodyClient", () => {
 
   beforeEach(async () => {
     topic = generateTopicName();
+    // Each test joins its own consumer group. In a shared group, a member
+    // that stops without leaving blocks every new member's partition
+    // assignment until its session expires, which is longer than
+    // MESSAGE_TIMEOUT.
+    groupId = `${GROUP_NAME}-${nonce()}`;
     await admin.createTopic(topic, 4, 1);
 
     client = withCompleteHandlers(
       await ProsodyClient.create({
         bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: GROUP_NAME,
+        groupId,
         sourceSystem: SOURCE_NAME,
         subscribedTopics: topic,
         probePort: null,
@@ -869,6 +1014,7 @@ describe("ProsodyClient", () => {
     return tracer.startActiveSpan("test.transient_error", async (span) => {
       try {
         let messageCount = 0;
+        const demands = [];
         const retryEvent = new EventEmitter();
 
         class TransientErrorHandler {
@@ -877,6 +1023,11 @@ describe("ProsodyClient", () => {
             return tracer.startActiveSpan("test.onMessage", async (span) => {
               try {
                 messageCount++;
+                demands.push({
+                  demand: context.demand,
+                  frozen: Object.isFrozen(context.demand),
+                  stable: context.demand === context.demand,
+                });
                 if (messageCount === 1) {
                   throw new Error("Transient error occurred");
                 } else {
@@ -896,6 +1047,11 @@ describe("ProsodyClient", () => {
         });
 
         await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
+        // The first attempt is normal demand; the retry carries ordinal 1.
+        expect(demands.slice(0, 2)).toEqual([
+          { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
+          { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },
+        ]);
       } finally {
         span.end();
       }
@@ -1530,11 +1686,15 @@ describe("ProsodyClient", () => {
         onMessage: async (ctx, msg) => {
           const m = ctx.state(STATE_DEFS.totals);
           try {
+            const emptyBefore = await m.isEmpty();
             await m.set("a", 1);
             await m.set("b", { v: 2 });
             messageStream.push({
               result: await m.getMany(["a", missing, "b"]),
               empty: await m.getMany([]),
+              present: await m.hasMany(["b", missing, "a"]),
+              emptyBefore,
+              emptyAfter: await m.isEmpty(),
             });
           } catch (e) {
             messageStream.push({ error: e.message });
@@ -1553,6 +1713,10 @@ describe("ProsodyClient", () => {
       expect(obs.result).toEqual(expect.arrayContaining([1, { v: 2 }, null]));
       // asking for no keys gives back an empty array.
       expect(obs.empty).toEqual([]);
+      // hasMany answers each key in input order; isEmpty sees the writes.
+      expect(obs.present).toEqual([true, false, true]);
+      expect(obs.emptyBefore).toBe(true);
+      expect(obs.emptyAfter).toBe(false);
     });
 
     // C3 — Deque FFI boundary: elements (rich JSON) marshal through push ->
@@ -1840,13 +2004,16 @@ describe("ProsodyClient", () => {
         onMessage: async (ctx, msg) => {
           const c = ctx.state(STATE_DEFS.cart);
           try {
+            const outcomes = [];
             await c.set({ v: A });
-            await c.commit();
+            outcomes.push(await c.commit());
+            outcomes.push(await c.commit());
             await c.set({ v: B });
             const before = await c.get();
-            await c.rollback();
+            outcomes.push(await c.rollback());
+            outcomes.push(await c.rollback());
             const after = await c.get();
-            messageStream.push({ before: before.v, after: after.v });
+            messageStream.push({ before: before.v, after: after.v, outcomes });
           } catch (e) {
             messageStream.push({ error: e.message });
           }
@@ -1858,6 +2025,8 @@ describe("ProsodyClient", () => {
       expect(obs.error).toBeUndefined();
       expect(obs.before).toBe(B);
       expect(obs.after).toBe(A);
+      // Each call reports whether it drained buffered operations.
+      expect(obs.outcomes).toEqual(["applied", "noOp", "applied", "noOp"]);
     });
 
     // C5c — commit()/rollback() on a MAP handle exercise the distinct native
@@ -2042,6 +2211,133 @@ describe("ProsodyClient", () => {
       const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
       expect(obs.error).toBeUndefined();
       expect(obs.ok).toBe(true);
+    });
+
+    // C7b — query options cross the native layer into core queries. Each case
+    // changes the result when its option is dropped or mistranslated, so every
+    // option and the direction are checked end to end. Selection semantics
+    // beyond this mapping are core's and are tested there.
+    it("queries select keys and positions with every option", async () => {
+      const K = nonce();
+      client = await makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx) => {
+          const m = ctx.state(STATE_DEFS.totals);
+          const d = ctx.state(STATE_DEFS.backlog);
+          const collect = async (iterator) => {
+            const items = [];
+            for await (const item of iterator) items.push(item);
+            return items;
+          };
+          try {
+            for (const [i, key] of ["a1", "a2", "a3", "b1"].entries()) {
+              await m.set(key, i);
+            }
+            for (const item of [0, 1, 2, 3, 4]) await d.push(item);
+            messageStream.push({
+              keys: {
+                none: await collect(m.keys()),
+                backward: await collect(m.keys("backward")),
+                prefix: await collect(m.keys({ prefix: "a" })),
+                from: await collect(m.keys({ from: "a2" })),
+                after: await collect(m.keys({ after: "a2" })),
+                to: await collect(m.keys({ to: "a2" })),
+                before: await collect(m.keys({ before: "a2" })),
+                limit: await collect(m.keys({ limit: 2 })),
+                page: await collect(
+                  m.keys({ direction: "backward", after: "b1", limit: 2 }),
+                ),
+              },
+              entries: await collect(m.entries({ prefix: "b" })),
+              values: await collect(m.values({ from: "a3" })),
+              positions: {
+                from: await collect(d.values({ from: 1 })),
+                after: await collect(d.values({ after: 1 })),
+                to: await collect(d.values({ to: 1 })),
+                before: await collect(d.values({ before: 1 })),
+                limit: await collect(d.values({ limit: 2 })),
+                page: await collect(
+                  d.values({ direction: "backward", after: 3, limit: 2 }),
+                ),
+              },
+            });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.keys).toEqual({
+        none: ["a1", "a2", "a3", "b1"],
+        backward: ["b1", "a3", "a2", "a1"],
+        prefix: ["a1", "a2", "a3"],
+        from: ["a2", "a3", "b1"],
+        after: ["a3", "b1"],
+        to: ["a1", "a2"],
+        before: ["a1"],
+        limit: ["a1", "a2"],
+        page: ["a3", "a2"],
+      });
+      expect(obs.entries).toEqual([["b1", 3]]);
+      expect(obs.values).toEqual([2, 3]);
+      expect(obs.positions).toEqual({
+        from: [1, 2, 3, 4],
+        after: [2, 3, 4],
+        to: [0, 1],
+        before: [0],
+        limit: [0, 1],
+        page: [2, 1],
+      });
+    });
+
+    // C7c — set FFI boundary: every set method reaches core and answers in
+    // the JS shapes. Members round-trip as strings, batch presence aligns with
+    // its input, and iteration yields bare members in key order.
+    it("set adds, tests, removes, and iterates members", async () => {
+      const K = nonce();
+      client = await makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx) => {
+          const s = ctx.state(STATE_DEFS.members);
+          const collect = async (iterator) => {
+            const items = [];
+            for await (const item of iterator) items.push(item);
+            return items;
+          };
+          try {
+            const emptyBefore = await s.isEmpty();
+            for (const member of ["b", "a", "café", "c"]) await s.add(member);
+            await s.delete("c");
+            await s.delete("never-added");
+            messageStream.push({
+              emptyBefore,
+              emptyAfter: await s.isEmpty(),
+              has: [await s.has("a"), await s.has("c")],
+              hasMany: await s.hasMany(["café", "c", "a", "a"]),
+              all: await collect(s),
+              backward: await collect(s.values("backward")),
+              page: await collect(s.keys({ after: "a", limit: 1 })),
+            });
+            await s.clear();
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      expect(obs.emptyBefore).toBe(true);
+      expect(obs.emptyAfter).toBe(false);
+      expect(obs.has).toEqual([true, false]);
+      expect(obs.hasMany).toEqual([true, false, true, true]);
+      expect(obs.all).toEqual(["a", "b", "café"]);
+      expect(obs.backward).toEqual(["café", "b", "a"]);
+      expect(obs.page).toEqual(["b"]);
     });
 
     // C8a — binding an unregistered name rejects PermanentStateError at vend.
@@ -2438,7 +2734,7 @@ describe("keyed state (unit)", () => {
   // A1 — return() (early break) awaits the native close() exactly once.
   it("iterator return() awaits the native cursor close exactly once", async () => {
     const fake = makeGatedCursor();
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const it = m.entries();
     await it.next();
 
@@ -2464,7 +2760,7 @@ describe("keyed state (unit)", () => {
       ["a", "v1"],
       ["b", "v2"],
     ]);
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const v of m.values()) collected.push(v);
     expect(collected).toEqual(["v1", "v2"]);
@@ -2481,7 +2777,7 @@ describe("keyed state (unit)", () => {
       ],
       3,
     );
-    const m = new MapState({ scan: () => fake.cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
     const collected = [];
     for await (const entry of m.entries()) collected.push(entry);
     expect(collected).toEqual([
@@ -2519,7 +2815,7 @@ describe("keyed state (unit)", () => {
       },
       close: (...args) => fake.cursor.close(...args),
     };
-    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
+    const it = new MapState({ entries: () => cursor }, RAW_ITEMS).entries();
 
     await expect(
       Promise.all([it.next(), it.next(), it.next()]),
@@ -2546,7 +2842,7 @@ describe("keyed state (unit)", () => {
         closed += 1;
       },
     };
-    const it = new MapState({ scan: () => cursor }, RAW_ITEMS).entries();
+    const it = new MapState({ entries: () => cursor }, RAW_ITEMS).entries();
     const next = it.next();
     const returned = it.return("stop");
 
@@ -2573,7 +2869,7 @@ describe("keyed state (unit)", () => {
         counts.closed += 1;
       },
     };
-    const m = new MapState({ scan: () => cursor }, RAW_ITEMS);
+    const m = new MapState({ entries: () => cursor }, RAW_ITEMS);
     const it = m.entries();
     await expect(it.next()).rejects.toBeInstanceOf(TransientStateError);
     expect(counts.closed).toBe(1);
@@ -2622,11 +2918,20 @@ describe("keyed state (unit)", () => {
   // straight through to the native clear.
   it("map has() rides native contains and deque clear() passes through", async () => {
     const m = new MapState(
-      { contains: async (key) => key === "present" },
+      {
+        contains: async (key) => key === "present",
+        containsMany: async (keys) => keys.map((key) => key === "present"),
+        isEmpty: async () => false,
+      },
       RAW_ITEMS,
     );
     await expect(m.has("present")).resolves.toBe(true);
     await expect(m.has("absent")).resolves.toBe(false);
+    await expect(m.hasMany(["absent", "present"])).resolves.toEqual([
+      false,
+      true,
+    ]);
+    await expect(m.isEmpty()).resolves.toBe(false);
 
     let cleared = false;
     const d = new DequeState(
@@ -2652,6 +2957,165 @@ describe("keyed state (unit)", () => {
     for await (const key of m.keys()) collected.push(key);
     expect(collected).toEqual(["apple", "berry", "cherry"]);
     expect(fake.closedCount()).toBe(1);
+  });
+
+  // A5e — query options reach every native cursor opener as given. A bare
+  // direction stands for { direction }, and no options mean an empty query.
+  it("query options reach every native cursor opener", async () => {
+    const opened = [];
+    const opener =
+      (name) =>
+      (...args) => {
+        opened.push([name, ...args]);
+        return makeFiniteCursor([]).cursor;
+      };
+    const drain = async (iterator) => {
+      // eslint-disable-next-line no-unused-vars
+      for await (const _item of iterator);
+    };
+    const keys = {
+      direction: "backward",
+      prefix: "user-",
+      after: "user-9",
+      before: "user-1",
+      limit: 2,
+    };
+    const positions = { direction: "backward", from: 9, to: 1, limit: 3 };
+    const m = new MapState(
+      { entries: opener("entries"), keys: opener("keys") },
+      RAW_ITEMS,
+    );
+    const d = new DequeState({ values: opener("values") }, RAW_ITEMS);
+    const pm = new PublishedMap({
+      entries: opener("published.entries"),
+      keys: opener("published.keys"),
+    });
+    const pd = new PublishedDeque({ values: opener("published.values") });
+
+    await drain(m.entries(keys));
+    await drain(m.keys("backward"));
+    await drain(m.values());
+    await drain(d.values(positions));
+    await drain(d.values("backward"));
+    await drain(pm.entries("u", keys));
+    await drain(pm.keys("u", { from: "a", to: "b" }));
+    await drain(pm.values("u", { after: "a" }));
+    await drain(pd.values("u", positions));
+
+    expect(opened).toEqual([
+      ["entries", keys],
+      ["keys", { direction: "backward" }],
+      ["entries", {}],
+      ["values", positions],
+      ["values", { direction: "backward" }],
+      ["published.entries", "u", keys],
+      ["published.keys", "u", { from: "a", to: "b" }],
+      ["published.entries", "u", { after: "a" }],
+      ["published.values", "u", positions],
+    ]);
+  });
+
+  // A5g — every query copies its options at the call. Published readers open
+  // their cursor on the first pull, so a later change to the caller's object
+  // must not reach the native layer.
+  it("queries snapshot their options at the call", async () => {
+    const opened = [];
+    const opener =
+      (name) =>
+      (...args) => {
+        opened.push([name, ...args]);
+        return makeFiniteCursor([]).cursor;
+      };
+    const drain = async (iterator) => {
+      // eslint-disable-next-line no-unused-vars
+      for await (const _item of iterator);
+    };
+    const pm = new PublishedMap({
+      entries: opener("entries"),
+      keys: opener("keys"),
+    });
+    const ps = new PublishedSet({ keys: opener("set.keys") });
+    const pd = new PublishedDeque({ values: opener("values") });
+    const m = new MapState({ keys: opener("owned.keys") }, RAW_ITEMS);
+
+    const keys = { after: "b" };
+    const positions = { after: 1 };
+    const iterators = [
+      pm.entries("u", keys),
+      pm.keys("u", keys),
+      pm.values("u", keys),
+      ps.values("u", keys),
+      pd.values("u", positions),
+      m.keys(keys),
+    ];
+    Object.assign(keys, { from: "a", limit: 1.5 });
+    Object.assign(positions, { from: 0, limit: 1.5 });
+    for (const iterator of iterators) await drain(iterator);
+
+    expect(opened).toEqual([
+      ["owned.keys", { after: "b" }],
+      ["entries", "u", { after: "b" }],
+      ["keys", "u", { after: "b" }],
+      ["entries", "u", { after: "b" }],
+      ["set.keys", "u", { after: "b" }],
+      ["values", "u", { after: 1 }],
+    ]);
+  });
+
+  // A5f — option shapes that core cannot represent throw at the call, before
+  // any native cursor opens. Setting both edges of a pair is rejected because
+  // an options object has no call order to pick a winner.
+  it.each([
+    ["zero limit", { limit: 0 }, RangeError],
+    ["negative limit", { limit: -1 }, RangeError],
+    ["fractional limit", { limit: 2.5 }, RangeError],
+    ["string limit", { limit: "5" }, TypeError],
+    ["from with after", { from: "a", after: "b" }, TypeError],
+    ["to with before", { to: "a", before: "b" }, TypeError],
+    ["numeric key bound", { from: 1 }, TypeError],
+    ["numeric prefix", { prefix: 1 }, TypeError],
+    ["number options", 42, TypeError],
+    ["null options", null, TypeError],
+    ["misspelled option", { befor: "a" }, TypeError],
+    ["range option", { range: ["a", "b"] }, TypeError],
+    ["unknown direction", { direction: "reverse" }, TypeError],
+    ["numeric direction", { direction: 5 }, TypeError],
+  ])("key query rejects %s", (_label, options, ErrorClass) => {
+    const native = { entries: jest.fn(), keys: jest.fn() };
+    const m = new MapState(native, RAW_ITEMS);
+    const pm = new PublishedMap(native);
+    expect(() => m.entries(options)).toThrow(ErrorClass);
+    expect(() => m.keys(options)).toThrow(ErrorClass);
+    expect(() => m.values(options)).toThrow(ErrorClass);
+    expect(() => pm.entries("u", options)).toThrow(ErrorClass);
+    expect(() => pm.keys("u", options)).toThrow(ErrorClass);
+    expect(() => pm.values("u", options)).toThrow(ErrorClass);
+    expect(native.entries).not.toHaveBeenCalled();
+    expect(native.keys).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["negative position", { from: -1 }, RangeError],
+    ["fractional position", { after: 1.5 }, RangeError],
+    ["unsafe position", { to: 2 ** 53 }, RangeError],
+    ["infinite position", { from: Infinity }, RangeError],
+    ["NaN position", { after: NaN }, RangeError],
+    ["string position", { before: "1" }, TypeError],
+    ["from with after", { from: 1, after: 2 }, TypeError],
+    ["to with before", { to: 1, before: 2 }, TypeError],
+    ["zero limit", { limit: 0 }, RangeError],
+    ["prefix option", { prefix: "a" }, TypeError],
+    ["range option", { range: [1, 2] }, TypeError],
+    ["unknown direction", { direction: "sideways" }, TypeError],
+  ])("position query rejects %s", (_label, options, ErrorClass) => {
+    const native = { values: jest.fn() };
+    expect(() => new DequeState(native, RAW_ITEMS).values(options)).toThrow(
+      ErrorClass,
+    );
+    expect(() => new PublishedDeque(native).values("u", options)).toThrow(
+      ErrorClass,
+    );
+    expect(native.values).not.toHaveBeenCalled();
   });
 
   // A5d — DequeState.at() routes the endpoints to the peeks (native.peekFront /
@@ -2790,6 +3254,30 @@ describe("keyed state configuration validation", () => {
     );
   });
 
+  it("accepts set options and rejects set payloads and capacity", async () => {
+    await makeClient(
+      makeConfig({
+        stateCollections: [
+          set("s", { ttlSeconds: 60, keysetLimit: 0, readUncommitted: true }),
+        ],
+      }),
+    );
+    await rejectsConfig(
+      makeConfig({
+        stateCollections: [{ name: "s", kind: "set", payload: "json" }],
+      }),
+      /payload: not valid for set collections/,
+    );
+    await rejectsConfig(
+      makeConfig({ stateCollections: [set("s", { capacity: 5 })] }),
+      /capacity: only valid for deque/,
+    );
+    await rejectsConfig(
+      makeConfig({ stateCollections: [{ name: "v", kind: "value" }] }),
+      /payload: expected/,
+    );
+  });
+
   it("rejects capacity on a non-deque collection", async () => {
     await rejectsConfig(
       makeConfig({ stateCollections: [value("v", { capacity: 5 })] }),
@@ -2852,18 +3340,14 @@ describe("keyed state configuration validation", () => {
     },
   );
 
-  // Regression: stateRecoveryDelaySeconds arrives as f64, so negative and
-  // fractional values reach the whole-number guard instead of wrapping or
-  // truncating through a u32 coercion.
-  it.each([-1, 2.5, NaN, Infinity])(
-    "rejects non-whole stateRecoveryDelaySeconds %p",
-    async (stateRecoveryDelaySeconds) => {
-      await rejectsConfig(
-        makeConfig({ stateRecoveryDelaySeconds }),
-        /stateRecoveryDelaySeconds: must be a whole number/,
-      );
-    },
-  );
+  // A client that only reads published state needs no topic list.
+  it("opens a published reader without subscribed topics", async () => {
+    const client = await makeClient(
+      makeConfig({ subscribedTopics: undefined, subsystem: "readers" }),
+    );
+    const reader = await client.state("accounts", map("balances"));
+    expect(reader).toBeInstanceOf(PublishedMap);
+  });
 
   it("accepts the full canonical collection set", async () => {
     await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));

@@ -1,8 +1,8 @@
 //! Typed state cursors.
 
 use super::{
-    Arc, BinaryPayload, BoxStateCursor, ConsumerMessage, FutureExt, HashMap, Message,
-    SCAN_READY_CHUNK_SIZE, TextMapCompositePropagator, json_text, napi, op_context, state_error,
+    Arc, BinaryPayload, ConsumerMessage, FutureExt, HashMap, Message, SCAN_READY_CHUNK_SIZE,
+    StateCursor, TextMapCompositePropagator, json_text, napi, op_context, state_error,
 };
 
 macro_rules! native_cursor {
@@ -10,7 +10,7 @@ macro_rules! native_cursor {
         /// Demand-driven cursor with one element type.
         #[napi]
         pub struct $name {
-            pub(crate) cursor: BoxStateCursor<$item>,
+            pub(crate) cursor: StateCursor<$item>,
             pub(crate) propagator: Arc<TextMapCompositePropagator>,
         }
 
@@ -54,7 +54,7 @@ native_cursor!(
     (String, Message),
     |(key, message)| Ok((key, Message::new(message)))
 );
-native_cursor!(NativeMapKeyCursor, String, String, Ok);
+native_cursor!(NativeKeyCursor, String, String, Ok);
 
 /// Pulls one ready chunk from a cursor and converts its items.
 ///
@@ -67,7 +67,7 @@ native_cursor!(NativeMapKeyCursor, String, String, Ok);
 /// @returns The converted chunk, or `None` when the scan is exhausted.
 /// @throws Error carrying the category on `cause` if the pull fails.
 async fn pull<T, U>(
-    cursor: &BoxStateCursor<T>,
+    cursor: &StateCursor<T>,
     context: opentelemetry::Context,
     convert: impl Fn(T) -> napi::Result<U>,
 ) -> napi::Result<Option<Vec<U>>> {

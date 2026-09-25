@@ -9,9 +9,10 @@
 //!
 //! Every operation extracts the JS-side carrier and activates it while polling
 //! the erased future, allowing core's semantic collection span to join the
-//! event trace without an extra N-API binding span. Scans activate the carrier
-//! while core constructs its stream span; pulls transport vectors of up to 256
-//! immediately-ready items without creating per-chunk binding spans.
+//! event trace without an extra N-API binding span. Opening a scan performs no
+//! read and takes no carrier. Each pull activates its own carrier and
+//! transports a vector of up to 256 immediately-ready items without creating
+//! per-chunk binding spans.
 //!
 //! Errors carry their category (`"permanent"` / `"transient"`) as the message
 //! of the JavaScript error's `cause`, a machine-readable data channel the
@@ -30,10 +31,11 @@ use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
 use prosody::codec::{BinaryPayload, ErasedStateCodec};
 use prosody::consumer::event_context::{
-    BoxDequeState, BoxMapState, BoxStateCursor, BoxValueState, ErasedCategory, ErasedStateError,
+    BoxDequeState, BoxMapState, BoxSetState, BoxValueState, ErasedCategory, ErasedStateError,
+    StateCursor,
 };
 use prosody::consumer::message::ConsumerMessage;
-use prosody::state::Direction;
+use prosody::state::{Direction, StoreOutcome};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -146,8 +148,8 @@ fn permanent_error(message: String) -> Error {
 /// @returns The matching `Direction`.
 /// @throws Error (transient) if the token is neither `"forward"` nor
 /// `"backward"` (a caller mistake — retries, not discarded).
-pub(crate) fn parse_direction(direction: &str) -> napi::Result<Direction> {
-    match direction {
+fn parse_direction(direction: impl AsRef<str>) -> napi::Result<Direction> {
+    match direction.as_ref() {
         "forward" => Ok(Direction::Forward),
         "backward" => Ok(Direction::Backward),
         other => Err(transient_error(format!(
@@ -215,6 +217,27 @@ fn message_value(item: Option<ConsumerMessage<BinaryPayload>>) -> Option<Message
     item.map(Message::new)
 }
 
+/// The effect of a commit or a rollback.
+///
+/// `"applied"` means the call wrote or discarded buffered operations.
+/// `"noOp"` means nothing was buffered.
+#[napi(string_enum = "camelCase")]
+pub enum NativeStoreOutcome {
+    /// The call wrote or discarded buffered operations.
+    Applied,
+    /// Nothing was buffered.
+    NoOp,
+}
+
+impl From<StoreOutcome> for NativeStoreOutcome {
+    fn from(outcome: StoreOutcome) -> Self {
+        match outcome {
+            StoreOutcome::Applied => Self::Applied,
+            StoreOutcome::NoOp => Self::NoOp,
+        }
+    }
+}
+
 /// Maximum number of immediately-ready scan items transported through N-API
 /// in one vector. Core owns ready draining, error ordering, and pull
 /// serialization; this binding owns only the transport cap and conversion.
@@ -226,20 +249,27 @@ macro_rules! transaction_methods {
         impl $name {
             /// Durably commits the buffered operations.
             #[napi(writable = false)]
-            pub async fn commit(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
+            pub async fn commit(
+                &self,
+                otel_context: HashMap<String, String>,
+            ) -> napi::Result<NativeStoreOutcome> {
                 let context = op_context(&self.propagator, &otel_context);
                 self.state
                     .commit()
                     .with_context(context)
                     .await
+                    .map(NativeStoreOutcome::from)
                     .map_err(|error| state_error(&error))
             }
 
             /// Discards the buffered operations.
             #[napi(writable = false)]
-            pub async fn rollback(&self, otel_context: HashMap<String, String>) {
+            pub async fn rollback(
+                &self,
+                otel_context: HashMap<String, String>,
+            ) -> NativeStoreOutcome {
                 let context = op_context(&self.propagator, &otel_context);
-                self.state.rollback().with_context(context).await;
+                self.state.rollback().with_context(context).await.into()
             }
         }
     };
@@ -248,19 +278,24 @@ macro_rules! transaction_methods {
 mod cursor;
 mod deque;
 mod map;
+mod query;
+mod set;
 mod value;
 
 pub(crate) use cursor::{
-    NativeJsonDequeCursor, NativeJsonMapCursor, NativeMapKeyCursor, NativeMessageDequeCursor,
+    NativeJsonDequeCursor, NativeJsonMapCursor, NativeKeyCursor, NativeMessageDequeCursor,
     NativeMessageMapCursor,
 };
 pub(crate) use deque::{NativeJsonDequeState, NativeMessageDequeState};
 pub(crate) use map::{NativeJsonMapState, NativeMessageMapState};
+pub(crate) use query::{NativeKeyQuery, NativePositionQuery};
+pub(crate) use set::NativeSetState;
 pub(crate) use value::{NativeJsonValueState, NativeMessageValueState};
 
 transaction_methods!(NativeJsonValueState);
 transaction_methods!(NativeMessageValueState);
 transaction_methods!(NativeJsonMapState);
+transaction_methods!(NativeSetState);
 transaction_methods!(NativeMessageMapState);
 transaction_methods!(NativeJsonDequeState);
 transaction_methods!(NativeMessageDequeState);
