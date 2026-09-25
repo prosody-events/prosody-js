@@ -609,6 +609,7 @@ describe("ProsodyClient", () => {
   let tracer;
   let client;
   let topic;
+  let groupId;
   let messageStream;
 
   // Helper methods for timer tests
@@ -664,7 +665,7 @@ describe("ProsodyClient", () => {
     withCompleteHandlers(
       await ProsodyClient.create({
         bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: GROUP_NAME,
+        groupId,
         sourceSystem: SOURCE_NAME,
         subscribedTopics: topic,
         probePort: null,
@@ -704,12 +705,17 @@ describe("ProsodyClient", () => {
 
   beforeEach(async () => {
     topic = generateTopicName();
+    // Each test joins its own consumer group. In a shared group, a member
+    // that stops without leaving blocks every new member's partition
+    // assignment until its session expires, which is longer than
+    // MESSAGE_TIMEOUT.
+    groupId = `${GROUP_NAME}-${nonce()}`;
     await admin.createTopic(topic, 4, 1);
 
     client = withCompleteHandlers(
       await ProsodyClient.create({
         bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: GROUP_NAME,
+        groupId,
         sourceSystem: SOURCE_NAME,
         subscribedTopics: topic,
         probePort: null,
