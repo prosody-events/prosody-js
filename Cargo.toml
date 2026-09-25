@@ -93,4 +93,4 @@ lto = "fat"
 
 # Temporary: build against unreleased prosody main. Remove after release.
 [patch.crates-io]
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "7bb6f780208ab95bb294fb1bb5e11ad637336aa1" }
+prosody = { git = "https://github.com/prosody-events/prosody", rev = "8a91e600bd9e59b5eeda9dc45a7814562e730d0f" }
