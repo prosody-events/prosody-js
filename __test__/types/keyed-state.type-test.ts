@@ -64,6 +64,7 @@ const seen = set("seen", {
 const config: Configuration = {
   stateCollections: [cart, totals, tags, seen, lastOrder, orderIndex, backlog],
   stateOwnedCacheSize: "64 MiB",
+  stateMemtableSize: "16 MiB",
 };
 void config;
 

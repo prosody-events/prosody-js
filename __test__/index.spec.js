@@ -3340,6 +3340,16 @@ describe("keyed state configuration validation", () => {
     },
   );
 
+  it.each(["0", "-1 MiB", "nonsense"])(
+    "rejects invalid stateMemtableSize %p",
+    async (stateMemtableSize) => {
+      await rejectsConfig(
+        makeConfig({ stateMemtableSize }),
+        /stateMemtableSize/,
+      );
+    },
+  );
+
   // A client that only reads published state needs no topic list.
   it("opens a published reader without subscribed topics", async () => {
     const client = await makeClient(

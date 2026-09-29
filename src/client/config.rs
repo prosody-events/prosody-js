@@ -262,6 +262,13 @@ pub struct Configuration {
     /// storage engine selects its default.
     pub state_owned_cache_size: Option<String>,
 
+    /// Bytes of in-memory writes the local keyed-state cache holds for each
+    /// assigned partition before it flushes them to disk. Memory use scales
+    /// with the number of assigned partitions. Unset uses the storage
+    /// engine's default of 64 MiB. Accepts a human-readable size. Uses
+    /// `PROSODY_STATE_MEMTABLE_SIZE` when omitted.
+    pub state_memtable_size: Option<String>,
+
     /// Capacity of the published-state read-through cache. Uses
     /// `PROSODY_STATE_READ_CACHE_SIZE` when omitted. It then uses the owning
     /// cache size when set, or 1 MiB when both sizes are unset.
@@ -996,6 +1003,13 @@ pub fn build_keyed_state_config(config: &Configuration) -> Result<KeyedStateConf
             .parse::<ByteSize>()
             .map_err(|error| Error::from_reason(format!("stateOwnedCacheSize: {error}")))?;
         builder.owned_cache_size(Some(size));
+    }
+
+    if let Some(size) = &config.state_memtable_size {
+        let size = size
+            .parse::<ByteSize>()
+            .map_err(|error| Error::from_reason(format!("stateMemtableSize: {error}")))?;
+        builder.memtable_size(Some(size));
     }
 
     if let Some(size) = &config.state_read_cache_size {
