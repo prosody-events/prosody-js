@@ -51,7 +51,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/core@npm:^7.18.5, @babel/core@npm:^7.23.9, @babel/core@npm:^7.27.4":
+"@babel/core@npm:^7.23.9, @babel/core@npm:^7.27.4":
   version: 7.29.7
   resolution: "@babel/core@npm:7.29.7"
   dependencies:
@@ -4348,7 +4348,7 @@ __metadata:
     "@opentelemetry/sdk-node": "npm:^0.222.0"
     "@opentelemetry/sdk-trace-base": "npm:^2.11.0"
     "@opentelemetry/sdk-trace-node": "npm:^2.11.0"
-    "@sentry/node": "npm:^11.0.0"
+    "@sentry/node": "npm:^11.1.0"
     "@types/node": "npm:^26"
     jest: "npm:^30.5.2"
     prettier: "npm:^3.9.9"
@@ -4427,12 +4427,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sentry/bundler-plugins@npm:11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/bundler-plugins@npm:11.0.0"
+"@sentry/bundler-plugins@npm:11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/bundler-plugins@npm:11.1.0"
   dependencies:
-    "@babel/core": "npm:^7.18.5"
-    "@sentry/core": "npm:11.0.0"
+    "@sentry/core": "npm:11.1.0"
     dotenv: "npm:^17.4.2"
     glob: "npm:^13.0.6"
     magic-string: "npm:~0.30.8"
@@ -4440,78 +4439,81 @@ __metadata:
     sentry: "npm:^0.44.0"
     supports-color: "npm:^8.1.1"
   peerDependencies:
+    "@babel/core": ^7.18.5
     rollup: ">=3.2.0"
     webpack: ">=5.1.0"
   peerDependenciesMeta:
+    "@babel/core":
+      optional: true
     rollup:
       optional: true
     webpack:
       optional: true
-  checksum: 10c0/ac35073650fda040279220ca867ceef49a2ec1be40873525e67b6bb885d9c69d8c9525bfb1cab86d6f97dd288516f581c0a99dea9ff6131a931e11c45527794f
+  checksum: 10c0/bb18492ee738627b7428ef78bb30364a7642d5c7acdf6673214431cbeb3df3e36bf4db44e7f7f19704b11d433a8b7cfd20b2cc767a638b00bc59e0a67fe85b25
   languageName: node
   linkType: hard
 
-"@sentry/conventions@npm:^0.23.0":
-  version: 0.23.0
-  resolution: "@sentry/conventions@npm:0.23.0"
-  checksum: 10c0/d15b6eae5aaada35226a9c55279b97bc363c588ef0faf34506152d46aca12e48590ee45a4338de7fefce46bb46424285bc0ce16fa57151175d0d41f54b282a0c
+"@sentry/conventions@npm:^0.24.0":
+  version: 0.24.0
+  resolution: "@sentry/conventions@npm:0.24.0"
+  checksum: 10c0/3258b9ccc2de260a7d52f6cd267f092d429e00586b4e01f03a28df82f74209c6b10706879acfeb6c10941c225cab2f1568212130591a6c0efbb75cd56448c796
   languageName: node
   linkType: hard
 
-"@sentry/core@npm:11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/core@npm:11.0.0"
+"@sentry/core@npm:11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/core@npm:11.1.0"
   dependencies:
-    "@sentry/conventions": "npm:^0.23.0"
-  checksum: 10c0/8e9a2b182f978fc3eaca1d7d6d5331385dd00c88affb9c6b58713985a1cb718b65c2b5bb2389ad1534197d62a729bdae1335eac2cb14cc8df97c6dcfa88da5f3
+    "@sentry/conventions": "npm:^0.24.0"
+  checksum: 10c0/e765f94aae89a7011cef19d774364178e905f2383264898dd202d1fdafee5c1e161d11abd5be35898a80d4653db1cabcc2c9b3a29d6e9c1ffe29f9535478c221
   languageName: node
   linkType: hard
 
-"@sentry/node@npm:^11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/node@npm:11.0.0"
+"@sentry/node@npm:^11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/node@npm:11.1.0"
   dependencies:
     "@opentelemetry/api": "npm:^1.9.1"
-    "@sentry/bundler-plugins": "npm:11.0.0"
-    "@sentry/conventions": "npm:^0.23.0"
-    "@sentry/core": "npm:11.0.0"
-    "@sentry/opentelemetry": "npm:11.0.0"
-    "@sentry/server-runtime-injection": "npm:11.0.0"
-    "@sentry/server-utils": "npm:11.0.0"
-  checksum: 10c0/c7c8cef94921963d2acdacdf50a62fe5fbe4162a36cb6d168d8a263abe3006b46c685b82f392434a08706b969e07515a9a1af180c4af9473e5b609e9c73548a0
+    "@sentry/bundler-plugins": "npm:11.1.0"
+    "@sentry/conventions": "npm:^0.24.0"
+    "@sentry/core": "npm:11.1.0"
+    "@sentry/opentelemetry": "npm:11.1.0"
+    "@sentry/server-runtime-injection": "npm:11.1.0"
+    "@sentry/server-utils": "npm:11.1.0"
+  checksum: 10c0/b36b5bab0021a0346535f4a8deadf9834773c597ddeb6f82e726918539c921f5a973722e006d3aa79caaf44d638ec4e60b5d94405d5590db66459e90d616d267
   languageName: node
   linkType: hard
 
-"@sentry/opentelemetry@npm:11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/opentelemetry@npm:11.0.0"
+"@sentry/opentelemetry@npm:11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/opentelemetry@npm:11.1.0"
   dependencies:
-    "@sentry/conventions": "npm:^0.23.0"
-    "@sentry/core": "npm:11.0.0"
+    "@sentry/conventions": "npm:^0.24.0"
+    "@sentry/core": "npm:11.1.0"
   peerDependencies:
     "@opentelemetry/api": ^1.9.0
-  checksum: 10c0/0af9c727f59bb8785454506cb671c8985a9f0a50915d8cd1d2043451df2d317fe4fe4e2565ba148346672196585ea7194ff54f5b8b13eef82bc305be4d111749
+  checksum: 10c0/88e3baf913042635878a21f6f5c14c34bd7a5ce30aa9a04ebc04b4788aecb7f8dfbfb94c23a018ef5c465b80b116da5417d2417409abc285494bb1fa615c54ca
   languageName: node
   linkType: hard
 
-"@sentry/server-runtime-injection@npm:11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/server-runtime-injection@npm:11.0.0"
+"@sentry/server-runtime-injection@npm:11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/server-runtime-injection@npm:11.1.0"
   dependencies:
-    "@sentry/core": "npm:11.0.0"
-    "@sentry/server-utils": "npm:11.0.0"
-  checksum: 10c0/1620c420a2636b26c90bd9c558f240a2df4a6568f66d297b5c38a11f8f745af4e7808ec6c81d0f7251cb7679e4d469cfbeb6228cd05c2e3d791b9efd7c78ae61
+    "@sentry/core": "npm:11.1.0"
+    "@sentry/server-utils": "npm:11.1.0"
+  checksum: 10c0/4076d0fd0b672230d65cc4d89a62d467c079ca7f0c03277df981ecfc37a46bf61fff5272d72dad711b026c84cd715d088268274d27daede9055dc74bab194bff
   languageName: node
   linkType: hard
 
-"@sentry/server-utils@npm:11.0.0":
-  version: 11.0.0
-  resolution: "@sentry/server-utils@npm:11.0.0"
+"@sentry/server-utils@npm:11.1.0":
+  version: 11.1.0
+  resolution: "@sentry/server-utils@npm:11.1.0"
   dependencies:
     "@opentelemetry/api": "npm:^1.9.1"
-    "@sentry/conventions": "npm:^0.23.0"
-    "@sentry/core": "npm:11.0.0"
-  checksum: 10c0/9fce34e644bf71787712c040237e9ce478377c95dad29bfd84f28a944bd1c5a4c0c49d35625a342d97570eab0c97b7fae58817ac86bd5b7985df5b94c2732e64
+    "@sentry/conventions": "npm:^0.24.0"
+    "@sentry/core": "npm:11.1.0"
+  checksum: 10c0/676068fa19365442d16267af529860d3512e22d29e2f2a140c96356b46228040635935a0daca54c50c262f56332150df64bc011c6c8a210ca47455a9f3a9b412
   languageName: node
   linkType: hard
 
