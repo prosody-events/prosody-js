@@ -17,10 +17,6 @@ crate-type = ["cdylib"]
 arc-swap = "1.7"
 chrono = "0.4"
 educe = "0.8"
-# TODO: Use a crates.io release after it includes the fix for https://github.com/microsoft/mimalloc/issues/1287.
-mimalloc = { git = "https://github.com/xonatius/mimalloc_rust.git", rev = "6d4c41bb10c6d9da1d1b6f07b38c4cc051667f11", features = [
-    "local_dynamic_tls",
-] }
 napi = { version = "3.8", features = [
     "async",
     "chrono_date",
@@ -30,6 +26,7 @@ napi = { version = "3.8", features = [
 napi-derive = "3.5"
 opentelemetry = "0.33"
 prosody = { version = "0.6.0", features = ["libz-static"] }
+rustfs-mimalloc = { version = "0.5.6", features = ["local_dynamic_tls"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["rt-multi-thread", "sync"] }

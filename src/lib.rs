@@ -9,9 +9,9 @@
 //! The crate is organized into several modules, each responsible for a specific
 //! aspect of the library's functionality:
 
-use mimalloc::MiMalloc;
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi_derive::module_init;
+use rustfs_mimalloc::MiMalloc;
 use std::io::{self, Write};
 use std::process;
 use tokio::runtime::Builder;
