@@ -46,14 +46,14 @@ mod state;
 /// Module dealing with timer-related functionality and structures.
 mod timer;
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
 /// Stack size of each Tokio worker thread.
 ///
 /// Core futures are large in debug builds. A timer write that polls through
 /// the Cassandra driver overflows the Tokio default of 2 MiB.
 const WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 /// Replace napi-rs's default Tokio runtime with one built with 8 MiB worker
 /// stacks, before any async binding call can construct the default runtime.
