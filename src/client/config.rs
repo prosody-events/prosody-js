@@ -249,12 +249,14 @@ pub struct Configuration {
     /// names within this set are rejected.
     pub state_collections: Option<Vec<StateCollectionConfig>>,
 
-    /// Disk workspace for the local keyed-state cache.
+    /// Directory that holds the local keyed-state caches.
     ///
-    /// Each live client needs its own directory because it is locked
-    /// exclusively. Falls back to the `PROSODY_STATE_CACHE_DIR` environment
-    /// variable, then a per-client temporary directory. Must not be an
-    /// empty string when set.
+    /// Each consumer opens its cache in a fresh subdirectory and removes that
+    /// subdirectory when the consumer drops. So clients can share the
+    /// directory, and the mount needs no persistence. Production deployments
+    /// must set a mounted path, for example a Kubernetes `emptyDir`. Falls
+    /// back to the `PROSODY_STATE_CACHE_DIR` environment variable, then to
+    /// `<temp>/prosody/keyed-state`. Must not be an empty string when set.
     pub state_cache_dir: Option<String>,
 
     /// Capacity of the owning keyed-state cache. Accepts a human-readable size.
