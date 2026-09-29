@@ -3269,7 +3269,7 @@ describe("keyed state configuration validation", () => {
       makeConfig({
         stateCollections: [{ name: "s", kind: "set", payload: "json" }],
       }),
-      /payload: not valid for set collections/,
+      "stateCollections[0].payload: not valid for set collections",
     );
     await rejectsConfig(
       makeConfig({ stateCollections: [set("s", { capacity: 5 })] }),
@@ -3277,7 +3277,7 @@ describe("keyed state configuration validation", () => {
     );
     await rejectsConfig(
       makeConfig({ stateCollections: [{ name: "v", kind: "value" }] }),
-      /payload: expected/,
+      "stateCollections[0].payload: required for value, map, and deque collections",
     );
   });
 
@@ -3329,7 +3329,7 @@ describe("keyed state configuration validation", () => {
       makeConfig({
         stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
       }),
-      /payload: expected/,
+      'stateCollections[0].payload: expected "json" or "message", got "bogus"',
     );
   });
 

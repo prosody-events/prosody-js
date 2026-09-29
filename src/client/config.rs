@@ -706,6 +706,14 @@ enum CollectionKind {
     Deque,
 }
 
+/// The item payload of a value, map, or deque collection. A set has none.
+enum CollectionPayload {
+    /// JSON values.
+    Json,
+    /// The full Kafka message the handler received.
+    Message,
+}
+
 /// Parses a collection-kind token.
 ///
 /// @param index The collection's index in `stateCollections`.
@@ -722,6 +730,23 @@ fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
         other => Err(Error::from_reason(format!(
             "stateCollections[{index}].kind: expected \"value\", \"map\", \"set\", or \
              \"deque\", got {other:?}"
+        ))),
+    }
+}
+
+/// Parses a collection-payload token when configured.
+///
+/// @param index The collection's index in `stateCollections`.
+/// @param payload The payload token, if any.
+/// @returns The parsed payload, if any.
+/// @throws Error if the token is not `"json"` or `"message"`.
+fn parse_payload(index: usize, payload: Option<&str>) -> Result<Option<CollectionPayload>> {
+    match payload {
+        None => Ok(None),
+        Some("json") => Ok(Some(CollectionPayload::Json)),
+        Some("message") => Ok(Some(CollectionPayload::Message)),
+        Some(other) => Err(Error::from_reason(format!(
+            "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
         ))),
     }
 }
@@ -880,6 +905,7 @@ fn register_state_collection(
     collection: &StateCollectionConfig,
 ) -> Result<()> {
     let kind = parse_kind(index, &collection.kind)?;
+    let payload = parse_payload(index, collection.payload.as_deref())?;
 
     let ttl_seconds = match collection.ttl_seconds {
         Some(value) => Some(whole_number_field(
@@ -897,7 +923,7 @@ fn register_state_collection(
 
     let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
-    match (kind, collection.payload.as_deref()) {
+    match (kind, payload) {
         (CollectionKind::Set, None) => {
             let mut descriptor = with_def(
                 set_state::<Utf8KeyCodec>(name),
@@ -915,7 +941,12 @@ fn register_state_collection(
                 "stateCollections[{index}].payload: not valid for set collections"
             )));
         }
-        (CollectionKind::Value, Some("json")) => {
+        (CollectionKind::Value | CollectionKind::Map | CollectionKind::Deque, None) => {
+            return Err(Error::from_reason(format!(
+                "stateCollections[{index}].payload: required for value, map, and deque collections"
+            )));
+        }
+        (CollectionKind::Value, Some(CollectionPayload::Json)) => {
             let _ = keyed.register(with_def(
                 value_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -923,7 +954,7 @@ fn register_state_collection(
                 collection.published,
             ));
         }
-        (CollectionKind::Map, Some("json")) => {
+        (CollectionKind::Map, Some(CollectionPayload::Json)) => {
             let descriptor = with_def(
                 map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -932,7 +963,7 @@ fn register_state_collection(
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
-        (CollectionKind::Deque, Some("json")) => {
+        (CollectionKind::Deque, Some(CollectionPayload::Json)) => {
             let mut descriptor = with_def(
                 deque_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
@@ -944,7 +975,7 @@ fn register_state_collection(
             }
             let _ = keyed.register(descriptor);
         }
-        (CollectionKind::Value, Some("message")) => {
+        (CollectionKind::Value, Some(CollectionPayload::Message)) => {
             let _ = keyed.register(with_def(
                 message_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -952,7 +983,7 @@ fn register_state_collection(
                 collection.published,
             ));
         }
-        (CollectionKind::Map, Some("message")) => {
+        (CollectionKind::Map, Some(CollectionPayload::Message)) => {
             let descriptor = with_def(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -961,7 +992,7 @@ fn register_state_collection(
             );
             let _ = keyed.register(with_keyset(descriptor, keyset_limit));
         }
-        (CollectionKind::Deque, Some("message")) => {
+        (CollectionKind::Deque, Some(CollectionPayload::Message)) => {
             let mut descriptor = with_def(
                 message_deque_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
@@ -972,12 +1003,6 @@ fn register_state_collection(
                 descriptor = descriptor.capacity(bound);
             }
             let _ = keyed.register(descriptor);
-        }
-        (_, other) => {
-            return Err(Error::from_reason(format!(
-                "stateCollections[{index}].payload: expected \"json\" or \"message\", got \
-                 {other:?}"
-            )));
         }
     }
 
