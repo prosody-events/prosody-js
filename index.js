@@ -825,8 +825,8 @@ function stateSync(operation) {
  * @param {string} name - The collection name.
  * @param {string} kind - `"value"`, `"map"`, `"set"`, or `"deque"`.
  * @param {string|undefined} payload - `"json"` or `"message"`; a set has none.
- * @param {object} [options] - Optional ttlSeconds / readUncommitted, map-only
- *   keysetLimit, and deque-only capacity.
+ * @param {object} [options] - Optional ttlSeconds / readUncommitted, map and
+ *   set keysetLimit, and deque-only capacity.
  * @returns {Readonly<object>} The frozen definition.
  * @private
  */

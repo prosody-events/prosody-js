@@ -1323,7 +1323,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
-`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
+`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload` (except for a set), and the applicable collection options. Use a definition constructor to create this value.
 
 JSON definitions also accept `readCache`. This option applies when the definition opens published state. It is not part of `StateCollectionConfig`.
 

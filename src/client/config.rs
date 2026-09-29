@@ -280,8 +280,9 @@ pub struct Configuration {
     /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
     pub state_read_cache: Option<ReadCacheConfiguration>,
 
-    /// Subsystem under which published JSON collections are advertised.
-    /// Uses `PROSODY_SUBSYSTEM` when omitted. Published collections require it.
+    /// Subsystem under which published JSON and set collections are
+    /// advertised. Uses `PROSODY_SUBSYSTEM` when omitted. Published
+    /// collections require it.
     pub subsystem: Option<String>,
 
     /// Socket address for the peer gRPC listener. Uses
