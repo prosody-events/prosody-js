@@ -1011,9 +1011,9 @@ const POSITION_QUERY_FIELDS = new Set([
 
 /**
  * Checks the shared query options and copies them into a fresh object. A
- * bare direction string stands for `{ direction }`. The copy holds only the
- * set, checked fields, so a later change to the caller's object cannot reach
- * the native layer.
+ * bare direction string stands for `{ direction }` and gets the same checks.
+ * The copy holds only the set, checked fields, so a later change to the
+ * caller's object cannot reach the native layer.
  * @param {string|object} [options] - A scan direction or a query object.
  * @param {Set<string>} fields - The option names this query accepts.
  * @returns {object} The checked query.
@@ -1024,14 +1024,14 @@ const POSITION_QUERY_FIELDS = new Set([
  */
 function queryOptions(options, fields) {
   if (options === undefined) return {};
-  if (typeof options === "string") return { direction: options };
-  if (options === null || typeof options !== "object") {
+  const source = typeof options === "string" ? { direction: options } : options;
+  if (source === null || typeof source !== "object") {
     throw new TypeError(
       `query: expected a scan direction or an options object, got ${describeValue(options)}`,
     );
   }
   const query = {};
-  for (const [field, value] of Object.entries(options)) {
+  for (const [field, value] of Object.entries(source)) {
     if (!fields.has(field)) {
       throw new TypeError(`query: unknown option ${describeValue(field)}`);
     }
@@ -1798,8 +1798,6 @@ class MapState extends StateHandle {
    *   key query.
    * @returns {AsyncIterableIterator<[string, *]>} The entries iterator.
    * @throws {TypeError|RangeError} If a query option has the wrong shape.
-   * @throws {TransientStateError} If the direction token is invalid (a caller
-   *   mistake — retries, not discarded).
    */
   entries(options) {
     const query = keyQuery(options);
@@ -1819,8 +1817,6 @@ class MapState extends StateHandle {
    *   key query.
    * @returns {AsyncIterableIterator<string>} The keys iterator.
    * @throws {TypeError|RangeError} If a query option has the wrong shape.
-   * @throws {TransientStateError} If the direction token is invalid (a caller
-   *   mistake — retries, not discarded).
    */
   keys(options) {
     const query = keyQuery(options);
@@ -1838,8 +1834,6 @@ class MapState extends StateHandle {
    *   key query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
    * @throws {TypeError|RangeError} If a query option has the wrong shape.
-   * @throws {TransientStateError} If the direction token is invalid (a caller
-   *   mistake — retries, not discarded).
    */
   values(options) {
     const query = keyQuery(options);
@@ -1938,7 +1932,6 @@ class SetState extends StateHandle {
    *   key query.
    * @returns {AsyncIterableIterator<string>} The members iterator.
    * @throws {TypeError|RangeError} If a query option has the wrong shape.
-   * @throws {TransientStateError} If the direction token is invalid.
    */
   keys(options) {
     const query = keyQuery(options);
@@ -2114,8 +2107,6 @@ class DequeState extends StateHandle {
    *   position query.
    * @returns {AsyncIterableIterator<*>} The values iterator.
    * @throws {TypeError|RangeError} If a query option has the wrong shape.
-   * @throws {TransientStateError} If the direction token is invalid (a caller
-   *   mistake — retries, not discarded).
    */
   values(options) {
     const query = positionQuery(options);

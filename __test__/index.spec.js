@@ -2365,9 +2365,10 @@ describe("ProsodyClient", () => {
       expect(obs.permanent).toBe(true);
     });
 
-    // C8b — an invalid scan-direction token is a caller mistake, rejected
-    // TransientStateError (retry, stay visible, never discard the message).
-    it("an invalid scan direction throws TransientStateError", async () => {
+    // C8b — an invalid scan-direction token is a caller mistake. The call
+    // throws a TypeError, which the handler classifies as transient (retry,
+    // stay visible, never discard the message).
+    it("an invalid scan direction throws a TypeError", async () => {
       client = await makeStateClient();
       await client.subscribe({
         onMessage: async (ctx, msg) => {
@@ -2379,7 +2380,7 @@ describe("ProsodyClient", () => {
           } catch (e) {
             result = {
               threw: true,
-              transient: e instanceof TransientStateError,
+              typeError: e instanceof TypeError,
               msg: e.message,
             };
           }
@@ -2390,7 +2391,7 @@ describe("ProsodyClient", () => {
       await client.send(topic, nonce(), { go: true });
       const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
       expect(obs.threw).toBe(true);
-      expect(obs.transient).toBe(true);
+      expect(obs.typeError).toBe(true);
       expect(obs.msg).toMatch(/forward.*backward/);
     });
 
@@ -3079,6 +3080,7 @@ describe("keyed state (unit)", () => {
     ["misspelled option", { befor: "a" }, TypeError],
     ["range option", { range: ["a", "b"] }, TypeError],
     ["unknown direction", { direction: "reverse" }, TypeError],
+    ["unknown direction string", "reverse", TypeError],
     ["numeric direction", { direction: 5 }, TypeError],
   ])("key query rejects %s", (_label, options, ErrorClass) => {
     const native = { entries: jest.fn(), keys: jest.fn() };
@@ -3107,6 +3109,7 @@ describe("keyed state (unit)", () => {
     ["prefix option", { prefix: "a" }, TypeError],
     ["range option", { range: [1, 2] }, TypeError],
     ["unknown direction", { direction: "sideways" }, TypeError],
+    ["unknown direction string", "sideways", TypeError],
   ])("position query rejects %s", (_label, options, ErrorClass) => {
     const native = { values: jest.fn() };
     expect(() => new DequeState(native, RAW_ITEMS).values(options)).toThrow(
