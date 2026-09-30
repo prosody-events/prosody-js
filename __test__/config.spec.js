@@ -1,21 +1,11 @@
 const { ConsumerState, ProsodyClient } = require("../index.js");
-const { BOOTSTRAP_SERVERS, GROUP_NAME, SOURCE_NAME } = require("./support");
+const { mockConfig } = require("./support");
 
 // Infra-free client option tests use mock mode and need no external services.
 describe("configuration validation", () => {
-  const makeConfig = (overrides) => ({
-    bootstrapServers: BOOTSTRAP_SERVERS,
-    groupId: GROUP_NAME,
-    sourceSystem: SOURCE_NAME,
-    subscribedTopics: "test-topic",
-    mock: true,
-    probePort: null,
-    ...overrides,
-  });
-
   it("accepts valid messageSpans and timerSpans values", async () => {
     const configured = await ProsodyClient.create(
-      makeConfig({ messageSpans: "child", timerSpans: "follows_from" }),
+      mockConfig({ messageSpans: "child", timerSpans: "follows_from" }),
     );
     await configured.shutdown();
   });
@@ -24,7 +14,7 @@ describe("configuration validation", () => {
     "rejects an invalid %s and names it in the error",
     async (option) => {
       await expect(
-        ProsodyClient.create(makeConfig({ [option]: "invalid" })),
+        ProsodyClient.create(mockConfig({ [option]: "invalid" })),
       ).rejects.toThrow(`${option}: `);
     },
   );
@@ -73,7 +63,7 @@ describe("configuration validation", () => {
     "rejects %s = %p at conversion",
     async (option, value) => {
       await expect(
-        ProsodyClient.create(makeConfig({ [option]: value })),
+        ProsodyClient.create(mockConfig({ [option]: value })),
       ).rejects.toThrow(`${option}: must be a non-negative whole number`);
     },
   );
@@ -82,14 +72,14 @@ describe("configuration validation", () => {
     "rejects %s = %p at conversion",
     async (option, value) => {
       await expect(
-        ProsodyClient.create(makeConfig({ [option]: value })),
+        ProsodyClient.create(mockConfig({ [option]: value })),
       ).rejects.toThrow(`${option}: `);
     },
   );
 
   it("rejects a probe port above the port range", async () => {
     await expect(
-      ProsodyClient.create(makeConfig({ probePort: 70000 })),
+      ProsodyClient.create(mockConfig({ probePort: 70000 })),
     ).rejects.toThrow("probePort: must be a non-negative whole number");
   });
 
@@ -101,7 +91,7 @@ describe("configuration validation", () => {
     [0, "rejects"],
   ])("passes statisticsIntervalMs %p to Prosody", async (value, outcome) => {
     const configured = await ProsodyClient.create(
-      makeConfig({ statisticsIntervalMs: value }),
+      mockConfig({ statisticsIntervalMs: value }),
     );
     try {
       const subscribed = configured.subscribe({
@@ -124,7 +114,7 @@ describe("configuration validation", () => {
   it("shuts down when an await using block ends", async () => {
     let escaped;
     {
-      await using client = await ProsodyClient.create(makeConfig({}));
+      await using client = await ProsodyClient.create(mockConfig({}));
       escaped = client;
       await expect(client.consumerState()).resolves.toBe(
         ConsumerState.Configured,
@@ -136,7 +126,7 @@ describe("configuration validation", () => {
 
   it("accepts a maxUncommitted above the 16-bit range", async () => {
     const configured = await ProsodyClient.create(
-      makeConfig({ maxUncommitted: 100000 }),
+      mockConfig({ maxUncommitted: 100000 }),
     );
     await configured.shutdown();
   });

@@ -11,25 +11,11 @@ const {
   set,
   value,
 } = require("../index.js");
-const {
-  BOOTSTRAP_SERVERS,
-  GROUP_NAME,
-  SOURCE_NAME,
-  STATE_COLLECTIONS,
-} = require("./support");
+const { STATE_COLLECTIONS, mockConfig } = require("./support");
 
 // Infra-free configuration tests use mock mode and need no external services.
 describe("keyed state configuration validation", () => {
   const clients = [];
-  const makeConfig = (overrides) => ({
-    bootstrapServers: BOOTSTRAP_SERVERS,
-    groupId: GROUP_NAME,
-    sourceSystem: SOURCE_NAME,
-    subscribedTopics: "t",
-    mock: true,
-    ...overrides,
-  });
-
   const makeClient = async (config) => {
     const client = await ProsodyClient.create(config);
     clients.push(client);
@@ -43,115 +29,66 @@ describe("keyed state configuration validation", () => {
     await Promise.all(clients.splice(0).map((client) => client.shutdown()));
   });
 
-  // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
-  // conversion instead of being truncated toward zero by a u32 coercion.
-  // 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
-  it.each([0.5, 2.5, 3.9])(
-    "rejects fractional ttlSeconds %p",
-    async (ttlSeconds) => {
-      await rejectsConfig(
-        makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        /ttlSeconds: must be a non-negative whole number/,
-      );
-    },
-  );
-
-  // Regression: a negative ttlSeconds used to ToUint32-wrap to ~4.29e9 and
-  // evade the `== 0` guard, silently registering a ~136-year TTL. It must now
-  // throw a field-named error rather than being accepted.
-  it.each([-1, -5])("rejects negative ttlSeconds %p", async (ttlSeconds) => {
+  // A count option converts without loss, or registration names the option
+  // and fails. A u32 coercion once truncated 0.5 to 0 and wrapped -1 to a
+  // 136-year TTL, and a fractional keysetLimit once truncated to a valid one.
+  it.each([
+    ...[0.5, 2.5, -1, NaN, Infinity, -Infinity].map((v) => [
+      "ttlSeconds",
+      v,
+      value,
+    ]),
+    ...[2.5, -1, NaN, Infinity].map((v) => ["keysetLimit", v, map]),
+    ...[0, 2.5, -1, NaN, Infinity].map((v) => ["capacity", v, deque]),
+  ])("rejects %s = %p", async (option, bad, define) => {
     await rejectsConfig(
-      makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-      /ttlSeconds: must be a non-negative whole number/,
+      mockConfig({ stateCollections: [define("c", { [option]: bad })] }),
+      `${option}: must be a non-negative whole number`,
     );
   });
-
-  it.each([NaN, Infinity, -Infinity])(
-    "rejects non-finite ttlSeconds %p",
-    async (ttlSeconds) => {
-      await rejectsConfig(
-        makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        /ttlSeconds: must be a non-negative whole number/,
-      );
-    },
-  );
-
-  // Regression: a fractional keysetLimit used to truncate (2.5 -> 2) and be
-  // silently accepted; it must now throw.
-  it.each([2.5, -1, NaN, Infinity])(
-    "rejects non-whole keysetLimit %p",
-    async (keysetLimit) => {
-      await rejectsConfig(
-        makeConfig({ stateCollections: [map("m", { keysetLimit })] }),
-        /keysetLimit: must be a non-negative whole number/,
-      );
-    },
-  );
 
   // keysetLimit 0 disables ordered-scan tracking and is a valid whole number.
   it("accepts keysetLimit of zero", async () => {
     await makeClient(
-      makeConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
+      mockConfig({ stateCollections: [map("m", { keysetLimit: 0 })] }),
     );
   });
 
-  it("rejects keysetLimit on a non-map collection", async () => {
+  it.each([
+    [value("v", { keysetLimit: 5 }), "keysetLimit: only valid for map"],
+    [value("v", { capacity: 5 }), "capacity: only valid for deque"],
+    [map("m", { capacity: 5 }), "capacity: only valid for deque"],
+    [set("s", { capacity: 5 }), "capacity: only valid for deque"],
+  ])("rejects an option on the wrong kind %#", async (definition, message) => {
     await rejectsConfig(
-      makeConfig({ stateCollections: [value("v", { keysetLimit: 5 })] }),
-      /keysetLimit: only valid for map/,
+      mockConfig({ stateCollections: [definition] }),
+      message,
     );
   });
 
-  it("accepts set options and rejects set payloads and capacity", async () => {
+  it("accepts set options and rejects set payloads", async () => {
     await makeClient(
-      makeConfig({
+      mockConfig({
         stateCollections: [
           set("s", { ttlSeconds: 60, keysetLimit: 0, readUncommitted: true }),
         ],
       }),
     );
     await rejectsConfig(
-      makeConfig({
+      mockConfig({
         stateCollections: [{ name: "s", kind: "set", payload: "json" }],
       }),
       "stateCollections[0].payload: not valid for set collections",
     );
     await rejectsConfig(
-      makeConfig({ stateCollections: [set("s", { capacity: 5 })] }),
-      /capacity: only valid for deque/,
-    );
-    await rejectsConfig(
-      makeConfig({ stateCollections: [{ name: "v", kind: "value" }] }),
+      mockConfig({ stateCollections: [{ name: "v", kind: "value" }] }),
       "stateCollections[0].payload: required for value, map, and deque collections",
     );
   });
 
-  it("rejects capacity on a non-deque collection", async () => {
-    await rejectsConfig(
-      makeConfig({ stateCollections: [value("v", { capacity: 5 })] }),
-      /capacity: only valid for deque/,
-    );
-    await rejectsConfig(
-      makeConfig({ stateCollections: [map("m", { capacity: 5 })] }),
-      /capacity: only valid for deque/,
-    );
-  });
-
-  // capacity is NonZeroUsize core-side: zero, fractional, negative, and
-  // non-finite values are all rejected as non-whole at registration.
-  it.each([0, 2.5, -1, NaN, Infinity])(
-    "rejects non-whole/zero capacity %p",
-    async (capacity) => {
-      await rejectsConfig(
-        makeConfig({ stateCollections: [deque("d", { capacity })] }),
-        /capacity: must be a non-negative whole number in range/,
-      );
-    },
-  );
-
   it("accepts a positive capacity on both deque flavours", async () => {
     await makeClient(
-      makeConfig({
+      mockConfig({
         stateCollections: [
           deque("d", { capacity: 100 }),
           messageDeque("md", { capacity: 100 }),
@@ -162,7 +99,7 @@ describe("keyed state configuration validation", () => {
 
   it("rejects an unknown kind token", async () => {
     await rejectsConfig(
-      makeConfig({
+      mockConfig({
         stateCollections: [{ name: "x", kind: "bogus", payload: "json" }],
       }),
       /kind: expected/,
@@ -171,32 +108,22 @@ describe("keyed state configuration validation", () => {
 
   it("rejects an unknown payload token", async () => {
     await rejectsConfig(
-      makeConfig({
+      mockConfig({
         stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
       }),
       'stateCollections[0].payload: expected "json" or "message", got "bogus"',
     );
   });
 
-  it.each(["0", "-1 MiB", "nonsense"])(
-    "rejects invalid stateOwnedCacheSize %p",
-    async (stateOwnedCacheSize) => {
-      await rejectsConfig(
-        makeConfig({ stateOwnedCacheSize }),
-        /stateOwnedCacheSize/,
-      );
-    },
-  );
-
-  it.each(["0", "-1 MiB", "nonsense"])(
-    "rejects invalid stateMemtableSize %p",
-    async (stateMemtableSize) => {
-      await rejectsConfig(
-        makeConfig({ stateMemtableSize }),
-        /stateMemtableSize/,
-      );
-    },
-  );
+  it.each([
+    ...["0", "-1 MiB", "nonsense"].flatMap((size) => [
+      ["stateOwnedCacheSize", size],
+      ["stateMemtableSize", size],
+    ]),
+    ["stateReadCacheSize", "0"],
+  ])("rejects %s = %p", async (option, size) => {
+    await rejectsConfig(mockConfig({ [option]: size }), `${option}: `);
+  });
 
   // A client that only reads published state needs no topic list. The client
   // default and a definition's readCache take the same forms, and each form
@@ -207,7 +134,7 @@ describe("keyed state configuration validation", () => {
     "opens published readers of every kind with readCache %p",
     async (readCache) => {
       const client = await makeClient(
-        makeConfig({
+        mockConfig({
           subscribedTopics: undefined,
           subsystem: "readers",
           stateReadCache: readCache,
@@ -241,7 +168,7 @@ describe("keyed state configuration validation", () => {
     "rejects readCache %p when a reader opens",
     async (readCache) => {
       const client = await makeClient(
-        makeConfig({ subscribedTopics: undefined, subsystem: "readers" }),
+        mockConfig({ subscribedTopics: undefined, subsystem: "readers" }),
       );
       await expect(
         client.state("accounts", map("balances", { readCache })),
@@ -250,6 +177,6 @@ describe("keyed state configuration validation", () => {
   );
 
   it("accepts the full canonical collection set", async () => {
-    await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));
+    await makeClient(mockConfig({ stateCollections: STATE_COLLECTIONS }));
   });
 });

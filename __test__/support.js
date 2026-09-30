@@ -131,6 +131,17 @@ const waitForEvent = (emitter, eventName, timeout) => {
   });
 };
 
+// A mock-mode client configuration for the tests that need no services.
+const mockConfig = (overrides) => ({
+  bootstrapServers: BOOTSTRAP_SERVERS,
+  groupId: GROUP_NAME,
+  sourceSystem: SOURCE_NAME,
+  subscribedTopics: "test-topic",
+  mock: true,
+  probePort: null,
+  ...overrides,
+});
+
 // Canonical registered collection set reused by the live keyed-state tests, one
 // of every kind × payload. `state()` binds these same frozen definitions.
 const STATE_DEFS = {
@@ -319,6 +330,7 @@ module.exports = {
   createMessageStream,
   generateTopicName,
   liveSuite,
+  mockConfig,
   nonce,
   waitForEvent,
   waitForMessages,
