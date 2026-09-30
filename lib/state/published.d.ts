@@ -14,13 +14,17 @@ export interface ReadCacheOptions {
 
 /** Read-only published value collection. */
 export declare class PublishedValue<T = JsonValue> {
+  private constructor();
+
   get(key: string): Promise<T | null>;
 }
 
 /** Read-only published map collection. */
 export declare class PublishedMap<V = JsonValue> {
+  private constructor();
+
   get(key: string, mapKey: string): Promise<V | null>;
-  getMany(key: string, mapKeys: string[]): Promise<Array<V | null>>;
+  getMany(key: string, mapKeys: readonly string[]): Promise<Array<V | null>>;
   has(key: string, mapKey: string): Promise<boolean>;
   hasMany(key: string, mapKeys: readonly string[]): Promise<boolean[]>;
   isEmpty(key: string): Promise<boolean>;
@@ -40,6 +44,8 @@ export declare class PublishedMap<V = JsonValue> {
 
 /** Read-only published set collection. */
 export declare class PublishedSet {
+  private constructor();
+
   has(key: string, member: string): Promise<boolean>;
   hasMany(key: string, members: readonly string[]): Promise<boolean[]>;
   isEmpty(key: string): Promise<boolean>;
@@ -55,6 +61,8 @@ export declare class PublishedSet {
 
 /** Read-only published deque collection. */
 export declare class PublishedDeque<T = JsonValue> {
+  private constructor();
+
   length(key: string): Promise<number>;
   isEmpty(key: string): Promise<boolean>;
   at(key: string, index: number): Promise<T | null>;

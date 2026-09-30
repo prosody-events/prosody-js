@@ -4,16 +4,42 @@ const {
   MapState,
   PermanentError,
   PermanentStateError,
+  ProsodyClient,
   PublishedDeque,
   PublishedMap,
   PublishedSet,
+  PublishedValue,
+  SetState,
   TransientError,
   TransientStateError,
+  ValueState,
   isStateError,
 } = require("../index.js");
+const { wrapNative } = require("../lib/client");
 const { RAW_ITEMS, makeFiniteCursor } = require("./fakes");
 
 describe("keyed state (unit)", () => {
+  // The public objects keep their native handles in private fields, so user
+  // code cannot read, replace, or call them.
+  it("public objects expose no own properties", () => {
+    const objects = [
+      wrapNative({}),
+      new Context({}),
+      new ValueState({}, RAW_ITEMS),
+      new MapState({}, RAW_ITEMS),
+      new SetState({}),
+      new DequeState({}, RAW_ITEMS),
+      new PublishedValue({}),
+      new PublishedMap({}),
+      new PublishedSet({}),
+      new PublishedDeque({}),
+    ];
+    for (const object of objects) {
+      expect(Reflect.ownKeys(object)).toEqual([]);
+    }
+    expect(() => new ProsodyClient()).toThrow(TypeError);
+  });
+
   // A4 — error classes carry category as data and subclass the existing bridge
   // hierarchy so a rethrow classifies with no state-specific bridge path.
   it("state error classes carry category and subclass the bridge hierarchy", () => {

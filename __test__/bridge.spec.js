@@ -16,6 +16,7 @@ const {
   shutdownTelemetry,
   value,
 } = require("../index.js");
+const { wrapNative } = require("../lib/client");
 const { BOOTSTRAP_SERVERS, GROUP_NAME } = require("./support");
 
 test("exports utility APIs", () => {
@@ -28,8 +29,7 @@ test.each(["onMessage", "onExcise", "onTimer"])(
   "rejects a missing %s handler before native subscription",
   async (missing) => {
     const nativeSubscribe = jest.fn();
-    const client = Object.create(ProsodyClient.prototype);
-    client.nativeClient = { subscribe: nativeSubscribe };
+    const client = wrapNative({ subscribe: nativeSubscribe });
     const handler = {
       onMessage: () => null,
       onExcise: () => null,
@@ -49,12 +49,11 @@ test.each([
   ["onExcise", {}],
 ])("%s converts an undefined response to JSON null", async (name, record) => {
   let nativeHandler;
-  const client = Object.create(ProsodyClient.prototype);
-  client.nativeClient = {
+  const client = wrapNative({
     subscribe: jest.fn(async (handler) => {
       nativeHandler = handler;
     }),
-  };
+  });
   const handler = {
     onMessage: () => undefined,
     onExcise: () => undefined,
@@ -160,8 +159,7 @@ test("published scans return an async iterator and open lazily", async () => {
 
 test("descriptors retain their owned and published access strategies", async () => {
   const publishedCalls = [];
-  const client = Object.create(ProsodyClient.prototype);
-  client.nativeClient = {
+  const client = wrapNative({
     publishedValue: async (...args) => {
       publishedCalls.push(["value", ...args]);
       return {};
@@ -178,7 +176,7 @@ test("descriptors retain their owned and published access strategies", async () 
       publishedCalls.push(["set", ...args]);
       return {};
     },
-  };
+  });
 
   const definitions = [
     value("cart"),
@@ -381,8 +379,7 @@ test("request maps native subsystem outcomes", async () => {
     },
     { subsystem: "search", outcome: "{" },
   ]);
-  const client = Object.create(ProsodyClient.prototype);
-  client.nativeClient = { request };
+  const client = wrapNative({ request });
 
   const results = await client.request(
     "orders",
@@ -442,8 +439,7 @@ test("requestExcise maps native subsystem outcomes", async () => {
       outcome: { kind: "handler", message: "rejected" },
     },
   ]);
-  const client = Object.create(ProsodyClient.prototype);
-  client.nativeClient = { requestExcise };
+  const client = wrapNative({ requestExcise });
 
   const results = await client.requestExcise("orders", "order-1", {
     subsystems: ["inventory", "billing"],

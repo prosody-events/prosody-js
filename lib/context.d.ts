@@ -36,6 +36,8 @@ export interface Demand {
  * Automatically injects OpenTelemetry context for all operations.
  */
 export declare class Context {
+  private constructor();
+
   /**
    * The demand that started this handler invocation. The value is frozen.
    */

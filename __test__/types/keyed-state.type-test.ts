@@ -88,6 +88,18 @@ declare const publishedTags: PublishedDeque<string>;
 declare const publishedSeen: PublishedSet;
 
 export async function checks(): Promise<void> {
+  // ---- handles need a native handle, so only Prosody constructs them ----
+  // @ts-expect-error the context constructor is private
+  void new Context();
+  // @ts-expect-error the published value constructor is private
+  void new PublishedValue();
+  // @ts-expect-error the published map constructor is private
+  void new PublishedMap();
+  // @ts-expect-error the published set constructor is private
+  void new PublishedSet();
+  // @ts-expect-error the published deque constructor is private
+  void new PublishedDeque();
+
   // ---- demand ----
   assertTrue<Equal<typeof context.demand, Demand>>();
   assertTrue<Equal<Demand["kind"], "normal" | "failure">>();
