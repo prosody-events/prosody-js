@@ -9,6 +9,12 @@
  */
 export abstract class EventHandlerError extends Error {
   /**
+   * @param message - The error message.
+   * @param options - The standard error options, such as `cause`.
+   */
+  constructor(message?: string, options?: ErrorOptions);
+
+  /**
    * Indicates whether the error is permanent and should not be retried.
    */
   abstract get isPermanent(): boolean;
@@ -71,17 +77,15 @@ export function isStateError(
 /** Type alias for a constructor of an Error subclass. */
 type ErrorClass<T extends Error> = new (...args: never[]) => T;
 
-/**
- * Type for a decorator function that can be applied to both methods and standalone functions.
- */
+/** A decorator for a class method. */
 type DecoratorFunction = (
   target: Function,
-  context: ClassMethodDecoratorContext | ClassFieldDecoratorContext,
+  context: ClassMethodDecoratorContext,
 ) => Function | void;
 
 /**
  * Decorator factory for marking errors as transient.
- * Can be applied to both methods and standalone functions.
+ * Apply it to a method. The wrapper keeps the original error as its `cause`.
  * @param exceptionTypes The error types to be treated as transient.
  */
 export declare function transient<E extends Error>(
@@ -90,7 +94,7 @@ export declare function transient<E extends Error>(
 
 /**
  * Decorator factory for marking errors as permanent.
- * Can be applied to both methods and standalone functions.
+ * Apply it to a method. The wrapper keeps the original error as its `cause`.
  * @param exceptionTypes The error types to be treated as permanent.
  */
 export declare function permanent<E extends Error>(
