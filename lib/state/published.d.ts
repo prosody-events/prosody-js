@@ -5,7 +5,8 @@
  * the committed state of another consumer group, so every read takes the
  * partition key. It is independent of subscription and stays valid while its
  * client runs. A failed read rejects with a {@link TransientStateError} or a
- * {@link PermanentStateError}, like a read through an owned handle.
+ * {@link PermanentStateError}, like a read through an owned handle. A reader
+ * error at open, such as a zero `readCache` TTL, rejects `state()` the same way.
  * @module lib/state/published
  */
 

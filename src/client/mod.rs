@@ -7,15 +7,20 @@ use crate::number::milliseconds;
 use crate::published::{
     NativePublishedDeque, NativePublishedMap, NativePublishedSet, NativePublishedValue,
 };
+use crate::state::state_error;
 use napi::bindgen_prelude::Promise;
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::codec::BinaryPayload;
-use prosody::high_level::erased::{ErasedConsumerState, SharedHighLevelClient, new_erased};
+use prosody::high_level::HighLevelClientError;
+use prosody::high_level::erased::{
+    ErasedConsumerState, ErasedReaderBuildError, SharedHighLevelClient, new_erased,
+};
 use prosody::propagator::new_propagator;
 use prosody::subsystem::SubsystemName;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,7 +104,7 @@ impl NativeClient {
             .client
             .value_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedValue {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -119,7 +124,7 @@ impl NativeClient {
             .client
             .map_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedMap {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -139,7 +144,7 @@ impl NativeClient {
             .client
             .set_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedSet {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -159,7 +164,7 @@ impl NativeClient {
             .client
             .deque_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedDeque {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -423,6 +428,25 @@ impl NativeClient {
     #[napi(getter, writable = false)]
     pub fn source_system(&self) -> &str {
         self.client.source_system()
+    }
+}
+
+/// Converts a failure to open a published reader into a napi error.
+///
+/// A state reader error keeps the category that Prosody gives it. Any other
+/// failure stays an untyped error.
+///
+/// @param error The failure to open the reader.
+/// @returns The napi error.
+fn open_error<E>(error: ErasedReaderBuildError<E>) -> Error
+where
+    ErasedReaderBuildError<E>: Display,
+{
+    match error {
+        ErasedReaderBuildError::Client(HighLevelClientError::StateReader(error)) => {
+            state_error(&error.into())
+        }
+        error => Error::from_reason(error.to_string()),
     }
 }
 

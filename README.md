@@ -851,7 +851,7 @@ const orderReader = await client.state("checkout", CURRENT_ORDER);
 const currentOrder = await orderReader.get("customer-123");
 ```
 
-The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one. A failed read rejects with a `TransientStateError` or a `PermanentStateError`, like an owned read.
+The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one. A failed read rejects with a `TransientStateError` or a `PermanentStateError`, like an owned read. A reader error at open, such as a zero `readCache` TTL, rejects `state()` the same way.
 
 Map, set, and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
 

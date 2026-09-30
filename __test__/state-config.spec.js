@@ -1,4 +1,5 @@
 const {
+  PermanentStateError,
   ProsodyClient,
   PublishedDeque,
   PublishedMap,
@@ -165,15 +166,22 @@ describe("keyed state configuration validation", () => {
     },
   );
 
-  it.each([true, { ttlMs: -1 }, { ttlMs: NaN }, { ttlMs: Infinity }])(
+  // Prosody rejects a zero TTL with a typed state error.
+  it.each([
+    [true, /readCache/],
+    [{ ttlMs: -1 }, /readCache/],
+    [{ ttlMs: NaN }, /readCache/],
+    [{ ttlMs: Infinity }, /readCache/],
+    [{ ttlMs: 0 }, PermanentStateError],
+  ])(
     "rejects readCache %p when a reader opens",
-    async (readCache) => {
+    async (readCache, expected) => {
       const client = await makeClient(
         mockConfig({ subscribedTopics: undefined, subsystem: "readers" }),
       );
       await expect(
         client.state("accounts", map("balances", { readCache })),
-      ).rejects.toThrow(/readCache/);
+      ).rejects.toThrow(expected);
     },
   );
 
