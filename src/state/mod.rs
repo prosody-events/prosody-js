@@ -18,10 +18,8 @@
 //! of the JavaScript error's `cause`, a machine-readable data channel the
 //! typed layer branches on without parsing the human message. No fencing or
 //! cursor safety lives here: those are core-owned and this layer only
-//! transports and types. Caller-mistake conditions the glue detects (an
-//! unrepresentable value or an invalid enum token) reject TRANSIENT — a caller
-//! code error retries and stays visible rather than discarding the message (see
-//! the error classification rule in AGENTS.md).
+//! transports and types. `lib/state` checks the caller's arguments before a
+//! native call.
 
 use crate::message::Message;
 use napi::bindgen_prelude::{FromNapiValue, TypeName, ValueType, sys};
@@ -35,7 +33,7 @@ use prosody::consumer::event_context::{
     StateCursor,
 };
 use prosody::consumer::message::ConsumerMessage;
-use prosody::state::{Direction, StoreOutcome};
+use prosody::state::StoreOutcome;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -115,24 +113,6 @@ pub(crate) fn state_error(error: &ErasedStateError) -> Error {
     tagged_error(category_token(error.category()), error.message().to_owned())
 }
 
-/// Builds a transient-category napi error for a caller-caused condition the
-/// glue detects (an unrepresentable value, a wrong argument shape, an
-/// out-of-range index, an invalid enum token). Prosody rejects a JSON `null`
-/// write itself, with a permanent error.
-///
-/// Caller mistakes are TRANSIENT, never permanent: a permanent error discards
-/// the in-flight message and can silently lose data or corrupt downstream
-/// state, so a code error retries and stays visible (logs/metrics/lag) instead
-/// — the developer sees it and fixes their code. Only an explicit caller
-/// `PermanentError` throw is permanent (see the error classification rule in
-/// AGENTS.md).
-///
-/// @param message The human-readable error message.
-/// @returns The structured napi error tagged transient.
-fn transient_error(message: String) -> Error {
-    tagged_error("transient", message)
-}
-
 /// Builds a permanent-category napi error for a stored value that cannot be
 /// decoded.
 ///
@@ -145,22 +125,6 @@ fn transient_error(message: String) -> Error {
 /// @returns The structured napi error tagged permanent.
 fn permanent_error(message: String) -> Error {
     tagged_error("permanent", message)
-}
-
-/// Parses a scan-direction token into the core `Direction`.
-///
-/// @param direction The `"forward"` or `"backward"` token.
-/// @returns The matching `Direction`.
-/// @throws Error (transient) if the token is neither `"forward"` nor
-/// `"backward"` (a caller mistake — retries, not discarded).
-fn parse_direction(direction: impl AsRef<str>) -> napi::Result<Direction> {
-    match direction.as_ref() {
-        "forward" => Ok(Direction::Forward),
-        "backward" => Ok(Direction::Backward),
-        other => Err(transient_error(format!(
-            "direction: expected \"forward\" or \"backward\", got {other:?}"
-        ))),
-    }
 }
 
 /// Extracts the event parent propagated by the JavaScript handler.
@@ -204,9 +168,10 @@ where
 /// @throws Error (transient) if the length exceeds the `u32` range.
 pub(crate) fn length(len: usize) -> napi::Result<u32> {
     u32::try_from(len).map_err(|_| {
-        transient_error(format!(
-            "deque length {len} exceeds the u32 range representable to JavaScript"
-        ))
+        tagged_error(
+            "transient",
+            format!("deque length {len} exceeds the u32 range representable to JavaScript"),
+        )
     })
 }
 
