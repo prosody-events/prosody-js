@@ -13,7 +13,7 @@ describe("ProsodyClient", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
 
-    // C5a — commit(): the committed floor survives an attempt that subsequently
+    // Commit(): the committed floor survives an attempt that subsequently
     // fails; a fresh handle on redelivery observes it.
     it("commit floor survives a failed attempt and is visible on retry", async () => {
       const V = nonce();
@@ -42,7 +42,7 @@ describe("ProsodyClient", () => {
       expect(obs.got).toEqual({ v: V });
     });
 
-    // C5b — rollback(): discards uncommitted ops back to the committed floor.
+    // Rollback(): discards uncommitted ops back to the committed floor.
     it("rollback discards uncommitted writes back to the committed floor", async () => {
       const A = nonce();
       const B = nonce();
@@ -69,8 +69,8 @@ describe("ProsodyClient", () => {
       expect(obs.outcomes).toEqual(["applied", "noOp", "applied", "noOp"]);
     });
 
-    // C5c — commit()/rollback() on a MAP handle exercise the distinct native
-    // BoxMapState commit/rollback branch (C5a/C5b only reach ValueState). A
+    // Commit()/rollback() on a MAP handle exercise the distinct native
+    // BoxMapState commit/rollback branch (the tests above reach only ValueState). A
     // committed entry survives a rollback that discards a later uncommitted one.
     it("map commit floor survives a rollback of later uncommitted writes", async () => {
       const obs = await env.observe(async (ctx, msg) => {
@@ -96,7 +96,7 @@ describe("ProsodyClient", () => {
       expect(obs.after).toEqual({ kept: 1, dropped: null });
     });
 
-    // C6a — a state op from a handle LEAKED past a failed attempt fails with the
+    // A state op from a handle LEAKED past a failed attempt fails with the
     // terminated (transient) error, and the failed attempt's uncommitted write
     // is not visible on retry.
     it("a handle leaked across a failed attempt rejects transient and leaves no state", async () => {
@@ -139,7 +139,7 @@ describe("ProsodyClient", () => {
       expect(obs.fresh).toBeNull();
     });
 
-    // C6b — a leaked CONTEXT binding a fresh collection after the attempt fails
+    // A leaked CONTEXT binding a fresh collection after the attempt fails
     // also fails (a leaked context cannot mint a working handle).
     it("a context leaked across a failed attempt cannot bind a working handle", async () => {
       let attempt = 0;
@@ -178,7 +178,7 @@ describe("ProsodyClient", () => {
       expect(obs.transient).toBe(true);
     });
 
-    // C6c — a leaked read after a SUCCESSFUL handler also fails (no post-handler
+    // A leaked read after a SUCCESSFUL handler also fails (no post-handler
     // read window). A second SAME-KEY sentinel message guarantees, via per-key
     // serialization, that the first event fully tore down before we call the
     // leaked handle from the test body.
@@ -221,8 +221,8 @@ describe("ProsodyClient", () => {
       await expect(leaked.get()).rejects.toBeInstanceOf(TransientStateError);
     });
 
-    // C7a — early break from an iterator does not wedge later access on the same
-    // collection (integration-level; GREEN-IS-CORRECT — the strong close
+    // Early break from an iterator does not wedge later access on the same
+    // collection (integration-level; the strong close
     // assertion is the fake-cursor unit test). A follow-up op succeeds.
     it("breaking out of a scan leaves the collection usable", async () => {
       const K = nonce();

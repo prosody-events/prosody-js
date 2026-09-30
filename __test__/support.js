@@ -142,8 +142,7 @@ function liveSuite() {
     createTimerTestSetup() {
       const testEvents = new EventEmitter();
       const timerDelayMs = 2000; // 2 second delay to ensure full second boundaries
-      const toleranceMs = 500; // Allow 500ms tolerance
-      return { testEvents, timerDelayMs, toleranceMs };
+      return { testEvents, timerDelayMs };
     },
 
     createBasicTimerHandler(

@@ -11,14 +11,14 @@ describe("ProsodyClient", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
 
-    // Live keyed-state FFI scenarios (Appendix 1). Each test registers the
+    // Live keyed-state FFI scenarios. Each test registers the
     // canonical collections via makeStateClient(), drives real Kafka + Cassandra,
     // and pushes observation objects into messageStream. State is per message key,
-    // so multi-event scenarios drive two sends with the SAME key. Every handler
-    // wraps its work in try/catch that reports {tag:"error"} so a throw never
-    // silently hangs the wait — except where a throw is the intended stimulus.
+    // so multi-event scenarios drive two sends with the SAME key. A single-event
+    // test runs through env.observe. A multi-event handler wraps its work in
+    // try/catch that reports {tag:"error"}, so a throw never hangs the wait.
 
-    // C1 — Value FFI boundary: a JSON payload marshals through set -> get
+    // Value FFI boundary: a JSON payload marshals through set -> get
     // byte-identical (a rich nested value: unicode, numbers, booleans, arrays,
     // a NESTED null), and an absent value reads as JS `null` (the erased
     // `Option::None` -> `null` mapping). Cross-event PERSISTENCE and clear
@@ -45,7 +45,7 @@ describe("ProsodyClient", () => {
       expect(obs.after).toEqual(rich);
     });
 
-    // C2 — Map FFI boundary: keys (including unicode) and values marshal through
+    // Map FFI boundary: keys (including unicode) and values marshal through
     // set/get, an absent key reads as `null`, and `entries()` yields
     // `[key, value]` pairs over the native cursor. Key ORDERING (forward /
     // backward) is a collection concern covered in core; this asserts pair
@@ -83,11 +83,11 @@ describe("ProsodyClient", () => {
       }
     });
 
-    // C2b — reading several keys at once. This checks only the part that is
+    // Reading several keys at once. This checks only the part that is
     // specific to getMany: you ask for a list of keys and get back a plain
     // array with one entry per key, a key that isn't there comes back as null,
     // and asking for nothing gives back an empty array. Getting a single value
-    // back correctly is already covered by C2. Which entry lines up with which
+    // back correctly is already covered by the map test above. Which entry lines up with which
     // key, how repeated keys are handled, and reading the whole batch at one
     // moment are all promises the underlying store makes and tests itself, so
     // they are not repeated here.
@@ -121,7 +121,7 @@ describe("ProsodyClient", () => {
       expect(obs.emptyAfter).toBe(false);
     });
 
-    // C3 — Deque FFI boundary: elements (rich JSON) marshal through push ->
+    // Deque FFI boundary: elements (rich JSON) marshal through push ->
     // values()/get, `values()` iterates over the native cursor, and pop/shift on
     // an empty deque read as `null` (the `Option::None` -> `null` mapping).
     // Element ORDERING, which end a pop removes, and length COUNTING are
@@ -177,7 +177,7 @@ describe("ProsodyClient", () => {
       expect(byTag.empty.pb).toBeNull();
     });
 
-    // C4 — Message collection (messageValue): record the handled message in
+    // Message collection (messageValue): record the handled message in
     // event1, read it back in event2, observing topic/partition/offset/key/
     // payload equal to the original.
     it("messageValue stores the handled message and reads it back intact", async () => {
@@ -230,7 +230,7 @@ describe("ProsodyClient", () => {
       expect(orig.payload).toEqual({ step: 1 });
     });
 
-    // C4b — Message collection (messageDeque): same-event push -> at(0) -> scan
+    // Message collection (messageDeque): same-event push -> at(0) -> scan
     // round-trips the full Message.
     it("messageDeque round-trips the full message through push/at/scan", async () => {
       const MD = nonce();
@@ -279,10 +279,10 @@ describe("ProsodyClient", () => {
       expect(obs.scannedFirstPayload).toEqual({ marker: MD });
     });
 
-    // C4c — Message collection (messageMap): record the handled message under
+    // Message collection (messageMap): record the handled message under
     // string keys in event1; a later event with the same key gets/scans it back
     // with topic/partition/offset/key/payload intact. Covers the map x message
-    // combination (the one canonical kind x payload pairing C4/C4b leave
+    // combination (the one canonical kind x payload pairing the two tests above leave
     // unexercised) and the distinct messageMapState vend + conversion branch.
     it("messageMap round-trips the full message under string keys across events", async () => {
       const MM = nonce();

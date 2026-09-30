@@ -7,7 +7,7 @@ describe("keyed state (unit)", () => {
   // targets that are only green-is-correct at the integration level (a released
   // permit masks a missing close between pulls).
 
-  // A1 — return() (early break) awaits the native close() exactly once.
+  // Return() (early break) awaits the native close() exactly once.
   it("iterator return() awaits the native cursor close exactly once", async () => {
     const fake = makeGatedCursor();
     const m = new MapState({ entries: () => fake.cursor }, RAW_ITEMS);
@@ -30,7 +30,7 @@ describe("keyed state (unit)", () => {
     expect(fake.closedCount()).toBe(1);
   });
 
-  // A2 — exhaustion maps native null -> done and closes the cursor once.
+  // Exhaustion maps native null -> done and closes the cursor once.
   it("iterator exhaustion ends the loop and closes the cursor", async () => {
     const fake = makeFiniteCursor([
       ["a", "v1"],
@@ -131,7 +131,7 @@ describe("keyed state (unit)", () => {
     await expect(it.next()).resolves.toEqual({ value: undefined, done: true });
   });
 
-  // A3 — a pull error closes the cursor, wraps to the typed state error, and
+  // A pull error closes the cursor, wraps to the typed state error, and
   // finishes the iterator (no further pulls).
   it("iterator pull error closes, wraps to a state error, and finishes", async () => {
     const counts = { closed: 0 };

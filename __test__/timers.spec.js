@@ -11,7 +11,7 @@ describe("ProsodyClient", () => {
   } = env;
 
   it("schedules and fires timers at correct time", async () => {
-    const { testEvents, timerDelayMs, toleranceMs } = createTimerTestSetup();
+    const { testEvents, timerDelayMs } = createTimerTestSetup();
     let scheduledTime;
 
     const TimerHandler = createBasicTimerHandler(
@@ -40,7 +40,7 @@ describe("ProsodyClient", () => {
 
     expect(timer.key).toBe(testMessage.key);
     expectTimerApproximatelyEqual(timer.time, scheduledTime);
-    expectTimerApproximatelyEqual(actualTime, scheduledTime, toleranceMs);
+    expectTimerApproximatelyEqual(actualTime, scheduledTime);
   });
 
   it("clears and reschedules timers correctly", async () => {

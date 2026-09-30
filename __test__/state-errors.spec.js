@@ -15,7 +15,7 @@ describe("ProsodyClient", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
 
-    // C11 — Tracing (item 12), GREEN-IS-CORRECT. In-process JS cannot observe
+    // Tracing. In-process JS cannot observe
     // the Rust collection span (separate OTLP pipeline), so this asserts only
     // that (a) a state op inside an active JS span resolves and (b) the JS event
     // context is active during the op. End-to-end span parentage
@@ -41,7 +41,7 @@ describe("ProsodyClient", () => {
       expect(obs.activeSpan).toBe(true);
     });
 
-    // C12 — Async bridging (item 13): while one handler is blocked awaiting a
+    // Async bridging: while one handler is blocked awaiting a
     // barrier, a handler for a DIFFERENT key on the SAME partition makes
     // progress (the event loop / native bridge is not serialized). Two keys are
     // forced onto one partition by probing.

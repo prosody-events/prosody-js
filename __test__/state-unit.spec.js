@@ -62,7 +62,7 @@ describe("keyed state (unit)", () => {
     expect(() => new ProsodyClient()).toThrow(TypeError);
   });
 
-  // A4 — error classes carry category as data and subclass the existing bridge
+  // Error classes carry category as data and subclass the existing bridge
   // hierarchy so a rethrow classifies with no state-specific bridge path.
   it("state error classes carry category and subclass the bridge hierarchy", () => {
     expect(new PermanentStateError("x").isPermanent).toBe(true);
@@ -131,7 +131,7 @@ describe("keyed state (unit)", () => {
     await expect(d.at(-2)).resolves.toBe(1);
   });
 
-  // A5b — MapState.has() rides the cheap presence path (native.contains), which
+  // MapState.has() rides the cheap presence path (native.contains), which
   // returns the boolean directly — no value decode. DequeState.clear() passes
   // straight through to the native clear.
   it("map has() rides native contains and deque clear() passes through", async () => {
@@ -164,7 +164,7 @@ describe("keyed state (unit)", () => {
     expect(cleared).toBe(true);
   });
 
-  // A5e — query options reach every native cursor opener as given. A bare
+  // Query options reach every native cursor opener as given. A bare
   // direction stands for { direction }, and no options mean an empty query.
   it("query options reach every native cursor opener", async () => {
     const opened = [];
@@ -230,7 +230,7 @@ describe("keyed state (unit)", () => {
     ]);
   });
 
-  // A5g — every query copies its options at the call, so a later change to
+  // Every query copies its options at the call, so a later change to
   // the caller's object must not reach the native layer.
   it("queries snapshot their options at the call", async () => {
     const opened = [];
@@ -276,7 +276,7 @@ describe("keyed state (unit)", () => {
     ]);
   });
 
-  // A5f — option shapes that core cannot represent throw at the call, before
+  // Option shapes that core cannot represent throw at the call, before
   // any native cursor opens. Setting both edges of a pair is rejected because
   // an options object has no call order to pick a winner.
   it.each([

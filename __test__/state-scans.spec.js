@@ -6,7 +6,7 @@ describe("ProsodyClient", () => {
   describe("keyed state", () => {
     const env = liveSuite();
 
-    // C7b — query options cross the native layer into core queries. Each case
+    // Query options cross the native layer into core queries. Each case
     // changes the result when its option is dropped or mistranslated, so every
     // option and the direction are checked end to end. Selection semantics
     // beyond this mapping are core's and are tested there.
@@ -84,7 +84,7 @@ describe("ProsodyClient", () => {
       });
     });
 
-    // C7d — a range is ascending and half-open in both directions. A null
+    // A range is ascending and half-open in both directions. A null
     // bound leaves its end open, and edges narrow the range to the overlap.
     // For each case, the forward scan equals the oracle slice, and the
     // backward scan yields the same items in the opposite order. The backward
@@ -170,7 +170,7 @@ describe("ProsodyClient", () => {
       expect(obs.values.map((scan) => scan.forward.length)).toEqual(lengths);
     });
 
-    // C7c — set FFI boundary: every set method reaches core and answers in
+    // Set FFI boundary: every set method reaches core and answers in
     // the JS shapes. Members round-trip as strings, batch presence aligns with
     // its input, and iteration yields bare members in key order.
     it("set adds, tests, removes, and iterates members", async () => {
@@ -202,7 +202,7 @@ describe("ProsodyClient", () => {
       expect(obs.page).toEqual(["b"]);
     });
 
-    // C8a — binding an unregistered name rejects PermanentStateError at vend.
+    // Binding an unregistered name rejects PermanentStateError at vend.
     it("binding an unregistered collection name throws PermanentStateError", async () => {
       await expect(
         env.observe((ctx) => ctx.state(value("never-registered-" + nonce()))),
