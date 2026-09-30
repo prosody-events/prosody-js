@@ -2,10 +2,9 @@ const { MapState, TransientStateError } = require("../index.js");
 const { RAW_ITEMS, makeFiniteCursor, makeGatedCursor } = require("./fakes");
 
 describe("keyed state (unit)", () => {
-  // Infra-free unit tests over the real state classes driven by FAKE native
-  // handles. These are the STRONG home for cursor-lifecycle and argument-typing
-  // targets that are only green-is-correct at the integration level (a released
-  // permit masks a missing close between pulls).
+  // Unit tests over the real state classes with fake native handles. They
+  // prove the cursor lifecycle, which a live test cannot. In a live test, a
+  // released permit hides a missing close between pulls.
 
   // Return() (early break) awaits the native close() exactly once.
   it("iterator return() awaits the native cursor close exactly once", async () => {

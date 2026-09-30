@@ -58,7 +58,7 @@ impl NativeJsonDequeState {
         .and_then(json_value)
     }
 
-    /// Reads the front endpoint SLOT without a length round trip — exactly
+    /// Reads the front endpoint slot without a length round trip — exactly
     /// `get(0)`.
     ///
     /// Decodes and resolves the returned element (unlike eviction). An empty
@@ -78,7 +78,7 @@ impl NativeJsonDequeState {
             .and_then(json_value)
     }
 
-    /// Reads the back endpoint SLOT without a length round trip — exactly
+    /// Reads the back endpoint slot without a length round trip — exactly
     /// `get(len − 1)`.
     ///
     /// Decodes and resolves the returned element (unlike eviction). An empty

@@ -4,7 +4,7 @@
  */
 
 // A gated cursor whose close() blocks until releaseClose() — lets a test prove
-// that return() AWAITS the native close().
+// that return() awaits the native close().
 const makeGatedCursor = () => {
   let releaseClose;
   const closeGate = new Promise((r) => (releaseClose = r));

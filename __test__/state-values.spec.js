@@ -14,16 +14,13 @@ describe("ProsodyClient", () => {
     // Live keyed-state FFI scenarios. Each test registers the
     // canonical collections via makeStateClient(), drives real Kafka + Cassandra,
     // and pushes observation objects into messageStream. State is per message key,
-    // so multi-event scenarios drive two sends with the SAME key. A single-event
+    // so multi-event scenarios drive two sends with the same key. A single-event
     // test runs through env.observe. A multi-event handler wraps its work in
     // try/catch that reports {tag:"error"}, so a throw never hangs the wait.
 
-    // Value FFI boundary: a JSON payload marshals through set -> get
-    // byte-identical (a rich nested value: unicode, numbers, booleans, arrays,
-    // a NESTED null), and an absent value reads as JS `null` (the erased
-    // `Option::None` -> `null` mapping). Cross-event PERSISTENCE and clear
-    // SEMANTICS are the collection's job (covered in core); this asserts only
-    // the boundary marshalling + the null mapping.
+    // Value FFI boundary: a rich JSON value round-trips through set and get.
+    // The value holds unicode, numbers, booleans, arrays, and a nested null.
+    // An absent value reads as JS `null`. Core tests persistence and clear.
     it("value marshals a JSON payload faithfully and reads absent as null", async () => {
       const K = nonce();
       const rich = {
@@ -47,7 +44,7 @@ describe("ProsodyClient", () => {
 
     // Map FFI boundary: keys (including unicode) and values marshal through
     // set/get, an absent key reads as `null`, and `entries()` yields
-    // `[key, value]` pairs over the native cursor. Key ORDERING (forward /
+    // `[key, value]` pairs over the native cursor. Key ordering (forward /
     // backward) is a collection concern covered in core; this asserts pair
     // marshalling + membership only (compared as a set, never a sequence).
     it("map marshals keys (incl. unicode) and values, and entries() yields pairs", async () => {
@@ -83,14 +80,10 @@ describe("ProsodyClient", () => {
       }
     });
 
-    // Reading several keys at once. This checks only the part that is
-    // specific to getMany: you ask for a list of keys and get back a plain
-    // array with one entry per key, a key that isn't there comes back as null,
-    // and asking for nothing gives back an empty array. Getting a single value
-    // back correctly is already covered by the map test above. Which entry lines up with which
-    // key, how repeated keys are handled, and reading the whole batch at one
-    // moment are all promises the underlying store makes and tests itself, so
-    // they are not repeated here.
+    // getMany returns a plain array with one entry per key. An absent key reads
+    // as null, and an empty key list gives an empty array. The map test above
+    // covers a single value. Core tests the key alignment, repeated keys, and
+    // the single read moment.
     it("reads several keys at once, giving one array entry per key", async () => {
       const K = nonce();
       const missing = nonce();
@@ -124,9 +117,9 @@ describe("ProsodyClient", () => {
     // Deque FFI boundary: elements (rich JSON) marshal through push ->
     // values()/get, `values()` iterates over the native cursor, and pop/shift on
     // an empty deque read as `null` (the `Option::None` -> `null` mapping).
-    // Element ORDERING, which end a pop removes, and length COUNTING are
-    // collection concerns covered in core; this asserts boundary marshalling +
-    // cursor iteration + the null mapping (membership compared as a set).
+    // Core tests the element order, the pop ends, and the length. This test
+    // checks the conversion, the cursor, and the null mapping. It compares
+    // membership as a set.
     it("deque marshals elements through the cursor and reads empty as null", async () => {
       const Dfull = nonce();
       const Dempty = nonce();
@@ -224,7 +217,7 @@ describe("ProsodyClient", () => {
       const got = { ...byTag.got };
       delete orig.tag;
       delete got.tag;
-      // the stored item is event1's ORIGINAL message; its offset differs from
+      // the stored item is event1's original message; its offset differs from
       // event2's, so equality proves the store returned the recorded message.
       expect(got).toEqual(orig);
       expect(orig.payload).toEqual({ step: 1 });
@@ -354,7 +347,7 @@ describe("ProsodyClient", () => {
         payload: byTag.got.payload,
       };
       // event2's message carries a distinct offset, so equality proves the map
-      // returned event1's RECORDED message rather than the live one.
+      // returned event1's recorded message rather than the live one.
       expect(got).toEqual(orig);
       expect(orig.payload).toEqual({ step: 1 });
       // the unicode key round-trips and maps to the same stored message.

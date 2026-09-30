@@ -29,11 +29,10 @@ export declare class MapState<V = JsonValue> {
    */
   getMany(keys: readonly string[]): Promise<(V | null)[]>;
   /**
-   * Reports whether `key` currently has a stored value. A presence check that
-   * skips the value decode and the resolver: for a message-backed map it
-   * answers with zero Kafka fetches and can report `true` for a message that
-   * can no longer be fetched. Not zero-I/O — a cache miss can still reach the
-   * store — but cheaper than {@link MapState#get} when you only need presence.
+   * Reports whether `key` currently has a stored value. It skips the value
+   * decode and the resolver. A message map answers with no Kafka fetch, so it
+   * can report `true` for a message that Kafka no longer holds. A cache miss
+   * still reads the store, but the call costs less than {@link MapState#get}.
    */
   has(key: string): Promise<boolean>;
   /**
@@ -53,9 +52,8 @@ export declare class MapState<V = JsonValue> {
   /**
    * Removes `key`.
    *
-   * Deliberate divergence from `Map#delete`: returns void, NOT a boolean
-   * "was present" flag — surfacing that boolean would force a hidden read on
-   * every delete. (The underlying native operation is named `remove`.)
+   * Unlike `Map#delete`, it returns no "was present" flag, because that flag
+   * needs a read on every delete.
    */
   delete(key: string): Promise<void>;
   /** Removes every entry. */

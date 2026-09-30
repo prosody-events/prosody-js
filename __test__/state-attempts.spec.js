@@ -69,7 +69,7 @@ describe("ProsodyClient", () => {
       expect(obs.outcomes).toEqual(["applied", "noOp", "applied", "noOp"]);
     });
 
-    // Commit()/rollback() on a MAP handle exercise the distinct native
+    // Commit()/rollback() on a map handle exercise the distinct native
     // BoxMapState commit/rollback branch (the tests above reach only ValueState). A
     // committed entry survives a rollback that discards a later uncommitted one.
     it("map commit floor survives a rollback of later uncommitted writes", async () => {
@@ -96,7 +96,7 @@ describe("ProsodyClient", () => {
       expect(obs.after).toEqual({ kept: 1, dropped: null });
     });
 
-    // A state op from a handle LEAKED past a failed attempt fails with the
+    // A state op from a handle leaked past a failed attempt fails with the
     // terminated (transient) error, and the failed attempt's uncommitted write
     // is not visible on retry.
     it("a handle leaked across a failed attempt rejects transient and leaves no state", async () => {
@@ -139,7 +139,7 @@ describe("ProsodyClient", () => {
       expect(obs.fresh).toBeNull();
     });
 
-    // A leaked CONTEXT binding a fresh collection after the attempt fails
+    // A leaked context binding a fresh collection after the attempt fails
     // also fails (a leaked context cannot mint a working handle).
     it("a context leaked across a failed attempt cannot bind a working handle", async () => {
       let attempt = 0;
@@ -178,8 +178,8 @@ describe("ProsodyClient", () => {
       expect(obs.transient).toBe(true);
     });
 
-    // A leaked read after a SUCCESSFUL handler also fails (no post-handler
-    // read window). A second SAME-KEY sentinel message guarantees, via per-key
+    // A leaked read after a successful handler also fails (no post-handler
+    // read window). A second same-key sentinel message guarantees, via per-key
     // serialization, that the first event fully tore down before we call the
     // leaked handle from the test body.
     it("a handle leaked past a successful handler rejects transient", async () => {

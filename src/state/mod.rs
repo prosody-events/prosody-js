@@ -43,7 +43,7 @@ use std::sync::Arc;
 /// serialization; this binding owns only the transport cap and conversion.
 const SCAN_READY_CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
 
-/// A Kafka message crossing INTO a state handle.
+/// A Kafka message crossing into a state handle.
 ///
 /// Unwraps the JavaScript `Message` to the [`ConsumerMessage`] it shares: two
 /// reference-count bumps, no byte copies. Owned and `'static`, so it survives

@@ -182,7 +182,7 @@ impl NativeJsonMapState {
         })
     }
 
-    /// Opens a demand-driven cursor over the selected KEYS.
+    /// Opens a demand-driven cursor over the selected keys.
     ///
     /// Skips the value codec and the resolver (no value decode, no Kafka
     /// fetch), so a message-backed map enumerates keys with zero Kafka

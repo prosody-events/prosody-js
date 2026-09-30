@@ -15,12 +15,10 @@ describe("ProsodyClient", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
 
-    // Tracing. In-process JS cannot observe
-    // the Rust collection span (separate OTLP pipeline), so this asserts only
-    // that (a) a state op inside an active JS span resolves and (b) the JS event
-    // context is active during the op. End-to-end span parentage
-    // (core collection span -> per-op span -> event span) is verified at the
-    // collector, not here.
+    // Tracing. JS cannot see the Rust collection span, which has its own OTLP
+    // pipeline. This test checks that a state op inside an active JS span
+    // resolves, and that the JS event context is active during the op. The
+    // collector shows the full span parentage.
     it("a state op runs under the active JS trace context (smoke)", async () => {
       const V = nonce();
       const obs = await env.observe((ctx) =>
@@ -42,12 +40,12 @@ describe("ProsodyClient", () => {
     });
 
     // Async bridging: while one handler is blocked awaiting a
-    // barrier, a handler for a DIFFERENT key on the SAME partition makes
+    // barrier, a handler for a different key on the same partition makes
     // progress (the event loop / native bridge is not serialized). Two keys are
     // forced onto one partition by probing.
     it("a blocked handler does not block a different key on the same partition", async () => {
       // Probe: send 5 keys through the beforeEach client, collect partitions,
-      // pick two distinct keys on the SAME partition (guaranteed with 5 keys /
+      // pick two distinct keys on the same partition (guaranteed with 5 keys /
       // 4 partitions).
       const probeStream = createMessageStream();
       await env.client.subscribe({
