@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Plan affected work
         id: rail
-        uses: loadingalias/cargo-rail-action@409962f05d90a78aae995ef6b1c8466010c0a460 # v10.1.1
+        uses: loadingalias/cargo-rail-action@ebc8ef2740efefe2cd5c42826344a8f1213113ae # v6
         with:
           since: ${{ github.event_name == 'push' && github.event.before || '' }}
 
