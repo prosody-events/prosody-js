@@ -2,22 +2,17 @@
 
 use crate::state::{
     NativeJsonDequeCursor, NativeJsonMapCursor, NativeKeyCursor, NativeKeyQuery,
-    NativePositionQuery, json_text, op_context,
+    NativePositionQuery, json_value, length, run,
 };
-use napi::{Error, Result};
+use napi::Result;
 use napi_derive::napi;
 use opentelemetry::propagation::TextMapCompositePropagator;
-use opentelemetry::trace::FutureExt;
 use prosody::codec::BinaryPayload;
 use prosody::high_level::erased::{
     SharedDequeReader, SharedMapReader, SharedSetReader, SharedValueReader,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-
-fn read_error(error: &impl ToString) -> Error {
-    Error::from_reason(error.to_string())
-}
 
 /// A read-only published value collection.
 #[napi]
@@ -35,14 +30,9 @@ impl NativePublishedValue {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let value = self
-            .inner
-            .get(key)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.inner.get(key))
             .await
-            .map_err(|error| read_error(&error))?;
-        value.map(json_text).transpose()
+            .and_then(json_value)
     }
 }
 
@@ -63,14 +53,13 @@ impl NativePublishedMap {
         map_key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let value = self
-            .inner
-            .get(key, map_key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
-        value.map(json_text).transpose()
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.get(key, map_key),
+        )
+        .await
+        .and_then(json_value)
     }
 
     /// Reads entries aligned with the supplied map keys.
@@ -81,15 +70,13 @@ impl NativePublishedMap {
         map_keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> Result<Vec<Option<String>>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .get_many(key, map_keys)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?
-            .into_iter()
-            .map(|value| value.map(json_text).transpose())
-            .collect()
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.get_many(key, map_keys),
+        )
+        .await
+        .and_then(|values| values.into_iter().map(json_value).collect())
     }
 
     /// Reports whether a committed map entry exists.
@@ -100,12 +87,12 @@ impl NativePublishedMap {
         map_key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .contains_key(key, map_key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.contains_key(key, map_key),
+        )
+        .await
     }
 
     /// Tests committed presence aligned with the supplied map keys.
@@ -116,12 +103,12 @@ impl NativePublishedMap {
         map_keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> Result<Vec<bool>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .contains_many(key, map_keys)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.contains_many(key, map_keys),
+        )
+        .await
     }
 
     /// Reports whether the committed map is empty.
@@ -131,12 +118,7 @@ impl NativePublishedMap {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .is_empty(key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(&self.propagator, &otel_context, self.inner.is_empty(key)).await
     }
 
     /// Opens a cursor over the selected entries.
@@ -183,12 +165,12 @@ impl NativePublishedSet {
         member: String,
         otel_context: HashMap<String, String>,
     ) -> Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .contains(key, member)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.contains(key, member),
+        )
+        .await
     }
 
     /// Tests committed membership aligned with the supplied members.
@@ -199,12 +181,12 @@ impl NativePublishedSet {
         members: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> Result<Vec<bool>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .contains_many(key, members)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.contains_many(key, members),
+        )
+        .await
     }
 
     /// Reports whether the committed set has no members.
@@ -214,12 +196,7 @@ impl NativePublishedSet {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .is_empty(key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(&self.propagator, &otel_context, self.inner.is_empty(key)).await
     }
 
     /// Opens a cursor over the selected members.
@@ -253,27 +230,19 @@ impl NativePublishedDeque {
         index: u32,
         otel_context: HashMap<String, String>,
     ) -> Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let value = self
-            .inner
-            .get(key, index as usize)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
-        value.map(json_text).transpose()
+        run(
+            &self.propagator,
+            &otel_context,
+            self.inner.get(key, index as usize),
+        )
+        .await
+        .and_then(json_value)
     }
 
     /// Returns the committed deque length.
     #[napi(writable = false)]
     pub async fn length(&self, key: String, otel_context: HashMap<String, String>) -> Result<u32> {
-        let context = op_context(&self.propagator, &otel_context);
-        let length = self
-            .inner
-            .len(key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))?;
-        u32::try_from(length).map_err(|error| read_error(&error))
+        length(run(&self.propagator, &otel_context, self.inner.len(key)).await?)
     }
 
     /// Reports whether the committed deque is empty.
@@ -283,12 +252,7 @@ impl NativePublishedDeque {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.inner
-            .is_empty(key)
-            .with_context(context)
-            .await
-            .map_err(|error| read_error(&error))
+        run(&self.propagator, &otel_context, self.inner.is_empty(key)).await
     }
 
     /// Reads the committed front element.
@@ -298,14 +262,9 @@ impl NativePublishedDeque {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let value = self
-            .inner
-            .peek_front(key)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.inner.peek_front(key))
             .await
-            .map_err(|error| read_error(&error))?;
-        value.map(json_text).transpose()
+            .and_then(json_value)
     }
 
     /// Reads the committed back element.
@@ -315,14 +274,9 @@ impl NativePublishedDeque {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let value = self
-            .inner
-            .peek_back(key)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.inner.peek_back(key))
             .await
-            .map_err(|error| read_error(&error))?;
-        value.map(json_text).transpose()
+            .and_then(json_value)
     }
 
     /// Opens a cursor over the selected elements.

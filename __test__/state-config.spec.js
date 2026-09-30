@@ -4,6 +4,7 @@ const {
   PublishedMap,
   PublishedSet,
   PublishedValue,
+  TransientStateError,
   deque,
   map,
   messageDeque,
@@ -199,7 +200,8 @@ describe("keyed state configuration validation", () => {
 
   // A client that only reads published state needs no topic list. The client
   // default and a definition's readCache take the same forms, and each form
-  // crosses into the native reader of every kind.
+  // crosses into the native reader of every kind. Mock mode holds no
+  // publication, so each read fails with the typed error of an owned read.
   const READ_CACHES = [undefined, false, { ttlMs: 1 }, { ttlMs: 1500 }];
   it.each(READ_CACHES)(
     "opens published readers of every kind with readCache %p",
@@ -222,6 +224,16 @@ describe("keyed state configuration validation", () => {
         PublishedSet,
         PublishedDeque,
       ]);
+      const [valueReader, mapReader, setReader, dequeReader] = readers;
+      const reads = [
+        valueReader.get("k"),
+        mapReader.get("k", "a"),
+        setReader.has("k", "a"),
+        dequeReader.length("k"),
+      ];
+      await Promise.all(
+        reads.map((read) => expect(read).rejects.toThrow(TransientStateError)),
+      );
     },
   );
 

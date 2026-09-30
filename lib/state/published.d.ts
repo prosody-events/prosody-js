@@ -4,9 +4,8 @@
  * `ProsodyClient.state(subsystem, definition)` opens a reader. A reader reads
  * the committed state of another consumer group, so every read takes the
  * partition key. It is independent of subscription and stays valid while its
- * client runs. A failed store read rejects with a plain `Error`. A bad
- * argument rejects with a {@link TransientStateError}, and a stored value that
- * cannot be decoded rejects with a {@link PermanentStateError}.
+ * client runs. A failed read rejects with a {@link TransientStateError} or a
+ * {@link PermanentStateError}, like a read through an owned handle.
  * @module lib/state/published
  */
 

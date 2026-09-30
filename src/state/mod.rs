@@ -127,18 +127,6 @@ fn permanent_error(message: String) -> Error {
     tagged_error("permanent", message)
 }
 
-/// Extracts the event parent propagated by the JavaScript handler.
-///
-/// @param propagator The OpenTelemetry propagator for context extraction.
-/// @param otelContext The propagated OpenTelemetry carrier.
-/// @returns The extracted OpenTelemetry context.
-pub(crate) fn op_context(
-    propagator: &TextMapCompositePropagator,
-    otel_context: &HashMap<String, String>,
-) -> opentelemetry::Context {
-    propagator.extract(otel_context)
-}
-
 /// Polls a core state operation under the event's trace context.
 ///
 /// A failure becomes an error that carries its category on `cause`.
@@ -196,13 +184,13 @@ fn json_payload(json: String) -> BinaryPayload {
 /// @param payload The stored document.
 /// @returns The document's JSON text.
 /// @throws Error (permanent) if the stored bytes are not valid UTF-8.
-pub(crate) fn json_text(payload: BinaryPayload) -> napi::Result<String> {
+fn json_text(payload: BinaryPayload) -> napi::Result<String> {
     String::from_utf8(payload.bytes).map_err(|error| {
         permanent_error(format!("stored JSON document is not valid UTF-8: {error}"))
     })
 }
 
-fn json_value(item: Option<BinaryPayload>) -> napi::Result<Option<String>> {
+pub(crate) fn json_value(item: Option<BinaryPayload>) -> napi::Result<Option<String>> {
     item.map(json_text).transpose()
 }
 
