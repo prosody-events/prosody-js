@@ -147,19 +147,27 @@ describe("ProsodyClient failures", () => {
     );
   });
 
-  it("returns a handler failure when a result cannot encode", async () => {
-    await env.client.subscribe({ onMessage: async () => 1n });
+  // A result with no JSON form is a handler mistake, so it is transient: the
+  // event retries, and the requester sees a timeout instead of a response.
+  it("retries a handler whose result cannot encode", async () => {
+    await env.client.subscribe({
+      onMessage: async () => {
+        env.messageStream.push("attempt");
+        return 1n;
+      },
+    });
 
-    const results = await env.client.request(
+    const results = env.client.request(
       env.topic,
       "order-1",
       { type: "order.created" },
       { subsystems: ["inventory"], timeoutMs: MESSAGE_TIMEOUT },
     );
+    await waitForMessages(env.messageStream, 2, MESSAGE_TIMEOUT);
 
-    expect(results.get("inventory")).toMatchObject({
+    expect((await results).get("inventory")).toMatchObject({
       ok: false,
-      error: { kind: "handler" },
+      error: { kind: "timeout" },
     });
   });
 });
