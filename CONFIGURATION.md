@@ -40,9 +40,9 @@ The JavaScript client rejects a number that has no exact form in the Prosody typ
 
 ## Producer
 
-| Option / Environment Variable            | Description                     | Default |
-| ---------------------------------------- | ------------------------------- | ------- |
-| `sendTimeoutMs` / `PROSODY_SEND_TIMEOUT` | Give up sending after this long | 1s      |
+| Option / Environment Variable            | Description                                                                                                                                                                                                                                          | Default |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `sendTimeoutMs` / `PROSODY_SEND_TIMEOUT` | Give up sending after this long. Set `null` (or the environment value `none`) for no timeout. Omit it to use the environment variable. Pipeline mode always sends without a timeout. Low-latency and best-effort modes use 1s in place of no timeout | 1s      |
 
 ## Requests
 

@@ -70,6 +70,10 @@ const config: Configuration = {
 };
 void config;
 
+// null means no send timeout; an omitted key means not set.
+const untimedConfig: Configuration = { sendTimeoutMs: null };
+void untimedConfig;
+
 // The client default and a definition's readCache take the same two forms.
 const cachedConfig: Configuration = { stateReadCache: { ttlMs: 1000 } };
 void cachedConfig;
