@@ -1,8 +1,10 @@
 const {
+  flushTelemetry,
   getCurrentLogger,
   loggerIsSet,
   setLogger,
   setLoggerIfUnset,
+  shutdownTelemetry,
 } = require("../index.js");
 
 const makeLogger = () => ({
@@ -30,4 +32,8 @@ test("only an application logger counts as set", () => {
   const host = makeLogger();
   setLogger(host);
   expect(getCurrentLogger()).toBe(host);
+
+  // The telemetry exports stay public functions.
+  expect(flushTelemetry).toEqual(expect.any(Function));
+  expect(shutdownTelemetry).toEqual(expect.any(Function));
 });
