@@ -4,7 +4,7 @@
  */
 
 import type { JsonValue } from "../payload";
-import type { StoreOutcome } from "./handle";
+import type { StateTransaction } from "./handle";
 import type { KeyQuery, ScanDirection } from "./query";
 
 /**
@@ -86,14 +86,6 @@ export declare class MapState<V = JsonValue> {
    * handler invocation (attempt) that opened it.
    */
   [Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>;
-  /**
-   * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
-   */
-  commit(): Promise<StoreOutcome>;
-  /**
-   * Discards buffered uncommitted operations back to the committed floor.
-   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
-   */
-  rollback(): Promise<StoreOutcome>;
 }
+
+export interface MapState<V = JsonValue> extends StateTransaction {}

@@ -4,7 +4,7 @@
  */
 
 import type { JsonValue } from "../payload";
-import type { StoreOutcome } from "./handle";
+import type { StateTransaction } from "./handle";
 
 /**
  * Typed handle over a single-value keyed-state collection, vended by
@@ -25,14 +25,6 @@ export declare class ValueState<T = JsonValue> {
   set(value: NonNullable<T>): Promise<void>;
   /** Deletes the stored value. */
   clear(): Promise<void>;
-  /**
-   * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
-   */
-  commit(): Promise<StoreOutcome>;
-  /**
-   * Discards buffered uncommitted operations back to the committed floor.
-   * Resolves to `"applied"` when it discarded buffered operations, or `"noOp"`.
-   */
-  rollback(): Promise<StoreOutcome>;
 }
+
+export interface ValueState<T = JsonValue> extends StateTransaction {}
