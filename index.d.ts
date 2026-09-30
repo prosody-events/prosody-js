@@ -44,13 +44,6 @@ export function shutdownTelemetry(): void;
  */
 export function initialize(): void;
 
-/**
- * Checks if a logger has been set in the logging system.
- *
- * @returns True if a logger is currently configured, false otherwise.
- */
-export function loggerIsSet(): boolean;
-
 export * from "./lib/payload";
 export * from "./lib/context";
 export * from "./lib/state/query";

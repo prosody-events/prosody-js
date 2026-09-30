@@ -48,13 +48,21 @@ export interface Logger {
 export function setLogger(logger: Logger): void;
 
 /**
- * Sets a JavaScript logger only if no logger is currently configured.
+ * Checks whether the application set a logger. The default console logger
+ * does not count.
  *
- * This function is useful for providing a default logger without overriding
- * an existing one that may have been set earlier.
+ * @returns True after a call to `setLogger` or a successful `setLoggerIfUnset`.
+ */
+export function loggerIsSet(): boolean;
+
+/**
+ * Sets a JavaScript logger only if the application has not set one.
+ *
+ * A library that embeds Prosody can use it to supply a logger without
+ * replacing the logger of the host application.
  *
  * @param logger - The JavaScript logger object with error, warn, info, debug, and trace methods.
- * @returns True if the logger was set (no previous logger existed), false if a logger was already configured.
+ * @returns True if the logger was set, false if the application already set one.
  * @throws Error if creating the new JavaScript logger fails.
  */
 export function setLoggerIfUnset(logger: Logger): boolean;

@@ -1367,9 +1367,9 @@ Handler error types and decorators:
 
 - `Logger`: Provides `error`, `warn`, `info`, `debug`, and `trace` methods.
 - `initialize()`: Prepare the logging and tracing system during application startup.
-- `loggerIsSet()`: Test whether the application configured a logger.
+- `loggerIsSet()`: Test whether the application set a logger. The default console logger does not count.
 - `setLogger(logger)`: Replaces the logger.
-- `setLoggerIfUnset(logger)`: Sets the logger only when no logger exists.
+- `setLoggerIfUnset(logger)`: Sets the logger only when the application has not set one.
 - `getCurrentLogger()`: Returns the current JavaScript logger.
 - `flushTelemetry()`: Exports pending telemetry.
 - `shutdownTelemetry()`: Exports pending telemetry and stops its providers.

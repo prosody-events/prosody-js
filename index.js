@@ -36,11 +36,11 @@ const {
   Mode,
   flushTelemetry,
   initialize,
-  loggerIsSet,
   shutdownTelemetry,
 } = require("./bindings");
 const {
   getCurrentLogger,
+  loggerIsSet,
   setLogger,
   setLoggerIfUnset,
 } = require("./lib/logging");
