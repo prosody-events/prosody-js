@@ -48,7 +48,6 @@ impl NativeClient {
     ///
     /// @param config - The configuration for the client
     /// @throws Error if the client creation fails
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     #[napi(factory, writable = false)]
     pub async fn create(config: Configuration) -> Result<Self> {
         let mut producer_config = build_producer_config(&config)?;

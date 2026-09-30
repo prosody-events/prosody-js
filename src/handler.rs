@@ -288,7 +288,10 @@ impl FromNapiValue for JsHandler {
     //    ThreadsafeFunction objects which are safe to use across threads
     // 6. No raw pointers or memory are directly manipulated - all operations go
     //    through validated NAPI-RS APIs
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "napi declares FromNapiValue::from_napi_value as an unsafe fn"
+    )]
     unsafe fn from_napi_value(env: napi_env, napi_val: napi_value) -> napi::Result<Self> {
         let obj = Object::from_raw(env, napi_val);
         let on_message = obj

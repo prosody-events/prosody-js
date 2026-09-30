@@ -66,7 +66,10 @@ impl FromNapiValue for MessageItem {
     // when this is invoked through the framework, and the call is forwarded
     // unchanged to the generated `&Message` conversion, which checks that the
     // value is a wrapped `Message` before dereferencing it.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "napi declares FromNapiValue::from_napi_value as an unsafe fn"
+    )]
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
         let message = unsafe { <&Message>::from_napi_value(env, napi_val) }?;
         Ok(Self(message.consumer_message()))

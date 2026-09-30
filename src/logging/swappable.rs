@@ -25,7 +25,6 @@ impl SwappableLogger {
     /// # Arguments
     ///
     /// * `logger` - The `JsLogger` to be set as the current logger.
-    #[allow(dead_code)]
     pub fn set_logger(&self, logger: JsLogger) {
         self.inner.store(Some(Arc::new(logger)));
     }

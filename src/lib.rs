@@ -1,4 +1,7 @@
-#![allow(clippy::multiple_crate_versions)]
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "the dependency graph of prosody and napi pulls in several versions"
+)]
 #![recursion_limit = "256"]
 
 //! This crate provides Node.js bindings for the Prosody library, offering a
@@ -32,7 +35,7 @@ mod handler;
 /// Module for managing logging operations and integration with JavaScript
 /// logging.
 mod logging;
-pub use logging::{flush_telemetry, shutdown_telemetry};
+pub use logging::{flush_telemetry, initialize, set_logger, shutdown_telemetry};
 
 /// Module dealing with message-related functionality and structures.
 mod message;

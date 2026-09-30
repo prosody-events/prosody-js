@@ -29,7 +29,6 @@ pub type LogArgs = (Option<String>, Value);
 static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
 
 /// JavaScript-compatible logger structure.
-#[allow(dead_code)]
 #[napi(object)]
 pub struct Logger<'a> {
     /// Function for logging error messages.
@@ -53,7 +52,6 @@ pub struct Logger<'a> {
 /// This function sets up the tracing infrastructure and prepares the logging
 /// system to accept JavaScript loggers. It should be called once during
 /// application startup before any other logging operations.
-#[allow(clippy::needless_pass_by_value, dead_code)]
 #[napi]
 pub fn initialize(env: Env) {
     // Only initialize once
@@ -111,9 +109,14 @@ pub fn shutdown_telemetry() -> napi::Result<()> {
 /// levels.
 ///
 /// @param logger - The JavaScript logger object with error, warn, info, debug,
-/// and trace methods. @throws Error if creating the new JavaScript logger
-/// fails.
-#[allow(clippy::needless_pass_by_value, dead_code)]
+/// and trace methods.
+///
+/// # Errors
+///
+/// Returns an error if the thread-safe logger functions cannot be created.
+// napi passes the logger by value and copies this attribute onto its
+// generated callback, where `expect` would be unfulfilled.
+#[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn set_logger(logger: Logger) -> napi::Result<()> {
     LOGGER.set_logger(JsLogger::new(&logger)?);
