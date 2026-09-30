@@ -215,9 +215,8 @@ describe("keyed state (unit)", () => {
     ]);
   });
 
-  // A5g — every query copies its options at the call. Published readers open
-  // their cursor on the first pull, so a later change to the caller's object
-  // must not reach the native layer.
+  // A5g — every query copies its options at the call, so a later change to
+  // the caller's object must not reach the native layer.
   it("queries snapshot their options at the call", async () => {
     const opened = [];
     const opener =
@@ -256,12 +255,12 @@ describe("keyed state (unit)", () => {
     for (const iterator of iterators) await drain(iterator);
 
     expect(opened).toEqual([
-      ["owned.keys", { after: "b" }],
       ["entries", "u", { after: "b" }],
       ["keys", "u", { after: "b" }],
       ["entries", "u", { after: "b" }],
       ["set.keys", "u", { after: "b" }],
       ["values", "u", { after: 1 }],
+      ["owned.keys", { after: "b" }],
       ["set.keys", "u", { range: ["a", "m"] }],
     ]);
   });

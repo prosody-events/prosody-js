@@ -134,7 +134,7 @@ test("published state uses the owned read method names", async () => {
   expect(await dequeState.at("user-1", -1)).toBe("last");
 });
 
-test("published scans return an async iterator and open lazily", async () => {
+test("published scans open the cursor at the call", async () => {
   const cursor = {
     nextChunk: jest
       .fn()
@@ -145,13 +145,12 @@ test("published scans return an async iterator and open lazily", async () => {
   const scan = jest.fn().mockReturnValue(cursor);
   const entries = new PublishedMap({ entries: scan }).entries("user-1");
 
-  expect(scan).not.toHaveBeenCalled();
+  expect(scan).toHaveBeenCalledTimes(1);
   expect(entries[Symbol.asyncIterator]()).toBe(entries);
   await expect(entries.next()).resolves.toEqual({
     value: ["item", 7],
     done: false,
   });
-  expect(scan).toHaveBeenCalledTimes(1);
   await expect(entries.next()).resolves.toEqual({
     value: undefined,
     done: true,
