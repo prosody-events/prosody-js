@@ -2247,6 +2247,7 @@ describe("ProsodyClient", () => {
                 page: await collect(
                   m.keys({ direction: "backward", after: "b1", limit: 2 }),
                 ),
+                range: await collect(m.keys({ range: ["a2", "b1"] })),
               },
               entries: await collect(m.entries({ prefix: "b" })),
               values: await collect(m.values({ from: "a3" })),
@@ -2259,6 +2260,7 @@ describe("ProsodyClient", () => {
                 page: await collect(
                   d.values({ direction: "backward", after: 3, limit: 2 }),
                 ),
+                range: await collect(d.values({ range: [1, 3] })),
               },
             });
           } catch (e) {
@@ -2280,6 +2282,7 @@ describe("ProsodyClient", () => {
         before: ["a1"],
         limit: ["a1", "a2"],
         page: ["a3", "a2"],
+        range: ["a2", "a3"],
       });
       expect(obs.entries).toEqual([["b1", 3]]);
       expect(obs.values).toEqual([2, 3]);
@@ -2290,7 +2293,85 @@ describe("ProsodyClient", () => {
         before: [0],
         limit: [0, 1],
         page: [2, 1],
+        range: [1, 2],
       });
+    });
+
+    // C7d — a range is ascending and half-open in both directions. For each
+    // range, the forward scan equals the oracle slice, and the backward scan
+    // yields the same items in the opposite order. Empty and inverted ranges
+    // select nothing.
+    it("forward and backward range scans select the same items", async () => {
+      const K = nonce();
+      const members = ["m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7"];
+      const positions = [0, 1, 2, 3, 4, 5, 6, 7];
+      const keyRanges = [
+        ["m2", "m5"],
+        ["a", "z"],
+        ["m6", "n"],
+        ["a", "m0"],
+        ["m4", "m4"],
+        ["m6", "m2"],
+      ];
+      const positionRanges = [
+        [2, 5],
+        [0, 100],
+        [6, 8],
+        [8, 20],
+        [4, 4],
+        [6, 2],
+      ];
+      client = await makeStateClient();
+      await client.subscribe({
+        onMessage: async (ctx) => {
+          const s = ctx.state(STATE_DEFS.members);
+          const d = ctx.state(STATE_DEFS.backlog);
+          const collect = async (iterator) => {
+            const items = [];
+            for await (const item of iterator) items.push(item);
+            return items;
+          };
+          const scans = async (open, range) => ({
+            range,
+            forward: await collect(open({ range })),
+            backward: await collect(open({ range, direction: "backward" })),
+          });
+          try {
+            for (const member of members) await s.add(member);
+            for (const position of positions) await d.push(position);
+            const keys = [];
+            for (const range of keyRanges) {
+              keys.push(await scans((query) => s.keys(query), range));
+            }
+            const values = [];
+            for (const range of positionRanges) {
+              values.push(await scans((query) => d.values(query), range));
+            }
+            messageStream.push({ keys, values });
+          } catch (e) {
+            messageStream.push({ error: e.message });
+          }
+        },
+      });
+
+      await client.send(topic, K, { go: true });
+      const [obs] = await waitForMessages(messageStream, 1, MESSAGE_TIMEOUT);
+      expect(obs.error).toBeUndefined();
+      const check = (scan, all) => {
+        const [start, end] = scan.range;
+        const oracle = all.filter((item) => item >= start && item < end);
+        expect(scan.forward).toEqual(oracle);
+        expect(scan.backward).toEqual([...oracle].reverse());
+      };
+      for (const scan of obs.keys) check(scan, members);
+      for (const scan of obs.values) check(scan, positions);
+      // The table covers a non-empty and an empty selection on each side.
+      expect(obs.keys.map((scan) => scan.forward.length)).toEqual([
+        3, 8, 2, 0, 0, 0,
+      ]);
+      expect(obs.values.map((scan) => scan.forward.length)).toEqual([
+        3, 8, 2, 0, 0, 0,
+      ]);
     });
 
     // C7c — set FFI boundary: every set method reaches core and answers in
@@ -3002,6 +3083,8 @@ describe("keyed state (unit)", () => {
     await drain(pm.keys("u", { from: "a", to: "b" }));
     await drain(pm.values("u", { after: "a" }));
     await drain(pd.values("u", positions));
+    await drain(m.keys({ range: ["a", "m"], direction: "backward" }));
+    await drain(pd.values("u", { range: [2, 5] }));
 
     expect(opened).toEqual([
       ["entries", keys],
@@ -3013,6 +3096,8 @@ describe("keyed state (unit)", () => {
       ["published.keys", "u", { from: "a", to: "b" }],
       ["published.entries", "u", { after: "a" }],
       ["published.values", "u", positions],
+      ["keys", { range: ["a", "m"], direction: "backward" }],
+      ["published.values", "u", { range: [2, 5] }],
     ]);
   });
 
@@ -3041,6 +3126,7 @@ describe("keyed state (unit)", () => {
 
     const keys = { after: "b" };
     const positions = { after: 1 };
+    const range = ["a", "m"];
     const iterators = [
       pm.entries("u", keys),
       pm.keys("u", keys),
@@ -3048,9 +3134,11 @@ describe("keyed state (unit)", () => {
       ps.values("u", keys),
       pd.values("u", positions),
       m.keys(keys),
+      ps.keys("u", { range }),
     ];
     Object.assign(keys, { from: "a", limit: 1.5 });
     Object.assign(positions, { from: 0, limit: 1.5 });
+    range.splice(0, 2, 5);
     for (const iterator of iterators) await drain(iterator);
 
     expect(opened).toEqual([
@@ -3060,6 +3148,7 @@ describe("keyed state (unit)", () => {
       ["entries", "u", { after: "b" }],
       ["set.keys", "u", { after: "b" }],
       ["values", "u", { after: 1 }],
+      ["set.keys", "u", { range: ["a", "m"] }],
     ]);
   });
 
@@ -3078,7 +3167,13 @@ describe("keyed state (unit)", () => {
     ["number options", 42, TypeError],
     ["null options", null, TypeError],
     ["misspelled option", { befor: "a" }, TypeError],
-    ["range option", { range: ["a", "b"] }, TypeError],
+    ["range with from", { range: ["a", "m"], from: "b" }, TypeError],
+    ["range with before", { range: ["a", "m"], before: "b" }, TypeError],
+    ["range of one bound", { range: ["a"] }, TypeError],
+    ["range of three bounds", { range: ["a", "b", "c"] }, TypeError],
+    ["range with a hole", { range: ["a", undefined] }, TypeError],
+    ["range object", { range: { start: "a", end: "b" } }, TypeError],
+    ["numeric range key", { range: ["a", 1] }, TypeError],
     ["unknown direction", { direction: "reverse" }, TypeError],
     ["unknown direction string", "reverse", TypeError],
     ["numeric direction", { direction: 5 }, TypeError],
@@ -3107,7 +3202,13 @@ describe("keyed state (unit)", () => {
     ["to with before", { to: 1, before: 2 }, TypeError],
     ["zero limit", { limit: 0 }, RangeError],
     ["prefix option", { prefix: "a" }, TypeError],
-    ["range option", { range: [1, 2] }, TypeError],
+    ["range with after", { range: [1, 4], after: 2 }, TypeError],
+    ["range with to", { range: [1, 4], to: 2 }, TypeError],
+    ["range of one bound", { range: [1] }, TypeError],
+    ["range string", { range: "1..4" }, TypeError],
+    ["string range position", { range: [1, "4"] }, TypeError],
+    ["negative range position", { range: [-1, 4] }, RangeError],
+    ["fractional range position", { range: [1, 2.5] }, RangeError],
     ["unknown direction", { direction: "sideways" }, TypeError],
     ["unknown direction string", "sideways", TypeError],
   ])("position query rejects %s", (_label, options, ErrorClass) => {

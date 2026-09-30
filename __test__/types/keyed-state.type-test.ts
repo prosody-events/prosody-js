@@ -229,6 +229,28 @@ export async function checks(): Promise<void> {
   // @ts-expect-error the query direction is the closed ScanDirection set
   t.values({ direction: "sideways" });
 
+  // ---- range: ascending [start, end], exclusive with the edges ----
+  const span: KeyQuery = { range: ["a", "m"], direction: "backward" };
+  for await (const [key] of publishedTotals.entries("user-1", span)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  const positions: PositionQuery = { range: [2, 5], limit: 2 };
+  for await (const item of d.values(positions)) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  // @ts-expect-error range excludes the edges
+  t.keys({ range: ["a", "m"], from: "b" });
+  // @ts-expect-error range excludes the edges
+  d.values({ range: [1, 4], before: 3 });
+  // @ts-expect-error a range holds exactly two bounds
+  t.keys({ range: ["a"] });
+  // @ts-expect-error key ranges hold strings
+  t.keys({ range: [1, 2] });
+  // @ts-expect-error position ranges hold numbers
+  d.values({ range: ["a", "b"] });
+
   // ---- set ----
   const members = context.state(seen);
   assertTrue<Equal<typeof members, SetState>>();

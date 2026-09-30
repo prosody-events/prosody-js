@@ -239,6 +239,29 @@ export type QueryEnd<B> =
   | { readonly to?: B; readonly before?: never }
   | { readonly to?: never; readonly before?: B };
 
+/**
+ * An ascending, half-open range: `[start, end]` keeps the keys or positions
+ * from `start` up to, but not including, `end`. The range applies in both directions, so a
+ * backward query yields the same items in the opposite order. A range whose
+ * `start` is not below its `end` selects nothing. A range excludes the edges
+ * `from`, `after`, `to`, and `before`; setting both throws a `TypeError`.
+ */
+export type QueryRange<B> = readonly [start: B, end: B];
+
+/**
+ * The bounds of a query: the edges, or one range. Set a range or edges, not
+ * both.
+ */
+export type QueryBounds<B> =
+  | (QueryStart<B> & QueryEnd<B> & { readonly range?: never })
+  | {
+      readonly range: QueryRange<B>;
+      readonly from?: never;
+      readonly after?: never;
+      readonly to?: never;
+      readonly before?: never;
+    };
+
 /** The options that every query accepts. */
 export interface QueryOptions {
   /** The query order. Defaults to `"forward"`. */
@@ -253,28 +276,28 @@ export interface QueryOptions {
 /**
  * Query options for map entries, map keys, and set members. Every option is
  * optional. Bounds and `prefix` narrow the selection and never widen it.
- * Setting both edges of a pair, an unknown option, or an unknown direction
- * throws a `TypeError`. The call copies the options, so a later change to the
- * object has no effect on the query.
+ * Setting both edges of a pair, a range with an edge, a malformed range, an
+ * unknown option, or an unknown direction throws a `TypeError`. The call
+ * copies the options, so a later change to the object has no effect on the
+ * query.
  *
  * For keyset paging, set `after` to the last key of the previous page and
- * `limit` to the page size.
+ * `limit` to the page size. To read the keys from `"a"` up to `"m"` in either
+ * direction, set `range: ["a", "m"]`.
  */
 export type KeyQuery = QueryOptions & {
   /** Keeps keys that start with this prefix. */
   readonly prefix?: string;
-} & QueryStart<string> &
-  QueryEnd<string>;
+} & QueryBounds<string>;
 
 /**
  * Query options for deque values. Positions count from the front. Each
  * position must be a non-negative safe integer; a `RangeError` reports any
  * other number. Negative positions are not resolved against the length. To
  * read the last N elements, use `values({ direction: "backward", limit: N })`.
+ * To read positions 2, 3, and 4 in either direction, set `range: [2, 5]`.
  */
-export type PositionQuery = QueryOptions &
-  QueryStart<number> &
-  QueryEnd<number>;
+export type PositionQuery = QueryOptions & QueryBounds<number>;
 
 /**
  * The effect of `commit()` or `rollback()`. `"applied"` means the call wrote or
