@@ -357,6 +357,8 @@ Logs failures and moves on.
 - Fair scheduling still enforces concurrency limits
 - Use for development or when message loss is acceptable
 
+`sendTimeoutMs` applies in low-latency and best-effort modes, with a default of 1 second. Pipeline mode ignores it and retries a send until it succeeds.
+
 ```javascript
 const client = await ProsodyClient.create({
   mode: Mode.BestEffort,
