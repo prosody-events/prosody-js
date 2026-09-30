@@ -19,9 +19,9 @@
 //! typed layer branches on without parsing the human message. No fencing or
 //! cursor safety lives here: those are core-owned and this layer only
 //! transports and types. Caller-mistake conditions the glue detects (an
-//! unrepresentable value or an invalid enum token) reject TRANSIENT — a caller code error retries and stays visible
-//! rather than discarding the message (see the error classification rule in
-//! AGENTS.md).
+//! unrepresentable value or an invalid enum token) reject TRANSIENT — a caller
+//! code error retries and stays visible rather than discarding the message (see
+//! the error classification rule in AGENTS.md).
 
 use crate::message::Message;
 use napi::bindgen_prelude::{FromNapiValue, TypeName, ValueType, sys};
@@ -175,6 +175,41 @@ pub(crate) fn op_context(
     propagator.extract(otel_context)
 }
 
+/// Polls a core state operation under the event's trace context.
+///
+/// A failure becomes an error that carries its category on `cause`.
+///
+/// @param propagator The OpenTelemetry propagator for context extraction.
+/// @param otelContext The propagated OpenTelemetry carrier.
+/// @param operation The core state operation.
+/// @returns The operation's result.
+pub(crate) async fn run<T, F>(
+    propagator: &TextMapCompositePropagator,
+    otel_context: &HashMap<String, String>,
+    operation: F,
+) -> napi::Result<T>
+where
+    F: Future<Output = Result<T, ErasedStateError>>,
+{
+    operation
+        .with_context(propagator.extract(otel_context))
+        .await
+        .map_err(|error| state_error(&error))
+}
+
+/// Converts a deque length for JavaScript.
+///
+/// @param len The deque length.
+/// @returns The same length as a `u32`.
+/// @throws Error (transient) if the length exceeds the `u32` range.
+pub(crate) fn length(len: usize) -> napi::Result<u32> {
+    u32::try_from(len).map_err(|_| {
+        transient_error(format!(
+            "deque length {len} exceeds the u32 range representable to JavaScript"
+        ))
+    })
+}
+
 /// Prepares JSON text for a write.
 ///
 /// Takes the string's buffer, so the document is stored verbatim with no copy.
@@ -246,13 +281,9 @@ macro_rules! transaction_methods {
                 &self,
                 otel_context: HashMap<String, String>,
             ) -> napi::Result<NativeStoreOutcome> {
-                let context = op_context(&self.propagator, &otel_context);
-                self.state
-                    .commit()
-                    .with_context(context)
+                run(&self.propagator, &otel_context, self.state.commit())
                     .await
                     .map(NativeStoreOutcome::from)
-                    .map_err(|error| state_error(&error))
             }
 
             /// Discards the buffered operations.
@@ -261,7 +292,7 @@ macro_rules! transaction_methods {
                 &self,
                 otel_context: HashMap<String, String>,
             ) -> NativeStoreOutcome {
-                let context = op_context(&self.propagator, &otel_context);
+                let context = self.propagator.extract(&otel_context);
                 self.state.rollback().with_context(context).await.into()
             }
         }

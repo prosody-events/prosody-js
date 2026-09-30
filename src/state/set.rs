@@ -1,8 +1,8 @@
 //! Concrete set state handles.
 
 use super::{
-    Arc, BoxSetState, FutureExt, HashMap, NativeKeyCursor, NativeKeyQuery,
-    TextMapCompositePropagator, napi, op_context, state_error,
+    Arc, BoxSetState, HashMap, NativeKeyCursor, NativeKeyQuery, TextMapCompositePropagator, napi,
+    run,
 };
 
 /// Presence-only ordered set of string members for one event.
@@ -27,12 +27,7 @@ impl NativeSetState {
         member: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains(member)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.contains(member)).await
     }
 
     /// Tests several members in one read.
@@ -47,12 +42,12 @@ impl NativeSetState {
         members: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<bool>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains_many(members)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.contains_many(members),
+        )
+        .await
     }
 
     /// Reports whether the set has no live members.
@@ -62,12 +57,7 @@ impl NativeSetState {
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .is_empty()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Adds `member` to the set.
@@ -81,12 +71,7 @@ impl NativeSetState {
         member: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .insert(member)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.insert(member)).await
     }
 
     /// Removes `member` from the set. An absent member is not an error.
@@ -100,12 +85,7 @@ impl NativeSetState {
         member: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .remove(member)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.remove(member)).await
     }
 
     /// Removes every member.
@@ -114,12 +94,7 @@ impl NativeSetState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
     /// Opens a demand-driven cursor over the selected members.

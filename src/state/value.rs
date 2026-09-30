@@ -1,9 +1,8 @@
 //! Concrete value state handles.
 
 use super::{
-    Arc, BinaryPayload, BoxValueState, ConsumerMessage, FutureExt, HashMap, Message, MessageItem,
-    TextMapCompositePropagator, json_payload, json_value, message_value, napi, op_context,
-    state_error,
+    Arc, BinaryPayload, BoxValueState, ConsumerMessage, HashMap, Message, MessageItem,
+    TextMapCompositePropagator, json_payload, json_value, message_value, napi, run,
 };
 
 /// JSON single-value state handle for one event.
@@ -23,12 +22,8 @@ impl NativeJsonValueState {
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn get(&self, otel_context: HashMap<String, String>) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get())
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -46,13 +41,12 @@ impl NativeJsonValueState {
         json: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json);
-        self.state
-            .set(payload)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.set(json_payload(json)),
+        )
+        .await
     }
 
     /// Buffers a clear of the value.
@@ -61,12 +55,7 @@ impl NativeJsonValueState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 }
 
@@ -85,13 +74,9 @@ impl NativeMessageValueState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get())
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Buffers a write of a Kafka message.
@@ -104,22 +89,12 @@ impl NativeMessageValueState {
         message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .set(message.0)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.set(message.0)).await
     }
 
     /// Buffers a clear of the value.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 }

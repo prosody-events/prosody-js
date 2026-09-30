@@ -1,10 +1,9 @@
 //! Concrete map state handles.
 
 use super::{
-    Arc, BinaryPayload, BoxMapState, ConsumerMessage, FutureExt, HashMap, Message, MessageItem,
+    Arc, BinaryPayload, BoxMapState, ConsumerMessage, HashMap, Message, MessageItem,
     NativeJsonMapCursor, NativeKeyCursor, NativeKeyQuery, NativeMessageMapCursor,
-    TextMapCompositePropagator, json_payload, json_value, message_value, napi, op_context,
-    state_error,
+    TextMapCompositePropagator, json_payload, json_value, message_value, napi, run,
 };
 
 /// JSON ordered-map state handle for one event.
@@ -29,12 +28,8 @@ impl NativeJsonMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get(key)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get(key))
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -56,12 +51,8 @@ impl NativeJsonMapState {
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<Option<String>>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get_many(keys)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get_many(keys))
             .await
-            .map_err(|e| state_error(&e))
             .and_then(|items| items.into_iter().map(json_value).collect())
     }
 
@@ -82,12 +73,12 @@ impl NativeJsonMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains_key(key)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.contains_key(key),
+        )
+        .await
     }
 
     /// Tests several keys for presence in one read.
@@ -105,12 +96,12 @@ impl NativeJsonMapState {
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<bool>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains_many(keys)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.contains_many(keys),
+        )
+        .await
     }
 
     /// Reports whether the map holds no live entries.
@@ -120,12 +111,7 @@ impl NativeJsonMapState {
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .is_empty()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Inserts or overwrites `key` with a JSON document.
@@ -144,13 +130,12 @@ impl NativeJsonMapState {
         json: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json);
-        self.state
-            .set(key, payload)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.set(key, json_payload(json)),
+        )
+        .await
     }
 
     /// Removes `key`.
@@ -164,12 +149,7 @@ impl NativeJsonMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .remove(key)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.remove(key)).await
     }
 
     /// Removes every entry.
@@ -178,12 +158,7 @@ impl NativeJsonMapState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
     /// Opens a demand-driven cursor over the selected entries.
@@ -243,13 +218,9 @@ impl NativeMessageMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get(key)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get(key))
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Reads several keys in one operation.
@@ -259,13 +230,9 @@ impl NativeMessageMapState {
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<Option<Message>>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get_many(keys)
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.get_many(keys))
             .await
             .map(|items| items.into_iter().map(message_value).collect())
-            .map_err(|e| state_error(&e))
     }
 
     /// Reports whether the published map holds an entry for `key`.
@@ -275,12 +242,12 @@ impl NativeMessageMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains_key(key)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.contains_key(key),
+        )
+        .await
     }
 
     /// Tests several keys for presence in one read.
@@ -290,23 +257,18 @@ impl NativeMessageMapState {
         keys: Vec<String>,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Vec<bool>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .contains_many(keys)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.contains_many(keys),
+        )
+        .await
     }
 
     /// Reports whether the map has no live entries.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .is_empty()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Inserts or overwrites `key` with a Kafka message.
@@ -320,12 +282,12 @@ impl NativeMessageMapState {
         message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .set(key, message.0)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.set(key, message.0),
+        )
+        .await
     }
 
     /// Removes `key`.
@@ -335,23 +297,13 @@ impl NativeMessageMapState {
         key: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .remove(key)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.remove(key)).await
     }
 
     /// Removes every entry.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
     /// Opens a cursor over the selected entries.

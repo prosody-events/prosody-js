@@ -1,10 +1,9 @@
 //! Concrete deque state handles.
 
 use super::{
-    Arc, BinaryPayload, BoxDequeState, ConsumerMessage, FutureExt, HashMap, Message, MessageItem,
+    Arc, BinaryPayload, BoxDequeState, ConsumerMessage, HashMap, Message, MessageItem,
     NativeJsonDequeCursor, NativeMessageDequeCursor, NativePositionQuery,
-    TextMapCompositePropagator, json_payload, json_value, message_value, napi, op_context,
-    state_error, transient_error,
+    TextMapCompositePropagator, json_payload, json_value, length, message_value, napi, run,
 };
 
 /// JSON deque state handle for one event.
@@ -25,18 +24,7 @@ impl NativeJsonDequeState {
     ///   the count exceeds the `u32` range.
     #[napi(writable = false)]
     pub async fn len(&self, otel_context: HashMap<String, String>) -> napi::Result<u32> {
-        let context = op_context(&self.propagator, &otel_context);
-        let len = self
-            .state
-            .len()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))?;
-        u32::try_from(len).map_err(|_| {
-            transient_error(format!(
-                "deque length {len} exceeds the u32 range representable to JavaScript"
-            ))
-        })
+        length(run(&self.propagator, &otel_context, self.state.len()).await?)
     }
 
     /// Whether the deque holds no live elements.
@@ -46,12 +34,7 @@ impl NativeJsonDequeState {
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .is_empty()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Reads the element at front-relative position `index`.
@@ -66,14 +49,13 @@ impl NativeJsonDequeState {
         index: u32,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        let index = index as usize;
-        self.state
-            .get(index)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
-            .and_then(json_value)
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.get(index as usize),
+        )
+        .await
+        .and_then(json_value)
     }
 
     /// Reads the front endpoint SLOT without a length round trip — exactly
@@ -91,12 +73,8 @@ impl NativeJsonDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .peek_front()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.peek_front())
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -115,12 +93,8 @@ impl NativeJsonDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .peek_back()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.peek_back())
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -137,13 +111,12 @@ impl NativeJsonDequeState {
         json: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json);
-        self.state
-            .push_back(payload)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.push_back(json_payload(json)),
+        )
+        .await
     }
 
     /// Prepends a JSON document at the front.
@@ -159,13 +132,12 @@ impl NativeJsonDequeState {
         json: String,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json);
-        self.state
-            .push_front(payload)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.push_front(json_payload(json)),
+        )
+        .await
     }
 
     /// Removes and returns the front element.
@@ -178,12 +150,8 @@ impl NativeJsonDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .pop_front()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.pop_front())
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -197,12 +165,8 @@ impl NativeJsonDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<String>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .pop_back()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.pop_back())
             .await
-            .map_err(|e| state_error(&e))
             .and_then(json_value)
     }
 
@@ -212,12 +176,7 @@ impl NativeJsonDequeState {
     /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
     /// Opens a demand-driven cursor over the selected elements.
@@ -249,29 +208,13 @@ impl NativeMessageDequeState {
     /// Returns the number of live elements.
     #[napi(writable = false)]
     pub async fn len(&self, otel_context: HashMap<String, String>) -> napi::Result<u32> {
-        let context = op_context(&self.propagator, &otel_context);
-        let len = self
-            .state
-            .len()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))?;
-        u32::try_from(len).map_err(|_| {
-            transient_error(format!(
-                "deque length {len} exceeds the u32 range representable to JavaScript"
-            ))
-        })
+        length(run(&self.propagator, &otel_context, self.state.len()).await?)
     }
 
     /// Reports whether the deque has no live elements.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .is_empty()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Reads one element by its position from the front.
@@ -281,13 +224,13 @@ impl NativeMessageDequeState {
         index: u32,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .get(index as usize)
-            .with_context(context)
-            .await
-            .map(message_value)
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.get(index as usize),
+        )
+        .await
+        .map(message_value)
     }
 
     /// Reads the front endpoint.
@@ -296,13 +239,9 @@ impl NativeMessageDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .peek_front()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.peek_front())
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Reads the back endpoint.
@@ -311,13 +250,9 @@ impl NativeMessageDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .peek_back()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.peek_back())
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Appends a Kafka message.
@@ -330,12 +265,12 @@ impl NativeMessageDequeState {
         message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .push_back(message.0)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.push_back(message.0),
+        )
+        .await
     }
 
     /// Prepends a Kafka message.
@@ -348,12 +283,12 @@ impl NativeMessageDequeState {
         message: MessageItem,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .push_front(message.0)
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(
+            &self.propagator,
+            &otel_context,
+            self.state.push_front(message.0),
+        )
+        .await
     }
 
     /// Removes and returns the front element.
@@ -362,13 +297,9 @@ impl NativeMessageDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .pop_front()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.pop_front())
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Removes and returns the back element.
@@ -377,24 +308,15 @@ impl NativeMessageDequeState {
         &self,
         otel_context: HashMap<String, String>,
     ) -> napi::Result<Option<Message>> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .pop_back()
-            .with_context(context)
+        run(&self.propagator, &otel_context, self.state.pop_back())
             .await
             .map(message_value)
-            .map_err(|e| state_error(&e))
     }
 
     /// Removes every element.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
-        let context = op_context(&self.propagator, &otel_context);
-        self.state
-            .clear()
-            .with_context(context)
-            .await
-            .map_err(|e| state_error(&e))
+        run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
     /// Opens a cursor over the selected elements.
