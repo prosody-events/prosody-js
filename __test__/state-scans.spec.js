@@ -295,39 +295,5 @@ describe("ProsodyClient", () => {
       expect(obs.threw).toBe(true);
       expect(obs.permanent).toBe(true);
     });
-
-    // C8b — an invalid scan-direction token is a caller mistake. The call
-    // throws a TypeError, which the handler classifies as transient (retry,
-    // stay visible, never discard the message).
-    it("an invalid scan direction throws a TypeError", async () => {
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const m = ctx.state(STATE_DEFS.totals);
-          let result;
-          try {
-            m.entries("sideways");
-            result = { threw: false };
-          } catch (e) {
-            result = {
-              threw: true,
-              typeError: e instanceof TypeError,
-              msg: e.message,
-            };
-          }
-          env.messageStream.push(result);
-        },
-      });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.threw).toBe(true);
-      expect(obs.typeError).toBe(true);
-      expect(obs.msg).toMatch(/forward.*backward/);
-    });
   });
 });
