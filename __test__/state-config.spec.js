@@ -40,14 +40,14 @@ describe("keyed state configuration validation", () => {
   });
 
   // Regression: ttlSeconds arrives as f64, so a sub-second value reaches the
-  // whole-number guard instead of being truncated toward zero by a u32
-  // coercion. 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
+  // conversion instead of being truncated toward zero by a u32 coercion.
+  // 0.5 (truncates to 0) and 2.5 (would truncate to 2) both throw.
   it.each([0.5, 2.5, 3.9])(
     "rejects fractional ttlSeconds %p",
     async (ttlSeconds) => {
       await rejectsConfig(
         makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        /ttlSeconds: must be a whole number/,
+        /ttlSeconds: must be a non-negative whole number/,
       );
     },
   );
@@ -58,7 +58,7 @@ describe("keyed state configuration validation", () => {
   it.each([-1, -5])("rejects negative ttlSeconds %p", async (ttlSeconds) => {
     await rejectsConfig(
       makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-      /ttlSeconds: must be a whole number/,
+      /ttlSeconds: must be a non-negative whole number/,
     );
   });
 
@@ -67,7 +67,7 @@ describe("keyed state configuration validation", () => {
     async (ttlSeconds) => {
       await rejectsConfig(
         makeConfig({ stateCollections: [value("v", { ttlSeconds })] }),
-        /ttlSeconds: must be a whole number/,
+        /ttlSeconds: must be a non-negative whole number/,
       );
     },
   );
@@ -79,7 +79,7 @@ describe("keyed state configuration validation", () => {
     async (keysetLimit) => {
       await rejectsConfig(
         makeConfig({ stateCollections: [map("m", { keysetLimit })] }),
-        /keysetLimit: must be a whole number/,
+        /keysetLimit: must be a non-negative whole number/,
       );
     },
   );
@@ -140,7 +140,7 @@ describe("keyed state configuration validation", () => {
     async (capacity) => {
       await rejectsConfig(
         makeConfig({ stateCollections: [deque("d", { capacity })] }),
-        /capacity: must be a whole number in 1..=/,
+        /capacity: must be a (positive|non-negative) whole number/,
       );
     },
   );

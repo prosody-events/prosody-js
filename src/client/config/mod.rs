@@ -10,13 +10,13 @@ mod state;
 pub use consumer::build_consumer_builders;
 pub use state::{ReadCacheConfiguration, StateCollectionConfig};
 
-use napi::Either;
+use crate::number::{milliseconds, seconds};
 use napi::bindgen_prelude::Null;
+use napi::{Either, Result};
 use napi_derive::napi;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
-use std::time::Duration;
 
 /// Configuration options for the Prosody client.
 #[napi(object)]
@@ -28,14 +28,14 @@ pub struct Configuration {
     pub mock: Option<bool>,
 
     /// Timeout for message send operations in milliseconds.
-    pub send_timeout_ms: Option<u32>,
+    pub send_timeout_ms: Option<f64>,
 
     /// Consumer group name.
     pub group_id: Option<String>,
 
     /// Global shared cache capacity across all partitions for deduplicating
     /// messages. Must be greater than 0.
-    pub idempotence_cache_size: Option<u32>,
+    pub idempotence_cache_size: Option<f64>,
 
     /// Version string for cache-busting deduplication hashes.
     ///
@@ -46,7 +46,7 @@ pub struct Configuration {
     /// TTL for deduplication records in Cassandra in seconds.
     ///
     /// Must be at least 1 minute. Defaults to 7 days.
-    pub idempotence_ttl_s: Option<u32>,
+    pub idempotence_ttl_s: Option<f64>,
 
     /// Topics to subscribe to.
     pub subscribed_topics: Option<Either<String, Vec<String>>>,
@@ -59,45 +59,45 @@ pub struct Configuration {
     pub source_system: Option<String>,
 
     /// Maximum global concurrency limit.
-    pub max_concurrency: Option<u32>,
+    pub max_concurrency: Option<f64>,
 
     /// Max number of uncommitted messages.
-    pub max_uncommitted: Option<u16>,
+    pub max_uncommitted: Option<f64>,
 
     /// Threshold determining when message processing has stalled.
-    pub stall_threshold_ms: Option<u32>,
+    pub stall_threshold_ms: Option<f64>,
 
     /// Shutdown budget; handlers complete freely before cancellation fires
     /// near the deadline.
-    pub shutdown_timeout_ms: Option<u32>,
+    pub shutdown_timeout_ms: Option<f64>,
 
     /// Time between message polls in milliseconds.
-    pub poll_interval_ms: Option<u32>,
+    pub poll_interval_ms: Option<f64>,
 
     /// Time between offset commits in milliseconds.
-    pub commit_interval_ms: Option<u32>,
+    pub commit_interval_ms: Option<f64>,
 
     /// Operating mode.
     pub mode: Option<Mode>,
 
     /// Initial delay for exponential backoff in retries in milliseconds.
-    pub retry_base_ms: Option<u32>,
+    pub retry_base_ms: Option<f64>,
 
     /// Maximum number of retries.
-    pub max_retries: Option<u32>,
+    pub max_retries: Option<f64>,
 
     /// Maximum delay between retries in milliseconds.
-    pub max_retry_delay_ms: Option<u32>,
+    pub max_retry_delay_ms: Option<f64>,
 
     /// Topic for failed messages in low-latency mode.
     pub failure_topic: Option<String>,
 
     /// Port for the probe server. Set to null to disable.
-    pub probe_port: Option<Either<u16, Null>>,
+    pub probe_port: Option<Either<f64, Null>>,
 
     /// Timer slab partitioning duration in milliseconds.
     /// Controls how timers are grouped for storage and retrieval.
-    pub slab_size_ms: Option<u32>,
+    pub slab_size_ms: Option<f64>,
 
     /// Cassandra contact nodes (hostnames or IPs).
     pub cassandra_nodes: Option<Either<String, Vec<String>>>,
@@ -119,7 +119,7 @@ pub struct Configuration {
 
     /// Retention period for persistent timer and deferral data in Cassandra,
     /// in seconds.
-    pub cassandra_retention_seconds: Option<u32>,
+    pub cassandra_retention_seconds: Option<f64>,
 
     // Scheduler configuration
     /// Target proportion of execution time for failure/retry task processing
@@ -132,7 +132,7 @@ pub struct Configuration {
     /// intensity. Controls how quickly wait urgency ramps up for queued
     /// tasks. Shorter values make the scheduler more responsive to wait
     /// time.
-    pub scheduler_max_wait_ms: Option<u32>,
+    pub scheduler_max_wait_ms: Option<f64>,
 
     /// Maximum urgency boost (in seconds of virtual time) for waiting tasks.
     /// Higher values increase the importance of wait time relative to virtual
@@ -141,7 +141,7 @@ pub struct Configuration {
 
     /// Cache capacity for tracking per-key virtual time in the scheduler.
     /// Larger caches provide more accurate long-term fairness across many keys.
-    pub scheduler_cache_size: Option<u32>,
+    pub scheduler_cache_size: Option<f64>,
 
     // Monopolization configuration
     /// Whether monopolization detection is enabled.
@@ -154,11 +154,11 @@ pub struct Configuration {
     pub monopolization_threshold: Option<f64>,
 
     /// Rolling window duration (in milliseconds) for monopolization detection.
-    pub monopolization_window_ms: Option<u32>,
+    pub monopolization_window_ms: Option<f64>,
 
     /// Cache size for tracking key execution intervals in monopolization
     /// detection.
-    pub monopolization_cache_size: Option<u32>,
+    pub monopolization_cache_size: Option<f64>,
 
     // Defer configuration
     /// Whether deferral is enabled for new messages.
@@ -167,41 +167,41 @@ pub struct Configuration {
 
     /// Base exponential backoff delay for deferred retries in milliseconds.
     /// Handles persistent failures that need time to recover.
-    pub defer_base_ms: Option<u32>,
+    pub defer_base_ms: Option<f64>,
 
     /// Maximum delay between deferred retries in milliseconds.
     /// Caps exponential backoff to prevent excessively long delays.
-    pub defer_max_delay_ms: Option<u32>,
+    pub defer_max_delay_ms: Option<f64>,
 
     /// Failure rate threshold for disabling deferral (0.0 to 1.0).
     /// When exceeded within the failure window, deferral is disabled.
     pub defer_failure_threshold: Option<f64>,
 
     /// Sliding window duration (in milliseconds) for failure rate tracking.
-    pub defer_failure_window_ms: Option<u32>,
+    pub defer_failure_window_ms: Option<f64>,
 
     /// Maximum deferred store cache entries per Cassandra defer store.
     /// Env: `PROSODY_DEFER_STORE_CACHE_SIZE`. Default: 8192.
-    pub defer_store_cache_size: Option<u32>,
+    pub defer_store_cache_size: Option<f64>,
 
     // Kafka message loader configuration
     /// Capacity of the shared Kafka message loader cache.
     /// Env: `PROSODY_LOADER_CACHE_SIZE`. Default: 1024.
-    pub loader_cache_size: Option<u32>,
+    pub loader_cache_size: Option<f64>,
 
     /// Timeout for Kafka loader seek operations in milliseconds.
     /// Env: `PROSODY_LOADER_SEEK_TIMEOUT`. Default: 30 seconds.
-    pub loader_seek_timeout_ms: Option<u32>,
+    pub loader_seek_timeout_ms: Option<f64>,
 
     /// Messages to read sequentially before seeking.
     /// If next offset is within this threshold, reads rather than seeks.
     /// Env: `PROSODY_LOADER_DISCARD_THRESHOLD`. Default: 100.
-    pub loader_discard_threshold: Option<u32>,
+    pub loader_discard_threshold: Option<f64>,
 
     // Timeout configuration
     /// Fixed timeout duration for handler execution in milliseconds.
     /// If unset, defaults to 80% of stall threshold.
-    pub timeout_ms: Option<u32>,
+    pub timeout_ms: Option<f64>,
 
     // Telemetry emitter configuration
     /// Kafka topic to produce telemetry events to.
@@ -282,11 +282,11 @@ pub struct Configuration {
 
     /// Maximum channels and peer records in each peer cache. Uses
     /// `PROSODY_PEER_CACHE_CAPACITY` when omitted.
-    pub peer_cache_capacity: Option<u32>,
+    pub peer_cache_capacity: Option<f64>,
 
     /// Peer registration lease duration in seconds. Uses
     /// `PROSODY_PEER_REGISTRATION_TTL` when omitted.
-    pub peer_registration_ttl_seconds: Option<u32>,
+    pub peer_registration_ttl_seconds: Option<f64>,
 }
 
 /// Enum representing the operating mode of the Prosody client.
@@ -318,7 +318,8 @@ impl From<Mode> for ProsodyMode {
 /// @param config The Configuration to build from.
 /// @returns A `ProducerConfigurationBuilder` with the specified configuration
 /// options.
-pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+pub fn build_producer_config(config: &Configuration) -> Result<ProducerConfigurationBuilder> {
     let mut builder = ProducerConfigurationBuilder::default();
 
     if let Some(servers) = &config.bootstrap_servers {
@@ -333,11 +334,11 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
         builder.source_system(source_system);
     }
 
-    if let Some(timeout) = config.send_timeout_ms {
-        builder.send_timeout(Some(Duration::from_millis(u64::from(timeout))));
+    if let Some(value) = config.send_timeout_ms {
+        builder.send_timeout(Some(milliseconds(value, "sendTimeoutMs")?));
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `CassandraConfigurationBuilder` from the given Configuration.
@@ -345,7 +346,8 @@ pub fn build_producer_config(config: &Configuration) -> ProducerConfigurationBui
 /// @param config The Configuration to build from.
 /// @returns A `CassandraConfigurationBuilder` with the specified configuration
 /// options.
-pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+pub fn build_cassandra_config(config: &Configuration) -> Result<CassandraConfigurationBuilder> {
     let mut builder = CassandraConfigurationBuilder::default();
 
     if let Some(nodes) = &config.cassandra_nodes {
@@ -372,11 +374,11 @@ pub fn build_cassandra_config(config: &Configuration) -> CassandraConfigurationB
         builder.password(Some(password.clone()));
     }
 
-    if let Some(retention_seconds) = config.cassandra_retention_seconds {
-        builder.retention(Duration::from_secs(u64::from(retention_seconds)));
+    if let Some(value) = config.cassandra_retention_seconds {
+        builder.retention(seconds(value, "cassandraRetentionSeconds")?);
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Parses a string or vector of strings into a vector of strings.

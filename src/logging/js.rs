@@ -44,7 +44,8 @@ impl JsLogger {
     #[allow(dead_code)]
     pub fn new(logger: &Logger) -> napi::Result<Self> {
         // Create thread-safe functions for each log level
-        // Try to create them as weak references to prevent keeping the process alive
+        // Try to create them as weak references to prevent keeping the process
+        // alive
         let error = logger
             .error
             .build_threadsafe_function()

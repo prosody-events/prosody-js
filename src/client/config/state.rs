@@ -2,6 +2,7 @@
 //! validation, and collection registration.
 
 use super::Configuration;
+use crate::number::{milliseconds, whole};
 use napi::{Error, Result};
 use napi_derive::napi;
 use prosody::ByteSize;
@@ -17,7 +18,6 @@ use prosody::subsystem::SubsystemName;
 use prosody::timers::duration::CompactDuration;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::time::Duration;
 
 /// Declares one keyed-state collection to register before subscribe.
 #[napi(object)]
@@ -104,8 +104,8 @@ fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
         "set" => Ok(CollectionKind::Set),
         "deque" => Ok(CollectionKind::Deque),
         other => Err(Error::from_reason(format!(
-            "stateCollections[{index}].kind: expected \"value\", \"map\", \"set\", or \
-             \"deque\", got {other:?}"
+            "stateCollections[{index}].kind: expected \"value\", \"map\", \"set\", or \"deque\", \
+             got {other:?}"
         ))),
     }
 }
@@ -124,34 +124,6 @@ fn parse_payload(index: usize, payload: Option<&str>) -> Result<Option<Collectio
         Some(other) => Err(Error::from_reason(format!(
             "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
         ))),
-    }
-}
-
-/// Validates a JS number field as a whole number within `min..=max`.
-///
-/// The field arrives as an `f64` (the raw JS Number, un-coerced) so that
-/// fractional, negative, and non-finite values reach this guard instead of
-/// being silently truncated or wrapped by an earlier `u32` conversion. A
-/// value that is not finite, not integral, or outside the inclusive range is
-/// rejected with a permanent error naming the field.
-///
-/// @param value The raw JS number.
-/// @param field The dotted field label named in the error message.
-/// @param min The inclusive lower bound.
-/// @param max The inclusive upper bound.
-/// @returns The validated value as a `u32`.
-/// @throws Error (permanent) if the value is not a whole number in range.
-fn whole_number_field(value: f64, field: &str, min: u32, max: u32) -> Result<u32> {
-    if value.is_finite()
-        && value.fract() == 0.0
-        && value >= f64::from(min)
-        && value <= f64::from(max)
-    {
-        Ok(value as u32)
-    } else {
-        Err(Error::from_reason(format!(
-            "{field}: must be a whole number in {min}..={max}"
-        )))
     }
 }
 
@@ -187,10 +159,10 @@ fn with_def<D: StateDescriptor>(
 /// @returns The configured map descriptor.
 fn with_keyset<KC, V>(
     descriptor: MapDescriptor<KC, V>,
-    keyset_limit: Option<u32>,
+    keyset_limit: Option<usize>,
 ) -> MapDescriptor<KC, V> {
     match keyset_limit {
-        Some(limit) => descriptor.keyset_limit(limit as usize),
+        Some(limit) => descriptor.keyset_limit(limit),
         None => descriptor,
     }
 }
@@ -207,7 +179,7 @@ fn parse_keyset_limit(
     index: usize,
     collection: &StateCollectionConfig,
     kind: CollectionKind,
-) -> Result<Option<u32>> {
+) -> Result<Option<usize>> {
     let Some(value) = collection.keyset_limit else {
         return Ok(None);
     };
@@ -216,13 +188,7 @@ fn parse_keyset_limit(
             "stateCollections[{index}].keysetLimit: only valid for map and set collections"
         )));
     }
-    whole_number_field(
-        value,
-        &format!("stateCollections[{index}].keysetLimit"),
-        0,
-        u32::MAX,
-    )
-    .map(Some)
+    whole(value, &format!("stateCollections[{index}].keysetLimit")).map(Some)
 }
 
 /// Parses the deque-only capacity bound when configured.
@@ -246,21 +212,12 @@ fn parse_capacity(
             "stateCollections[{index}].capacity: only valid for deque collections"
         )));
     }
-    let bound = whole_number_field(
-        value,
-        &format!("stateCollections[{index}].capacity"),
-        1,
-        u32::MAX,
-    )?;
-    // `whole_number_field` with min 1 already rejects zero, so the `NonZeroUsize`
-    // conversion cannot fail; `ok_or_else` keeps it lint-clean (no unwrap).
-    Ok(Some(NonZeroUsize::new(bound as usize).ok_or_else(
-        || {
-            Error::from_reason(format!(
-                "stateCollections[{index}].capacity: must be positive"
-            ))
-        },
-    )?))
+    let field = format!("stateCollections[{index}].capacity");
+    NonZeroUsize::new(whole(value, &field)?)
+        .map(Some)
+        .ok_or_else(|| {
+            Error::from_reason(format!("{field}: must be a positive whole number, got 0"))
+        })
 }
 
 /// Validates one collection and registers its descriptor.
@@ -284,11 +241,9 @@ fn register_state_collection(
     let payload = parse_payload(index, collection.payload.as_deref())?;
 
     let ttl_seconds = match collection.ttl_seconds {
-        Some(value) => Some(whole_number_field(
+        Some(value) => Some(whole(
             value,
             &format!("stateCollections[{index}].ttlSeconds"),
-            0,
-            u32::MAX,
         )?),
         None => None,
     };
@@ -308,7 +263,7 @@ fn register_state_collection(
                 collection.published,
             );
             if let Some(limit) = keyset_limit {
-                descriptor = descriptor.keyset_limit(limit as usize);
+                descriptor = descriptor.keyset_limit(limit);
             }
             let _ = keyed.register(descriptor);
         }
@@ -428,11 +383,8 @@ pub(super) fn build_keyed_state_config(config: &Configuration) -> Result<KeyedSt
             (None, true) => {
                 builder.read_cache_ttl(None);
             }
-            (Some(milliseconds), false) => {
-                let ttl = Duration::try_from_secs_f64(milliseconds / 1_000.0).map_err(|_| {
-                    Error::from_reason("stateReadCache.ttlMs: must be a finite non-negative number")
-                })?;
-                builder.read_cache_ttl(Some(ttl));
+            (Some(value), false) => {
+                builder.read_cache_ttl(Some(milliseconds(value, "stateReadCache.ttlMs")?));
             }
             (Some(_), true) => {
                 return Err(Error::from_reason(

@@ -2,6 +2,7 @@ use crate::client::config::{
     Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
 };
 use crate::handler::JsHandler;
+use crate::number::milliseconds;
 use crate::published::{
     NativePublishedDeque, NativePublishedMap, NativePublishedSet, NativePublishedValue,
 };
@@ -51,9 +52,9 @@ impl NativeClient {
     #[allow(clippy::needless_pass_by_value)] // required by NAPI
     #[napi(factory, writable = false)]
     pub async fn create(config: Configuration) -> Result<Self> {
-        let mut producer_config = build_producer_config(&config);
+        let mut producer_config = build_producer_config(&config)?;
         let consumer_builders = build_consumer_builders(&config)?;
-        let cassandra = build_cassandra_config(&config);
+        let cassandra = build_cassandra_config(&config)?;
 
         let client = Box::pin(new_erased(
             config.mode.unwrap_or_default().into(),
@@ -437,8 +438,7 @@ fn request_parameters(
             SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
         })
         .collect::<Result<Vec<_>>>()?;
-    let timeout = Duration::try_from_secs_f64(timeout_ms / 1_000.0)
-        .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
+    let timeout = milliseconds(timeout_ms, "timeoutMs")?;
     Ok((subsystems, timeout))
 }
 

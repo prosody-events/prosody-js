@@ -2,7 +2,7 @@
 
 Configure via constructor options or environment variables. Options fall back to environment variables when unset.
 
-The JavaScript client reports values it cannot convert to Prosody types. Prosody validates configuration semantics when the client is built.
+The JavaScript client rejects a number that has no exact form in the Prosody type, such as a negative, fractional, or non-finite count. Prosody validates the converted values when the client is built.
 
 ## Core
 

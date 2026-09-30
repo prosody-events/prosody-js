@@ -37,6 +37,10 @@ pub use logging::{flush_telemetry, shutdown_telemetry};
 /// Module dealing with message-related functionality and structures.
 mod message;
 
+/// Module converting JavaScript numbers into Prosody integer and duration
+/// types.
+mod number;
+
 /// Module exposing read-only published keyed state.
 mod published;
 

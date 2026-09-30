@@ -2,6 +2,7 @@
 
 use super::state::build_keyed_state_config;
 use super::{Configuration, parse_string_or_vec};
+use crate::number::{milliseconds, seconds, whole};
 use napi::{Either, Error, Result};
 use prosody::PeerConfiguration;
 use prosody::PeerEndpoint;
@@ -20,7 +21,6 @@ use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
-use std::time::Duration;
 
 /// Builds a `ConsumerConfigurationBuilder` from the given Configuration.
 ///
@@ -51,35 +51,35 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.allowed_events(parse_string_or_vec(allowed_event_types));
     }
 
-    if let Some(max_uncommitted) = config.max_uncommitted {
-        builder.max_uncommitted(max_uncommitted as usize);
+    if let Some(value) = config.max_uncommitted {
+        builder.max_uncommitted(whole::<usize>(value, "maxUncommitted")?);
     }
 
-    if let Some(timeout) = config.stall_threshold_ms {
-        builder.stall_threshold(Duration::from_millis(u64::from(timeout)));
+    if let Some(value) = config.stall_threshold_ms {
+        builder.stall_threshold(milliseconds(value, "stallThresholdMs")?);
     }
 
-    if let Some(timeout) = config.shutdown_timeout_ms {
-        builder.shutdown_timeout(Duration::from_millis(u64::from(timeout)));
+    if let Some(value) = config.shutdown_timeout_ms {
+        builder.shutdown_timeout(milliseconds(value, "shutdownTimeoutMs")?);
     }
 
-    if let Some(interval) = config.poll_interval_ms {
-        builder.poll_interval(Duration::from_millis(u64::from(interval)));
+    if let Some(value) = config.poll_interval_ms {
+        builder.poll_interval(milliseconds(value, "pollIntervalMs")?);
     }
 
-    if let Some(interval) = config.commit_interval_ms {
-        builder.commit_interval(Duration::from_millis(u64::from(interval)));
+    if let Some(value) = config.commit_interval_ms {
+        builder.commit_interval(milliseconds(value, "commitIntervalMs")?);
     }
 
     if let Some(probe_port) = config.probe_port {
         builder.probe_port(match probe_port {
-            Either::A(port) => Some(port),
+            Either::A(port) => Some(whole::<u16>(port, "probePort")?),
             Either::B(_) => None,
         });
     }
 
-    if let Some(slab_size_ms) = config.slab_size_ms {
-        builder.slab_size(Duration::from_millis(u64::from(slab_size_ms)));
+    if let Some(value) = config.slab_size_ms {
+        builder.slab_size(milliseconds(value, "slabSizeMs")?);
     }
 
     if let Some(ref s) = config.message_spans {
@@ -99,14 +99,14 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         || config.loader_discard_threshold.is_some()
     {
         let mut loader = KafkaLoaderConfiguration::builder();
-        if let Some(cache_size) = config.loader_cache_size {
-            loader.cache_size(cache_size as usize);
+        if let Some(value) = config.loader_cache_size {
+            loader.cache_size(whole::<usize>(value, "loaderCacheSize")?);
         }
-        if let Some(seek_timeout_ms) = config.loader_seek_timeout_ms {
-            loader.seek_timeout(Duration::from_millis(u64::from(seek_timeout_ms)));
+        if let Some(value) = config.loader_seek_timeout_ms {
+            loader.seek_timeout(milliseconds(value, "loaderSeekTimeoutMs")?);
         }
-        if let Some(discard_threshold) = config.loader_discard_threshold {
-            loader.discard_threshold(i64::from(discard_threshold));
+        if let Some(value) = config.loader_discard_threshold {
+            loader.discard_threshold(whole::<i64>(value, "loaderDiscardThreshold")?);
         }
         let loader = loader
             .build()
@@ -122,22 +122,23 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
 /// @param config The Configuration to build from.
 /// @returns A `RetryConfigurationBuilder` with the specified configuration
 /// options.
-pub fn build_retry_config(config: &Configuration) -> RetryConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+pub fn build_retry_config(config: &Configuration) -> Result<RetryConfigurationBuilder> {
     let mut builder = RetryConfigurationBuilder::default();
 
-    if let Some(base) = config.retry_base_ms {
-        builder.base(Duration::from_millis(u64::from(base)));
+    if let Some(value) = config.retry_base_ms {
+        builder.base(milliseconds(value, "retryBaseMs")?);
     }
 
-    if let Some(max_retries) = config.max_retries {
-        builder.max_retries(max_retries);
+    if let Some(value) = config.max_retries {
+        builder.max_retries(whole::<u32>(value, "maxRetries")?);
     }
 
-    if let Some(max_delay) = config.max_retry_delay_ms {
-        builder.max_delay(Duration::from_millis(u64::from(max_delay)));
+    if let Some(value) = config.max_retry_delay_ms {
+        builder.max_delay(milliseconds(value, "maxRetryDelayMs")?);
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `FailureTopicConfigurationBuilder` from the given Configuration.
@@ -160,30 +161,31 @@ pub fn build_failure_topic_config(config: &Configuration) -> FailureTopicConfigu
 /// @param config The Configuration to build from.
 /// @returns A `SchedulerConfigurationBuilder` with the specified configuration
 /// options.
-fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+fn build_scheduler_config(config: &Configuration) -> Result<SchedulerConfigurationBuilder> {
     let mut builder = SchedulerConfigurationBuilder::default();
 
-    if let Some(max_concurrency) = config.max_concurrency {
-        builder.max_concurrency(max_concurrency as usize);
+    if let Some(value) = config.max_concurrency {
+        builder.max_concurrency(whole::<usize>(value, "maxConcurrency")?);
     }
 
     if let Some(failure_weight) = config.scheduler_failure_weight {
         builder.failure_weight(failure_weight);
     }
 
-    if let Some(max_wait_ms) = config.scheduler_max_wait_ms {
-        builder.max_wait(Duration::from_millis(u64::from(max_wait_ms)));
+    if let Some(value) = config.scheduler_max_wait_ms {
+        builder.max_wait(milliseconds(value, "schedulerMaxWaitMs")?);
     }
 
     if let Some(wait_weight) = config.scheduler_wait_weight {
         builder.wait_weight(wait_weight);
     }
 
-    if let Some(cache_size) = config.scheduler_cache_size {
-        builder.cache_size(cache_size as usize);
+    if let Some(value) = config.scheduler_cache_size {
+        builder.cache_size(whole::<usize>(value, "schedulerCacheSize")?);
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `MonopolizationConfigurationBuilder` from the given Configuration.
@@ -191,7 +193,10 @@ fn build_scheduler_config(config: &Configuration) -> SchedulerConfigurationBuild
 /// @param config The Configuration to build from.
 /// @returns A `MonopolizationConfigurationBuilder` with the specified
 /// configuration options.
-fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+fn build_monopolization_config(
+    config: &Configuration,
+) -> Result<MonopolizationConfigurationBuilder> {
     let mut builder = MonopolizationConfigurationBuilder::default();
 
     if let Some(enabled) = config.monopolization_enabled {
@@ -202,15 +207,15 @@ fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigur
         builder.monopolization_threshold(threshold);
     }
 
-    if let Some(window_ms) = config.monopolization_window_ms {
-        builder.window_duration(Duration::from_millis(u64::from(window_ms)));
+    if let Some(value) = config.monopolization_window_ms {
+        builder.window_duration(milliseconds(value, "monopolizationWindowMs")?);
     }
 
-    if let Some(cache_size) = config.monopolization_cache_size {
-        builder.cache_size(cache_size as usize);
+    if let Some(value) = config.monopolization_cache_size {
+        builder.cache_size(whole::<usize>(value, "monopolizationCacheSize")?);
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `DeferConfigurationBuilder` from the given Configuration.
@@ -218,34 +223,35 @@ fn build_monopolization_config(config: &Configuration) -> MonopolizationConfigur
 /// @param config The Configuration to build from.
 /// @returns A `DeferConfigurationBuilder` with the specified configuration
 /// options.
-fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
+/// @throws Error if a number cannot convert.
+fn build_defer_config(config: &Configuration) -> Result<DeferConfigurationBuilder> {
     let mut builder = DeferConfigurationBuilder::default();
 
     if let Some(enabled) = config.defer_enabled {
         builder.enabled(enabled);
     }
 
-    if let Some(base_ms) = config.defer_base_ms {
-        builder.base(Duration::from_millis(u64::from(base_ms)));
+    if let Some(value) = config.defer_base_ms {
+        builder.base(milliseconds(value, "deferBaseMs")?);
     }
 
-    if let Some(max_delay_ms) = config.defer_max_delay_ms {
-        builder.max_delay(Duration::from_millis(u64::from(max_delay_ms)));
+    if let Some(value) = config.defer_max_delay_ms {
+        builder.max_delay(milliseconds(value, "deferMaxDelayMs")?);
     }
 
     if let Some(failure_threshold) = config.defer_failure_threshold {
         builder.failure_threshold(failure_threshold);
     }
 
-    if let Some(failure_window_ms) = config.defer_failure_window_ms {
-        builder.failure_window(Duration::from_millis(u64::from(failure_window_ms)));
+    if let Some(value) = config.defer_failure_window_ms {
+        builder.failure_window(milliseconds(value, "deferFailureWindowMs")?);
     }
 
-    if let Some(store_cache_size) = config.defer_store_cache_size {
-        builder.store_cache_size(store_cache_size as usize);
+    if let Some(value) = config.defer_store_cache_size {
+        builder.store_cache_size(whole::<usize>(value, "deferStoreCacheSize")?);
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `TimeoutConfigurationBuilder` from the given Configuration.
@@ -253,14 +259,15 @@ fn build_defer_config(config: &Configuration) -> DeferConfigurationBuilder {
 /// @param config The Configuration to build from.
 /// @returns A `TimeoutConfigurationBuilder` with the specified configuration
 /// options.
-fn build_timeout_config(config: &Configuration) -> TimeoutConfigurationBuilder {
+/// @throws Error if the number cannot convert.
+fn build_timeout_config(config: &Configuration) -> Result<TimeoutConfigurationBuilder> {
     let mut builder = TimeoutConfigurationBuilder::default();
 
-    if let Some(timeout_ms) = config.timeout_ms {
-        builder.timeout(Some(Duration::from_millis(u64::from(timeout_ms))));
+    if let Some(value) = config.timeout_ms {
+        builder.timeout(Some(milliseconds(value, "timeoutMs")?));
     }
 
-    builder
+    Ok(builder)
 }
 
 /// Builds a `TelemetryEmitterConfiguration` from the given Configuration.
@@ -292,9 +299,11 @@ fn build_emitter_config(config: &Configuration) -> Result<TelemetryEmitterConfig
 fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurationBuilder> {
     let mut builder = DeduplicationConfigurationBuilder::default();
 
-    if let Some(cache_capacity) = config.idempotence_cache_size {
-        let capacity = NonZeroUsize::new(cache_capacity as usize)
-            .ok_or_else(|| Error::from_reason("idempotence_cache_size must be greater than 0"))?;
+    if let Some(value) = config.idempotence_cache_size {
+        let capacity =
+            NonZeroUsize::new(whole(value, "idempotenceCacheSize")?).ok_or_else(|| {
+                Error::from_reason("idempotenceCacheSize: must be a positive whole number, got 0")
+            })?;
         builder.cache_capacity(capacity);
     }
 
@@ -302,8 +311,8 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
         builder.version(version.clone());
     }
 
-    if let Some(ttl_s) = config.idempotence_ttl_s {
-        builder.ttl(Duration::from_secs(u64::from(ttl_s)));
+    if let Some(value) = config.idempotence_ttl_s {
+        builder.ttl(seconds(value, "idempotenceTtlS")?);
     }
 
     Ok(builder)
@@ -318,12 +327,12 @@ pub fn build_consumer_builders(config: &Configuration) -> Result<ConsumerBuilder
     Ok(ConsumerBuilders {
         consumer: build_consumer_config(config)?,
         dedup: build_dedup_config(config)?,
-        retry: build_retry_config(config),
+        retry: build_retry_config(config)?,
         failure_topic: build_failure_topic_config(config),
-        scheduler: build_scheduler_config(config),
-        monopolization: build_monopolization_config(config),
-        defer: build_defer_config(config),
-        timeout: build_timeout_config(config),
+        scheduler: build_scheduler_config(config)?,
+        monopolization: build_monopolization_config(config)?,
+        defer: build_defer_config(config)?,
+        timeout: build_timeout_config(config)?,
         emitter: build_emitter_config(config)?,
         keyed_state: build_keyed_state_config(config)?,
         peer: build_peer_config(config)?,
@@ -349,10 +358,10 @@ fn build_peer_config(config: &Configuration) -> Result<PeerConfiguration> {
         builder.network_name(value.clone());
     }
     if let Some(value) = config.peer_cache_capacity {
-        builder.peer_cache_capacity(value as usize);
+        builder.peer_cache_capacity(whole::<usize>(value, "peerCacheCapacity")?);
     }
     if let Some(value) = config.peer_registration_ttl_seconds {
-        builder.registration_ttl(Duration::from_secs(u64::from(value)));
+        builder.registration_ttl(seconds(value, "peerRegistrationTtlSeconds")?);
     }
     builder
         .build()

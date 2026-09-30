@@ -274,15 +274,16 @@ impl JsHandler {
 
 impl FromNapiValue for JsHandler {
     // SAFETY: This implementation is safe because:
-    // 1. We validate the input by calling JsObject::from_napi_value, which performs
-    //    proper type checking and will return an error if the napi_value is not a
-    //    valid JavaScript object
-    // 2. The napi_env and napi_value parameters are guaranteed to be valid by the
-    //    N-API runtime when this method is called through the NAPI-RS framework
+    // 1. We validate the input by calling JsObject::from_napi_value, which
+    //    performs proper type checking and will return an error if the
+    //    napi_value is not a valid JavaScript object
+    // 2. The napi_env and napi_value parameters are guaranteed to be valid by
+    //    the N-API runtime when this method is called through the NAPI-RS
+    //    framework
     // 3. We only access object properties using safe NAPI-RS methods
     //    (get_named_property) which validate property existence and types
-    // 4. The conversion to NativeHandler is temporary and only used to create the
-    //    thread-safe JsHandler
+    // 4. The conversion to NativeHandler is temporary and only used to create
+    //    the thread-safe JsHandler
     // 5. All JavaScript function references are immediately converted to
     //    ThreadsafeFunction objects which are safe to use across threads
     // 6. No raw pointers or memory are directly manipulated - all operations go
@@ -395,7 +396,8 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        // Only process application timers; internal timers are handled by middleware
+        // Only process application timers; internal timers are handled by
+        // middleware
         if trigger.timer_type != TimerType::Application {
             return Ok(BinaryPayload::new(
                 b"null".to_vec(),

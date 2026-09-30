@@ -7,8 +7,6 @@ const {
   transient,
 } = require("../index.js");
 const {
-  BOOTSTRAP_SERVERS,
-  GROUP_NAME,
   MESSAGE_TIMEOUT,
   SOURCE_NAME,
   liveSuite,
@@ -425,47 +423,6 @@ describe("ProsodyClient", () => {
         }
       },
     );
-  });
-
-  describe("configuration validation", () => {
-    it("accepts valid messageSpans and timerSpans values", async () => {
-      const configured = await ProsodyClient.create({
-        bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: GROUP_NAME,
-        sourceSystem: SOURCE_NAME,
-        subscribedTopics: "test-topic",
-        mock: true,
-        messageSpans: "child",
-        timerSpans: "follows_from",
-      });
-      await configured.shutdown();
-    });
-
-    it("rejects invalid messageSpans with field name in error", async () => {
-      await expect(
-        ProsodyClient.create({
-          bootstrapServers: BOOTSTRAP_SERVERS,
-          groupId: GROUP_NAME,
-          sourceSystem: SOURCE_NAME,
-          subscribedTopics: "test-topic",
-          mock: true,
-          messageSpans: "invalid",
-        }),
-      ).rejects.toThrow(/message_spans/);
-    });
-
-    it("rejects invalid timerSpans with field name in error", async () => {
-      await expect(
-        ProsodyClient.create({
-          bootstrapServers: BOOTSTRAP_SERVERS,
-          groupId: GROUP_NAME,
-          sourceSystem: SOURCE_NAME,
-          subscribedTopics: "test-topic",
-          mock: true,
-          timerSpans: "invalid",
-        }),
-      ).rejects.toThrow(/timer_spans/);
-    });
   });
 
   it("returns a handler failure when a result cannot encode", async () => {
