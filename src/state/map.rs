@@ -65,18 +65,16 @@ impl NativeJsonMapState {
             .and_then(|items| items.into_iter().map(json_value).collect())
     }
 
-    /// Reports whether a stored cell exists for `key`.
+    /// Reports whether the map holds an entry for `key`.
     ///
-    /// Reads the event's dirty overlay (read-your-writes) and answers presence
-    /// WITHOUT decoding the value or running the resolver — a message-backed
-    /// map answers with zero Kafka fetches and can report `true` for a
-    /// message that can no longer be fetched. This is NOT "no I/O": a cache
-    /// miss can still reach Cassandra, so it is async and fallible exactly
-    /// like `get`.
+    /// The answer includes the uncommitted writes of this event. It does not
+    /// decode the value, so a message map reads no Kafka message and can
+    /// report `true` for a message that Kafka no longer holds. A cache miss
+    /// still reads Cassandra, so the call is async and can fail like `get`.
     ///
     /// @param key The map key.
     /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when a stored cell exists for `key`.
+    /// @returns True when the map holds an entry for `key`.
     /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn contains(
@@ -270,7 +268,7 @@ impl NativeMessageMapState {
             .map_err(|e| state_error(&e))
     }
 
-    /// Reports whether `key` has a stored cell.
+    /// Reports whether the published map holds an entry for `key`.
     #[napi(writable = false)]
     pub async fn contains(
         &self,

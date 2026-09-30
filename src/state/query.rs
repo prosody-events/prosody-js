@@ -1,7 +1,8 @@
 //! Query options that cross from JavaScript into core queries.
 //!
-//! `index.js` checks the option shapes: exclusive edge pairs, a `range` of two
-//! bounds, a positive integer `limit`, and non-negative integer positions. This
+//! `lib/state/query.js` checks the option shapes: exclusive edge pairs, a
+//! `range` of two bounds, a positive integer `limit`, and non-negative integer
+//! positions. This
 //! module only maps the checked values onto the core builders. It applies the
 //! direction first, because core reads `from`, `after`, `to`, and `before` in
 //! query order. A `range` is ascending in either direction, and a `null` bound

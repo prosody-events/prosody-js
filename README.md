@@ -62,7 +62,7 @@ async function main() {
 
     onMessage: async (context, message, signal) => {
       // Process the received message
-      console.log(`Received message: ${JSON.stringify(message)}`);
+      console.log(`Received message: ${JSON.stringify(message.payload)}`);
 
       // Schedule a timer for delayed processing
       if (message.payload.scheduleFollowup) {
@@ -221,7 +221,7 @@ Or via environment variables:
 
 ```bash
 PROSODY_PROBE_PORT=8000  # Set to 'none' to disable
-PROSODY_STALL_THRESHOLD=15s  # Default stall detection threshold
+PROSODY_STALL_THRESHOLD=15s  # The default is 5m
 ```
 
 ### Important Notes
@@ -234,14 +234,14 @@ PROSODY_STALL_THRESHOLD=15s  # Default stall detection threshold
    issues.
 5. The probe server is only active when consuming messages (not for producer-only usage).
 
-You can monitor the stall state programmatically using the client's properties:
+You can monitor the stall state programmatically through the client's async methods:
 
 ```javascript
 // Get the number of partitions currently assigned to this consumer
-const partitionCount = client.assignedPartitionCount;
+const partitionCount = await client.assignedPartitionCount();
 
 // You can use these in your own health checks or monitoring
-if (client.isStalled) {
+if (await client.isStalled()) {
   console.warn("Consumer has stalled partitions");
 }
 ```
@@ -309,19 +309,19 @@ All messages must be processed. Retries indefinitely. Uses defer and monopolizat
 **Middleware stack:**
 
 ```
-Kafka → Deduplication → Retry → Defer → Monopolization → Shutdown → Scheduler → Timeout → Telemetry → Handler
+Kafka → Retry → Defer → Monopolization → Deduplication → Cancellation → Scheduler → Timeout → Telemetry → Handler
 ```
 
-| Layer          | Purpose                                           |
-| -------------- | ------------------------------------------------- |
-| Deduplication  | Skips messages whose ID was already processed     |
-| Retry          | Retries transient errors indefinitely             |
-| Defer          | Stores failing messages for timer-based retry     |
-| Monopolization | Rejects keys exceeding execution time threshold   |
-| Shutdown       | Drains in-flight work on partition revocation     |
-| Scheduler      | Enforces concurrency limits and VT-based priority |
-| Timeout        | Cancels handlers exceeding deadline               |
-| Telemetry      | Emits handler lifecycle events                    |
+| Layer          | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| Retry          | Retries transient errors indefinitely                  |
+| Defer          | Stores failing messages for timer-based retry          |
+| Monopolization | Rejects keys exceeding execution time threshold        |
+| Deduplication  | Filters duplicate messages via local cache + Cassandra |
+| Cancellation   | Skips work once shutdown or cancellation is signaled   |
+| Scheduler      | Enforces concurrency limits and VT-based priority      |
+| Timeout        | Cancels handlers exceeding deadline                    |
+| Telemetry      | Emits handler lifecycle events                         |
 
 ```javascript
 const client = await ProsodyClient.create({
@@ -593,11 +593,13 @@ to classify exceptions that should not be retried:
 ```javascript
 import { permanent, ProsodyClient } from "@prosody-events/prosody";
 
+class ValidationError extends Error {}
+
 class MyHandler {
-  @permanent(TypeError, AttributeError)
+  @permanent(TypeError, ValidationError)
   async onMessage(context, message, signal) {
     // Your message handling logic here
-    // TypeError and AttributeError will be treated as permanent
+    // TypeError and ValidationError will be treated as permanent
     // All other exceptions will be treated as transient (default behavior)
     return null;
   }
@@ -620,13 +622,15 @@ If you're not using decorators, you can still classify errors as permanent by th
 ```javascript
 import { PermanentError, ProsodyClient } from "@prosody-events/prosody";
 
+class ValidationError extends Error {}
+
 const messageHandler = {
   onMessage: async (context, message, signal) => {
     try {
       // Your message handling logic here
     } catch (error) {
-      if (error instanceof TypeError || error instanceof AttributeError) {
-        throw new PermanentError(error.message);
+      if (error instanceof TypeError || error instanceof ValidationError) {
+        throw new PermanentError(error.message, { cause: error });
       }
       // All other exceptions will be treated as transient (default behavior)
       throw error;
@@ -772,7 +776,7 @@ await seen.add(message.payload.orderId);
 
 ### Query a collection
 
-Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the cells it selects.
+Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the entries, members, or values it selects.
 
 | Option           | Effect                                                                                                           |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -899,7 +903,7 @@ const tracer = opentelemetry.trace.getTracer("my-service-name");
 Set the following standard OpenTelemetry environment variables:
 
 ```
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_SERVICE_NAME=my-service-name
 ```
@@ -931,7 +935,7 @@ const messageHandler = {
     try {
       // Process the received message
       span.addEvent("message.received", {
-        "message.payload": JSON.stringify(message),
+        "message.payload": JSON.stringify(message.payload),
       });
     } finally {
       span.end();
@@ -1233,7 +1237,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | SetState | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
+- `state(definition): ValueState<T> | MapState<V> | SetState | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state).
 
 ### Timer
 

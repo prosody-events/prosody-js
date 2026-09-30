@@ -43,11 +43,10 @@ export type SetDefinitionOptions = MapDefinitionOptions;
 /** Options accepted by the deque definition constructors. */
 export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
   /**
-   * Optional maximum element count (bounded backlog). Must be a whole number
-   * >= 1. Runtime-only: not persisted, not part of collection identity, and
-   * changeable across deploys. Enforced lazily on push — the opposite end is
-   * evicted toward the bound (no decode, no fetch); a shrunk deque reports its
-   * old length until the next push trims it. Deque collections only.
+   * Optional maximum value count, at least 1. Prosody does not store it and it
+   * is not part of the collection identity, so a deploy can change it. A push
+   * past the bound removes values from the opposite end. A deque above a new,
+   * smaller bound keeps its length until the next push trims it.
    */
   capacity?: number;
 }

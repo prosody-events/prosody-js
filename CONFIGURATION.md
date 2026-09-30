@@ -160,6 +160,7 @@ Published collections require `subsystem`. Keep it configured for one deployment
 | `ttlSeconds`      | Per-write TTL in whole seconds (at least 1)                                                                      | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                                              | false      |
 | `published`       | Allow other clients to read this JSON or set collection without subscribing                                      | false      |
-| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted                                     | inherit    |
 | `keysetLimit`     | Map and set only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)                          | 128        |
 | `capacity`        | Deque-only; maximum slot count (at least 1), enforced lazily on push. Runtime-only and may change across deploys | unbounded  |
+
+A JSON or set definition also takes `readCache`. It is not a `StateCollectionConfig` field, and Prosody ignores it in a raw `stateCollections` entry. It applies when `client.state()` opens the published reader of the definition: `{ ttlMs }` sets the cache duration, `false` turns the cache off, and an absent value uses `stateReadCache`.

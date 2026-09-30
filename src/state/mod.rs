@@ -21,7 +21,8 @@
 //! transports and types. Caller-mistake conditions the glue detects (an
 //! unrepresentable value, a `null` write, or an invalid enum
 //! token) reject TRANSIENT — a caller code error retries and stays visible
-//! rather than discarding the message (see CLAUDE.md error-classification).
+//! rather than discarding the message (see the error classification rule in
+//! AGENTS.md).
 
 use crate::message::Message;
 use napi::bindgen_prelude::{FromNapiValue, TypeName, ValueType, sys};
@@ -123,7 +124,8 @@ pub(crate) fn state_error(error: &ErasedStateError) -> Error {
 /// the in-flight message and can silently lose data or corrupt downstream
 /// state, so a code error retries and stays visible (logs/metrics/lag) instead
 /// — the developer sees it and fixes their code. Only an explicit caller
-/// `PermanentError` throw is permanent (see CLAUDE.md error-classification).
+/// `PermanentError` throw is permanent (see the error classification rule in
+/// AGENTS.md).
 ///
 /// @param message The human-readable error message.
 /// @returns The structured napi error tagged transient.
@@ -131,12 +133,12 @@ fn transient_error(message: String) -> Error {
     tagged_error("transient", message)
 }
 
-/// Builds a permanent-category napi error for a stored cell that cannot be
+/// Builds a permanent-category napi error for a stored value that cannot be
 /// decoded.
 ///
 /// Corruption is not a caller mistake and no retry resolves it, so it is the
 /// one condition this layer raises permanent. It surfaces on the read that
-/// touched the cell rather than being swallowed, which is the only place a
+/// touched the value rather than being swallowed, which is the only place a
 /// caller can see which collection and key went bad.
 ///
 /// @param message The human-readable error message.
@@ -200,7 +202,7 @@ fn json_payload(json: String, advice: &str) -> napi::Result<BinaryPayload> {
 ///
 /// Takes the payload's bytes; UTF-8 validation is a scan, not a copy. Every
 /// document this layer stores came from `JSON.stringify`, so invalid UTF-8
-/// means a corrupt cell — see [`permanent_error`] for why that is the one
+/// means a corrupt value — see [`permanent_error`] for why that is the one
 /// permanent condition here.
 ///
 /// @param payload The stored document.

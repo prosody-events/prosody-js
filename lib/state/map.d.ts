@@ -19,11 +19,10 @@ export declare class MapState<V = JsonValue> {
   /** Reads the value for `key`, or null when the key is absent. */
   get(key: string): Promise<V | null>;
   /**
-   * Reads several keys in a single call. Returns an array with one entry per
-   * key, in the same order you asked, so `result[i]` is the value for
-   * `keys[i]`. A key that isn't there comes back as `null`, and a key you list
-   * more than once is answered at each spot. The whole read happens as one
-   * step, so no other change to this event's state can slip in partway through.
+   * Reads several keys in one call. The result has one entry per key, in the
+   * order given, so `result[i]` is the value for `keys[i]`. An absent key reads
+   * as `null`. A repeated key gets an entry at each position. No other change
+   * to the state of this event occurs during the read.
    */
   getMany(keys: readonly string[]): Promise<(V | null)[]>;
   /**

@@ -43,29 +43,30 @@ export class PermanentError extends EventHandlerError {
 }
 
 /**
- * Represents a transient keyed-state failure that may succeed on a later
- * attempt — a store read/write timeout, AND every caller mistake (a
- * null/unrepresentable write, an item-shape mismatch, an out-of-range index, an
- * invalid scan direction). Caller mistakes are transient on purpose so they
- * retry and stay visible rather than discarding the message. Subclasses
- * {@link TransientError}, so rethrowing it from a handler classifies the event
- * transient through the existing error bridge unchanged.
+ * A keyed-state failure that a later attempt can resolve.
+ *
+ * A store timeout is transient. A caller mistake is transient too: a null or
+ * unrepresentable write, a wrong item type, a bad index, or a bad scan
+ * direction. The event then retries, so the mistake stays visible and no
+ * message is discarded. It extends {@link TransientError}, so a handler that
+ * rethrows it retries the event.
  */
 export class TransientStateError extends TransientError {}
 
 /**
- * Represents a permanent keyed-state failure a retry cannot resolve in-process
- * — an unregistered collection name, a registered-identity mismatch, or a
- * duplicate registration (or one a handler throws explicitly). Caller mistakes
- * are NOT permanent; they are {@link TransientStateError}. Subclasses
- * {@link PermanentError}, so rethrowing it from a handler classifies the event
- * permanent through the existing error bridge unchanged.
+ * A keyed-state failure that no retry in this process can resolve.
+ *
+ * Examples are an unregistered collection name, a registered identity that
+ * does not match, and a stored value that cannot be decoded. A caller mistake
+ * is a {@link TransientStateError} instead. A handler can also throw this
+ * error to mark its own failure permanent. It extends {@link PermanentError},
+ * so a handler that rethrows it does not retry the event.
  */
 export class PermanentStateError extends PermanentError {}
 
 /**
- * Name-branded predicate that narrows to either keyed-state error class,
- * regardless of category.
+ * Checks whether a value is a keyed-state error of either category. It
+ * matches the error `name`, so it also recognizes an error from another realm.
  *
  * @param error - The value to test.
  * @returns True when the value is a keyed-state error.
