@@ -229,7 +229,7 @@ export async function checks(): Promise<void> {
   // @ts-expect-error the query direction is the closed ScanDirection set
   t.values({ direction: "sideways" });
 
-  // ---- range: ascending [start, end], exclusive with the edges ----
+  // ---- range: ascending [start, end]; null is open; edges overlap ----
   const span: KeyQuery = { range: ["a", "m"], direction: "backward" };
   for await (const [key] of publishedTotals.entries("user-1", span)) {
     assertTrue<Equal<typeof key, string>>();
@@ -240,10 +240,20 @@ export async function checks(): Promise<void> {
     assertTrue<Equal<typeof item, string>>();
     void item;
   }
-  // @ts-expect-error range excludes the edges
-  t.keys({ range: ["a", "m"], from: "b" });
-  // @ts-expect-error range excludes the edges
-  d.values({ range: [1, 4], before: 3 });
+  const overlap: KeyQuery = { range: ["a", null], after: "b", to: "k" };
+  for await (const key of t.keys(overlap)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const item of d.values({ range: [null, 4], from: 1 })) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  d.values({ range: [null, null] });
+  // @ts-expect-error an open bound is null, not undefined
+  t.keys({ range: ["a", undefined] });
+  // @ts-expect-error a range still keeps the edge pairs exclusive
+  d.values({ range: [1, 4], to: 2, before: 3 });
   // @ts-expect-error a range holds exactly two bounds
   t.keys({ range: ["a"] });
   // @ts-expect-error key ranges hold strings

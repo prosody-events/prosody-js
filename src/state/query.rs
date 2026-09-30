@@ -1,15 +1,18 @@
 //! Query options that cross from JavaScript into core queries.
 //!
 //! `index.js` checks the option shapes: exclusive edge pairs, a `range` of two
-//! bounds without edges, a positive integer `limit`, and non-negative integer
-//! positions. This module only maps the checked values onto the core builders.
-//! It applies the direction first, because core reads `from`, `after`, `to`,
-//! and `before` in query order. A `range` is ascending in either direction.
+//! bounds, a positive integer `limit`, and non-negative integer positions. This
+//! module only maps the checked values onto the core builders. It applies the
+//! direction first, because core reads `from`, `after`, `to`, and `before` in
+//! query order. A `range` is ascending in either direction, and a `null` bound
+//! leaves its end open. Core narrows the query by the edges and the range, so a
+//! query that sets both keeps their overlap.
 
 use super::{Direction, parse_direction, transient_error};
 use napi_derive::napi;
 use prosody::state::{DequeQuery, ErasedKeyQuery};
 use std::num::NonZeroUsize;
+use std::ops::Bound;
 
 /// Query options for map keys, map entries, and set members.
 #[napi(object)]
@@ -27,7 +30,8 @@ pub struct NativeKeyQuery {
     /// Stops before this key in query order.
     pub before: Option<String>,
     /// Keeps keys from the first bound up to, but not including, the second.
-    pub range: Option<Vec<String>>,
+    /// A `null` bound leaves its end open.
+    pub range: Option<Vec<Option<String>>>,
     /// The maximum number of results.
     pub limit: Option<i64>,
 }
@@ -46,8 +50,8 @@ pub struct NativePositionQuery {
     /// Stops before this position in query order.
     pub before: Option<i64>,
     /// Keeps positions from the first bound up to, but not including, the
-    /// second.
-    pub range: Option<Vec<i64>>,
+    /// second. A `null` bound leaves its end open.
+    pub range: Option<Vec<Option<i64>>>,
     /// The maximum number of results.
     pub limit: Option<i64>,
 }
@@ -76,8 +80,7 @@ impl NativeKeyQuery {
             query = query.before(key);
         }
         if let Some(range) = self.range {
-            let [start, end] = range_bounds(range)?;
-            query = query.range(start..end);
+            query = query.range(half_open(range)?);
         }
         if let Some(limit) = self.limit {
             query = query.limit(limit_count(limit)?);
@@ -107,8 +110,8 @@ impl NativePositionQuery {
             query = query.before(position_index(position)?);
         }
         if let Some(range) = self.range {
-            let [start, end] = range_bounds(range)?;
-            query = query.range(position_index(start)?..position_index(end)?);
+            let (start, end) = half_open(range)?;
+            query = query.range((position_bound(start)?, position_bound(end)?));
         }
         if let Some(limit) = self.limit {
             query = query.limit(limit_count(limit)?);
@@ -122,14 +125,29 @@ fn direction(token: Option<String>) -> napi::Result<Direction> {
     token.map_or(Ok(Direction::Forward), parse_direction)
 }
 
-/// Takes the two bounds of a range.
+/// Converts `[start, end]` into half-open bounds. A `None` bound is open.
 ///
 /// @throws Error (transient) if the range does not hold exactly two bounds.
-fn range_bounds<T>(range: Vec<T>) -> napi::Result<[T; 2]> {
+fn half_open<T>(range: Vec<Option<T>>) -> napi::Result<(Bound<T>, Bound<T>)> {
     let count = range.len();
-    range
+    let [start, end]: [Option<T>; 2] = range
         .try_into()
-        .map_err(|_| transient_error(format!("range must hold two bounds, got {count}")))
+        .map_err(|_| transient_error(format!("range must hold two bounds, got {count}")))?;
+    Ok((
+        start.map_or(Bound::Unbounded, Bound::Included),
+        end.map_or(Bound::Unbounded, Bound::Excluded),
+    ))
+}
+
+/// Converts a range bound on a front-relative position.
+///
+/// @throws Error (transient) if the position is negative.
+fn position_bound(bound: Bound<i64>) -> napi::Result<Bound<usize>> {
+    Ok(match bound {
+        Bound::Included(position) => Bound::Included(position_index(position)?),
+        Bound::Excluded(position) => Bound::Excluded(position_index(position)?),
+        Bound::Unbounded => Bound::Unbounded,
+    })
 }
 
 /// Converts a front-relative position.

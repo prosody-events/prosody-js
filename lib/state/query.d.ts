@@ -29,26 +29,23 @@ export type QueryEnd<B> =
 
 /**
  * An ascending, half-open range: `[start, end]` keeps the keys or positions
- * from `start` up to, but not including, `end`. The range applies in both directions, so a
- * backward query yields the same items in the opposite order. A range whose
- * `start` is not below its `end` selects nothing. A range excludes the edges
- * `from`, `after`, `to`, and `before`; setting both throws a `TypeError`.
+ * from `start` up to, but not including, `end`. A `null` bound leaves its end
+ * open, so `[2, null]` keeps position 2 and every later one. The range applies
+ * in both directions, so a backward query yields the same items in the
+ * opposite order. A range whose `start` is not below its `end` selects
+ * nothing.
  */
-export type QueryRange<B> = readonly [start: B, end: B];
+export type QueryRange<B> = readonly [start: B | null, end: B | null];
 
 /**
- * The bounds of a query: the edges, or one range. Set a range or edges, not
- * both.
+ * The bounds of a query: the edges and an optional range. A query that sets
+ * both keeps their overlap.
  */
-export type QueryBounds<B> =
-  | (QueryStart<B> & QueryEnd<B> & { readonly range?: never })
-  | {
-      readonly range: QueryRange<B>;
-      readonly from?: never;
-      readonly after?: never;
-      readonly to?: never;
-      readonly before?: never;
-    };
+export type QueryBounds<B> = QueryStart<B> &
+  QueryEnd<B> & {
+    /** Keeps the items within this ascending range. See {@link QueryRange}. */
+    readonly range?: QueryRange<B>;
+  };
 
 /** The options that every query accepts. */
 export interface QueryOptions {
@@ -64,8 +61,8 @@ export interface QueryOptions {
 /**
  * Query options for map entries, map keys, and set members. Every option is
  * optional. Bounds and `prefix` narrow the selection and never widen it.
- * Setting both edges of a pair, a range with an edge, a malformed range, an
- * unknown option, or an unknown direction throws a `TypeError`. The call
+ * Setting both edges of a pair, a malformed range, an unknown option, or an
+ * unknown direction throws a `TypeError`. The call
  * copies the options, so a later change to the object has no effect on the
  * query.
  *

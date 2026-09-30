@@ -771,16 +771,16 @@ await seen.add(message.payload.orderId);
 
 Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the cells it selects.
 
-| Option           | Effect                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `direction`      | `"forward"` (the default) or `"backward"`                                                                                                   |
-| `from` / `after` | Start at a bound, or start after it. Set at most one.                                                                                       |
-| `to` / `before`  | Stop at a bound, or stop before it. Set at most one.                                                                                        |
-| `range`          | Keep keys or positions from `start` up to, but not including, `end`: `[start, end]`. Do not set it with `from`, `after`, `to`, or `before`. |
-| `prefix`         | Keep keys that start with a prefix. Keys only.                                                                                              |
-| `limit`          | Return at most this many items. Use a positive integer.                                                                                     |
+| Option           | Effect                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `direction`      | `"forward"` (the default) or `"backward"`                                                                        |
+| `from` / `after` | Start at a bound, or start after it. Set at most one.                                                            |
+| `to` / `before`  | Stop at a bound, or stop before it. Set at most one.                                                             |
+| `range`          | Keep keys or positions from `start` up to, but not including, `end`: `[start, end]`. Use `null` for an open end. |
+| `prefix`         | Keep keys that start with a prefix. Keys only.                                                                   |
+| `limit`          | Return at most this many items. Use a positive integer.                                                          |
 
-The edges `from`, `after`, `to`, and `before` are in query order, so a backward query starts at the high end. A `range` is ascending and applies in both directions, so `{ range: ["a", "m"], direction: "backward" }` yields the forward keys in the opposite order. A range whose start is not below its end selects nothing. Bounds and `prefix` narrow the selection. Deque positions count from the front and cannot be negative. To read the last N elements, use `values({ direction: "backward", limit: N })`.
+The edges `from`, `after`, `to`, and `before` are in query order, so a backward query starts at the high end. A `range` is ascending and applies in both directions, so `{ range: ["a", "m"], direction: "backward" }` yields the forward keys in the opposite order. A `null` bound leaves its end open, so `[2, null]` keeps position 2 and every later one. A range whose start is not below its end selects nothing. Bounds and `prefix` narrow the selection, so a query that sets a range and edges keeps their overlap. Deque positions count from the front and cannot be negative. To read the last N elements, use `values({ direction: "backward", limit: N })`.
 
 To page through a map or a set, pass the last key of the previous page as `after`:
 
@@ -1320,7 +1320,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
 
-`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, limit? }` or `{ direction?, prefix?, range: [start, end], limit? }` with string bounds. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, a range with an edge, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, range?: [start, end], limit? }` with string bounds. A `null` range bound is open. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
