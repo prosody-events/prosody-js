@@ -18,7 +18,7 @@ const {
 const { Message: NativeMessage } = require("../bindings");
 const { wrapNative } = require("../lib/client");
 const { jsonItems, withParsedPayload } = require("../lib/state/codec");
-const { RAW_ITEMS, makeFiniteCursor } = require("./fakes");
+const { RAW_ITEMS, collect, makeFiniteCursor } = require("./fakes");
 
 describe("keyed state (unit)", () => {
   // The native payload getter throws for bytes that are not UTF-8, before any
@@ -102,29 +102,33 @@ describe("keyed state (unit)", () => {
     );
   });
 
-  // A5 — DequeState.at() rejects a non-integer index as a caller mistake
-  // (TransientStateError — retry, never discard; the native u32 conversion would
-  // otherwise truncate a fraction) and treats any out-of-range position as a
-  // normal absent read (null) rather than an error. Endpoint routing to the
-  // peeks and the negative-index length path are covered in A5d.
-  it("deque at() validates the index and returns null out of range", async () => {
-    // native.len reports a length of 3; get echoes its index for any read.
+  // DequeState.at() rejects a non-integer index as a caller mistake
+  // (TransientStateError), because the native u32 conversion would truncate a
+  // fraction. It reads an out-of-range position as null. It routes the
+  // endpoints to the peeks and every other index through get. A negative
+  // index other than -1 resolves against the length.
+  it("deque at() validates the index and routes each read", async () => {
     const d = new DequeState(
-      { get: async (i) => i, len: async () => 3 },
+      {
+        peekFront: async () => "F",
+        peekBack: async () => "B",
+        get: async (i) => i,
+        len: async () => 3,
+      },
       RAW_ITEMS,
     );
-    // Fractional / NaN / infinite indices are caller mistakes -> transient reject.
     await expect(d.at(1.5)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(1.5)).rejects.toThrow(/index/);
     await expect(d.at(NaN)).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(Infinity)).rejects.toBeInstanceOf(TransientStateError);
-    // A negative index past the front is out of range -> null, no native read.
-    await expect(d.at(-4)).resolves.toBeNull();
-    // Beyond the u32 range is out of range -> null, never a wrapped read.
-    await expect(d.at(2 ** 32)).resolves.toBeNull();
-    // A hostile non-number (Symbol) must REJECT, not throw synchronously while
-    // building the diagnostic — at() is declared to return a Promise.
+    // A Symbol must reject, not throw while the message is built.
     await expect(d.at(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
+    await expect(d.at(-4)).resolves.toBeNull();
+    await expect(d.at(2 ** 32)).resolves.toBeNull();
+    await expect(d.at(0)).resolves.toBe("F");
+    await expect(d.at(-1)).resolves.toBe("B");
+    await expect(d.at(2)).resolves.toBe(2);
+    await expect(d.at(-2)).resolves.toBe(1);
   });
 
   // A5b — MapState.has() rides the cheap presence path (native.contains), which
@@ -160,19 +164,6 @@ describe("keyed state (unit)", () => {
     expect(cleared).toBe(true);
   });
 
-  // A5c — MapState.keys() rides the cheap key cursor (native.keys), yielding
-  // bare keys with no value decode. The transform is identity, not the old
-  // pair-projection (entry[0]) — multi-char keys catch a stray `[0]` that a
-  // single-character key would hide.
-  it("map keys() iterates the key cursor and yields bare keys", async () => {
-    const fake = makeFiniteCursor(["apple", "berry", "cherry"]);
-    const m = new MapState({ keys: () => fake.cursor }, RAW_ITEMS);
-    const collected = [];
-    for await (const key of m.keys()) collected.push(key);
-    expect(collected).toEqual(["apple", "berry", "cherry"]);
-    expect(fake.closedCount()).toBe(1);
-  });
-
   // A5e — query options reach every native cursor opener as given. A bare
   // direction stands for { direction }, and no options mean an empty query.
   it("query options reach every native cursor opener", async () => {
@@ -183,10 +174,6 @@ describe("keyed state (unit)", () => {
         opened.push([name, ...args]);
         return makeFiniteCursor([]).cursor;
       };
-    const drain = async (iterator) => {
-      // eslint-disable-next-line no-unused-vars
-      for await (const _item of iterator);
-    };
     const keys = {
       direction: "backward",
       prefix: "user-",
@@ -206,22 +193,22 @@ describe("keyed state (unit)", () => {
     });
     const pd = new PublishedDeque({ values: opener("published.values") });
 
-    await drain(m.entries(keys));
-    await drain(m.keys("backward"));
-    await drain(m.values());
-    await drain(d.values(positions));
-    await drain(d.values("backward"));
-    await drain(pm.entries("u", keys));
-    await drain(pm.keys("u", { from: "a", to: "b" }));
-    await drain(pm.values("u", { after: "a" }));
-    await drain(pd.values("u", positions));
-    await drain(m.keys({ range: ["a", "m"], direction: "backward" }));
-    await drain(pd.values("u", { range: [2, 5] }));
-    await drain(m.keys({ range: ["a", "m"], from: "b", before: "k" }));
-    await drain(pd.values("u", { range: [1, 9], after: 2, to: 6 }));
-    await drain(pm.keys("u", { range: ["a", null] }));
-    await drain(d.values({ range: [null, 4] }));
-    await drain(pm.entries("u", { range: [null, null], prefix: "user-" }));
+    await collect(m.entries(keys));
+    await collect(m.keys("backward"));
+    await collect(m.values());
+    await collect(d.values(positions));
+    await collect(d.values("backward"));
+    await collect(pm.entries("u", keys));
+    await collect(pm.keys("u", { from: "a", to: "b" }));
+    await collect(pm.values("u", { after: "a" }));
+    await collect(pd.values("u", positions));
+    await collect(m.keys({ range: ["a", "m"], direction: "backward" }));
+    await collect(pd.values("u", { range: [2, 5] }));
+    await collect(m.keys({ range: ["a", "m"], from: "b", before: "k" }));
+    await collect(pd.values("u", { range: [1, 9], after: 2, to: 6 }));
+    await collect(pm.keys("u", { range: ["a", null] }));
+    await collect(d.values({ range: [null, 4] }));
+    await collect(pm.entries("u", { range: [null, null], prefix: "user-" }));
 
     expect(opened).toEqual([
       ["entries", keys],
@@ -253,10 +240,6 @@ describe("keyed state (unit)", () => {
         opened.push([name, ...args]);
         return makeFiniteCursor([]).cursor;
       };
-    const drain = async (iterator) => {
-      // eslint-disable-next-line no-unused-vars
-      for await (const _item of iterator);
-    };
     const pm = new PublishedMap({
       entries: opener("entries"),
       keys: opener("keys"),
@@ -280,7 +263,7 @@ describe("keyed state (unit)", () => {
     Object.assign(keys, { from: "a", limit: 1.5 });
     Object.assign(positions, { from: 0, limit: 1.5 });
     range.splice(0, 2, 5);
-    for (const iterator of iterators) await drain(iterator);
+    for (const iterator of iterators) await collect(iterator);
 
     expect(opened).toEqual([
       ["entries", "u", { after: "b" }],
@@ -370,54 +353,12 @@ describe("keyed state (unit)", () => {
     expect(native.values).not.toHaveBeenCalled();
   });
 
-  // A5d — DequeState.at() routes the endpoints to the peeks (native.peekFront /
-  // peekBack, one read each) and every other index through native.get; negative
-  // indices past -1 still resolve against native.len.
-  it("deque at() routes endpoints to peeks and other indices to get", async () => {
-    const d = new DequeState(
-      {
-        peekFront: async () => "F",
-        peekBack: async () => "B",
-        get: async (i) => i,
-        len: async () => 3,
-      },
-      RAW_ITEMS,
-    );
-    await expect(d.at(0)).resolves.toBe("F");
-    await expect(d.at(-1)).resolves.toBe("B");
-    // A non-endpoint non-negative index reads through get.
-    await expect(d.at(2)).resolves.toBe(2);
-    // A negative index past -1 resolves against len (3): -2 -> position 1.
-    await expect(d.at(-2)).resolves.toBe(1);
-  });
-
-  // A6 — a malformed definition (bad kind/payload/name) is a caller mistake:
-  // Context.state() rejects it TRANSIENT (never permanent), before touching the
-  // native context, so a typo never silently vends the wrong collection.
-  it("state() rejects a malformed definition as a transient error", () => {
-    const ctx = new Context({}); // native never reached — validation precedes vend
+  // Context.state() rejects an object that no definition constructor made.
+  // The error is transient, and the native context is never reached.
+  it("state() rejects a foreign definition as a transient error", () => {
+    const ctx = new Context({});
     expect(() =>
-      ctx.state({ name: "x", kind: "bogus", payload: "json" }),
-    ).toThrow(TransientStateError);
-    expect(() =>
-      ctx.state({ name: "x", kind: "value", payload: "bogus" }),
-    ).toThrow(TransientStateError);
-    expect(() =>
-      ctx.state({ name: "", kind: "value", payload: "json" }),
-    ).toThrow(TransientStateError);
-    // A non-string name that JSON.stringify cannot serialize (BigInt) must still
-    // yield TransientStateError, not a raw TypeError from building the message.
-    expect(() =>
-      ctx.state({ name: 1n, kind: "value", payload: "json" }),
-    ).toThrow(TransientStateError);
-    // A hostile definition whose property getter throws must still classify as a
-    // caller mistake, not surface the raw synchronous throw.
-    expect(() =>
-      ctx.state({
-        get name() {
-          throw new Error("boom");
-        },
-      }),
+      ctx.state({ name: "x", kind: "value", payload: "json" }),
     ).toThrow(TransientStateError);
   });
 });

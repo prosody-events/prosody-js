@@ -53,8 +53,16 @@ const makeFiniteCursor = (items, chunkSize = 1) => {
   };
 };
 
+// Drains an async iterator into an array.
+const collect = async (iterator) => {
+  const items = [];
+  for await (const item of iterator) items.push(item);
+  return items;
+};
+
 module.exports = {
   RAW_ITEMS,
+  collect,
   makeFiniteCursor,
   makeGatedCursor,
 };

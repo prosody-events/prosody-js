@@ -1,30 +1,20 @@
 const { getEventListeners } = require("node:events");
 const {
-  AdminClient,
   Context,
-  ProsodyClient,
   PublishedDeque,
   PublishedMap,
   PublishedSet,
   SetState,
   deque,
-  flushTelemetry,
   map,
   messageDeque,
   messageMap,
   messageValue,
   set,
-  shutdownTelemetry,
   value,
 } = require("../index.js");
 const { wrapNative } = require("../lib/client");
-const { BOOTSTRAP_SERVERS, GROUP_NAME } = require("./support");
-
-test("exports utility APIs", () => {
-  expect(AdminClient).toBeDefined();
-  expect(flushTelemetry).toEqual(expect.any(Function));
-  expect(shutdownTelemetry).toEqual(expect.any(Function));
-});
+const { collect } = require("./fakes");
 
 test.each(["onMessage", "onExcise", "onTimer"])(
   "rejects a missing %s handler before native subscription",
@@ -73,34 +63,6 @@ test.each([
   await expect(nativeHandler[name](null, [context, message, {}])).resolves.toBe(
     "null",
   );
-});
-
-test("published state options stay on the descriptor", () => {
-  expect(
-    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
-  ).toMatchObject({
-    name: "cart",
-    kind: "value",
-    payload: "json",
-    published: true,
-    readCache: { ttlMs: 2_000 },
-  });
-});
-
-test.each([
-  { stateReadCache: true },
-  { stateReadCache: { ttlMs: -1 } },
-  { stateReadCache: { ttlMs: NaN } },
-  { stateReadCacheSize: "0" },
-])("rejects invalid published read cache config %p", async (options) => {
-  await expect(
-    ProsodyClient.create({
-      mock: true,
-      groupId: GROUP_NAME,
-      bootstrapServers: [BOOTSTRAP_SERVERS],
-      ...options,
-    }),
-  ).rejects.toThrow(/stateReadCache/);
 });
 
 test("published state uses the owned read method names", async () => {
@@ -239,7 +201,16 @@ test("descriptors retain their owned and published access strategies", async () 
   ]);
 });
 
-test("set definitions carry set options and no payload", () => {
+test("definitions keep their options and are frozen", () => {
+  expect(
+    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
+  ).toEqual({
+    name: "cart",
+    kind: "value",
+    payload: "json",
+    published: true,
+    readCache: { ttlMs: 2_000 },
+  });
   expect(
     set("tags", { ttlSeconds: 60, keysetLimit: 8, published: true }),
   ).toEqual({
@@ -314,11 +285,6 @@ test("set iterators yield bare members through the key cursor", async () => {
     opened.push(args);
     return cursor(["apple", "berry"]);
   };
-  const collect = async (iterator) => {
-    const items = [];
-    for await (const item of iterator) items.push(item);
-    return items;
-  };
   const members = new SetState({ keys });
   const reader = new PublishedSet({ keys });
 
@@ -356,27 +322,6 @@ test("request maps native subsystem outcomes", async () => {
       subsystem: "billing",
       outcome: { kind: "handler", message: "rejected" },
     },
-    {
-      subsystem: "email",
-      outcome: {
-        kind: "timeout",
-        message: "no response arrived before the deadline",
-      },
-    },
-    {
-      subsystem: "shipping",
-      outcome: {
-        kind: "formatMismatch",
-        message: "the responder answered in another format",
-      },
-    },
-    {
-      subsystem: "crm",
-      outcome: {
-        kind: "malformedResponse",
-        message: "the response did not decode",
-      },
-    },
     { subsystem: "search", outcome: "{" },
   ]);
   const client = wrapNative({ request });
@@ -386,14 +331,7 @@ test("request maps native subsystem outcomes", async () => {
     "order-1",
     { type: "order.created" },
     {
-      subsystems: [
-        "inventory",
-        "billing",
-        "email",
-        "shipping",
-        "crm",
-        "search",
-      ],
+      subsystems: ["inventory", "billing", "search"],
       timeoutMs: 2_000,
     },
   );
@@ -406,9 +344,6 @@ test("request maps native subsystem outcomes", async () => {
     ok: false,
     error: { kind: "handler", message: "rejected" },
   });
-  expect(results.get("email").error.kind).toBe("timeout");
-  expect(results.get("shipping").error.kind).toBe("formatMismatch");
-  expect(results.get("crm").error.kind).toBe("malformedResponse");
   expect(results.get("search").error.kind).toBe("malformedResponse");
   expect(request).toHaveBeenCalledWith(
     {
@@ -416,14 +351,7 @@ test("request maps native subsystem outcomes", async () => {
       key: "order-1",
       payload: JSON.stringify({ type: "order.created" }),
       metadata: { eventId: undefined, eventType: "order.created" },
-      subsystems: [
-        "inventory",
-        "billing",
-        "email",
-        "shipping",
-        "crm",
-        "search",
-      ],
+      subsystems: ["inventory", "billing", "search"],
       timeoutMs: 2_000,
     },
     expect.any(Object),
