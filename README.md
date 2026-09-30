@@ -1004,6 +1004,17 @@ Call `shutdown()` when the application terminates. It stops all client services 
 await client.shutdown();
 ```
 
+A client is `AsyncDisposable`. Declare it with `await using` to shut it down when the block ends, also when the block throws:
+
+```javascript
+{
+  await using client = await ProsodyClient.create(config);
+  await client.send("orders", "order-1", { type: "order.created" });
+} // The client shuts down here.
+```
+
+Concurrent and repeated shutdowns await the same operation, so an explicit `shutdown()` inside the block is safe.
+
 Handle application shutdown:
 
 ```javascript
@@ -1164,6 +1175,7 @@ your changes before merging to `main`.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
 - `shutdown(): Promise<void>`: Stop all client services. Concurrent and repeated calls await the same operation.
+- `[Symbol.asyncDispose](): Promise<void>`: Call `shutdown()` when an `await using` block ends.
 
 ### AdminClient
 

@@ -93,7 +93,7 @@ export interface RequestOptions {
   readonly signal?: AbortSignal;
 }
 
-export declare class ProsodyClient {
+export declare class ProsodyClient implements AsyncDisposable {
   private constructor();
 
   /**
@@ -220,4 +220,10 @@ export declare class ProsodyClient {
    * @throws Error if shutdown fails.
    */
   shutdown(): Promise<void>;
+
+  /**
+   * Shuts down the client when an `await using` block ends. It calls
+   * {@link ProsodyClient.shutdown}.
+   */
+  [Symbol.asyncDispose](): Promise<void>;
 }

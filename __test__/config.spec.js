@@ -1,4 +1,4 @@
-const { ProsodyClient } = require("../index.js");
+const { ConsumerState, ProsodyClient } = require("../index.js");
 const { BOOTSTRAP_SERVERS, GROUP_NAME, SOURCE_NAME } = require("./support");
 
 // Infra-free client option tests use mock mode and need no external services.
@@ -120,6 +120,21 @@ describe("configuration validation", () => {
     } finally {
       await configured.shutdown();
     }
+  });
+
+  // An await using block shuts the client down when it ends. A later
+  // shutdown awaits the same operation.
+  it("shuts down when an await using block ends", async () => {
+    let escaped;
+    {
+      await using client = await ProsodyClient.create(makeConfig({}));
+      escaped = client;
+      await expect(client.consumerState()).resolves.toBe(
+        ConsumerState.Configured,
+      );
+    }
+    await expect(escaped.consumerState()).resolves.toBe(ConsumerState.Shutdown);
+    await expect(escaped.shutdown()).resolves.toBeUndefined();
   });
 
   it("accepts a maxUncommitted above the 16-bit range", async () => {
