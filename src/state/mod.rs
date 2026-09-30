@@ -38,6 +38,11 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+/// Maximum number of immediately-ready scan items transported through N-API
+/// in one vector. Core owns ready draining, error ordering, and pull
+/// serialization; this binding owns only the transport cap and conversion.
+const SCAN_READY_CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
+
 /// A Kafka message crossing INTO a state handle.
 ///
 /// Unwraps the JavaScript `Message` to the [`ConsumerMessage`] it shares: two
@@ -48,6 +53,18 @@ use std::sync::Arc;
 /// Accepts any message a handler holds, whether it arrived from the topic or
 /// was read back out of a collection — both wrap a real consumer message.
 pub struct MessageItem(ConsumerMessage<BinaryPayload>);
+
+/// The effect of a commit or a rollback.
+///
+/// `"applied"` means the call wrote or discarded buffered operations.
+/// `"noOp"` means nothing was buffered.
+#[napi(string_enum = "camelCase")]
+pub enum NativeStoreOutcome {
+    /// The call wrote or discarded buffered operations.
+    Applied,
+    /// Nothing was buffered.
+    NoOp,
+}
 
 impl TypeName for MessageItem {
     fn type_name() -> &'static str {
@@ -71,6 +88,15 @@ impl FromNapiValue for MessageItem {
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> napi::Result<Self> {
         let message = unsafe { <&Message>::from_napi_value(env, napi_val) }?;
         Ok(Self(message.consumer_message()))
+    }
+}
+
+impl From<StoreOutcome> for NativeStoreOutcome {
+    fn from(outcome: StoreOutcome) -> Self {
+        match outcome {
+            StoreOutcome::Applied => Self::Applied,
+            StoreOutcome::NoOp => Self::NoOp,
+        }
     }
 }
 
@@ -197,32 +223,6 @@ pub(crate) fn json_value(item: Option<BinaryPayload>) -> napi::Result<Option<Str
 fn message_value(item: Option<ConsumerMessage<BinaryPayload>>) -> Option<Message> {
     item.map(Message::new)
 }
-
-/// The effect of a commit or a rollback.
-///
-/// `"applied"` means the call wrote or discarded buffered operations.
-/// `"noOp"` means nothing was buffered.
-#[napi(string_enum = "camelCase")]
-pub enum NativeStoreOutcome {
-    /// The call wrote or discarded buffered operations.
-    Applied,
-    /// Nothing was buffered.
-    NoOp,
-}
-
-impl From<StoreOutcome> for NativeStoreOutcome {
-    fn from(outcome: StoreOutcome) -> Self {
-        match outcome {
-            StoreOutcome::Applied => Self::Applied,
-            StoreOutcome::NoOp => Self::NoOp,
-        }
-    }
-}
-
-/// Maximum number of immediately-ready scan items transported through N-API
-/// in one vector. Core owns ready draining, error ordering, and pull
-/// serialization; this binding owns only the transport cap and conversion.
-const SCAN_READY_CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
 
 macro_rules! transaction_methods {
     ($name:ident) => {

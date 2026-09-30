@@ -30,6 +30,12 @@ use std::sync::Arc;
 use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+/// Maximum number of queued handler function calls.
+pub const HANDLE_QUEUE_SIZE: usize = 64;
+
+/// Maximum number of queued error classification function calls.
+pub const PERM_QUEUE_SIZE: usize = 64;
+
 /// Type alias for message handler arguments.
 #[napi]
 pub type MessageHandlerArgs = (NativeContext, Message, HashMap<String, String>);
@@ -45,12 +51,6 @@ pub type TimerHandlerArgs = (NativeContext, Timer, HashMap<String, String>);
 /// Type alias for error classification arguments.
 #[napi]
 pub type IsPermanentArgs = (Error,);
-
-/// Maximum number of queued handler function calls.
-pub const HANDLE_QUEUE_SIZE: usize = 64;
-
-/// Maximum number of queued error classification function calls.
-pub const PERM_QUEUE_SIZE: usize = 64;
 
 type MessageFunction = ThreadsafeFunction<
     MessageHandlerArgs,

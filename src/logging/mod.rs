@@ -21,12 +21,12 @@ use tracing::error;
 pub mod js;
 pub mod swappable;
 
+/// Global swappable logger instance.
+static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
+
 /// Type alias for the arguments passed to JavaScript logging functions.
 #[napi]
 pub type LogArgs = (Option<String>, Value);
-
-/// Global swappable logger instance.
-static LOGGER: LazyLock<SwappableLogger> = LazyLock::new(SwappableLogger::default);
 
 /// JavaScript-compatible logger structure.
 #[napi(object)]

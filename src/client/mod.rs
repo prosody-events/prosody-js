@@ -179,9 +179,9 @@ impl NativeClient {
     /// @param metadata - The event metadata read off the payload object
     /// @param otelContext - The OpenTelemetry context for tracing
     /// @param maybeAbort - Optional promise that resolves when the operation
-    /// should be aborted @returns A promise that resolves when the message
-    /// has been sent @throws Error if the send operation fails or is
-    /// aborted
+    ///   should be aborted
+    /// @returns A promise that resolves when the message has been sent
+    /// @throws Error if the send operation fails or is aborted
     #[napi(writable = false)]
     pub async fn send(
         &self,
