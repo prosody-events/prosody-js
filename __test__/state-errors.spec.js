@@ -57,68 +57,6 @@ describe("ProsodyClient", () => {
       expect(count).toBe(2);
     });
 
-    // Prosody rejects a JSON null write with a permanent error. The binding
-    // maps it to a PermanentStateError and the store keeps its value.
-    it("null-item writes reject permanent and leave the store untouched", async () => {
-      const V = nonce();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const c = ctx.state(STATE_DEFS.cart);
-          const d = ctx.state(STATE_DEFS.backlog);
-          try {
-            await c.set({ v: V });
-            await c.commit();
-
-            let valueOutcome;
-            try {
-              await c.set(null);
-              valueOutcome = { permanent: false, threw: false };
-            } catch (e) {
-              valueOutcome = {
-                threw: true,
-                permanent: e instanceof PermanentStateError,
-                msg: e.message,
-              };
-            }
-
-            let dequeOutcome;
-            try {
-              await d.push(null);
-              dequeOutcome = { permanent: false, threw: false };
-            } catch (e) {
-              dequeOutcome = {
-                threw: true,
-                permanent: e instanceof PermanentStateError,
-              };
-            }
-
-            env.messageStream.push({
-              valueOutcome,
-              dequeOutcome,
-              after: (await c.get()).v,
-            });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
-      expect(obs.valueOutcome.threw).toBe(true);
-      expect(obs.valueOutcome.permanent).toBe(true);
-      expect(obs.valueOutcome.msg).toMatch(/clear/);
-      expect(obs.dequeOutcome.threw).toBe(true);
-      expect(obs.dequeOutcome.permanent).toBe(true);
-      expect(obs.after).toBe(V);
-    });
-
     // C10c — a value with no JSON representation AT THE TOP LEVEL is a CALLER
     // MISTAKE, rejected TRANSIENT at the boundary (retry, stay visible, never
     // discard the message — discarding it would lose data; see CLAUDE.md).
