@@ -68,8 +68,8 @@ export function loggerIsSet(): boolean;
 export function setLoggerIfUnset(logger: Logger): boolean;
 
 /**
- * Gets the current configured logger.
+ * Gets the current logger.
  *
- * @returns The current logger instance, or null/undefined if no logger is configured.
+ * @returns The logger that the application set, or the default console logger.
  */
-export function getCurrentLogger(): Logger | null | undefined;
+export function getCurrentLogger(): Logger;
