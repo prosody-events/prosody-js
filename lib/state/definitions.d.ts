@@ -28,8 +28,8 @@ export interface PublishedStateDefinitionOptions extends StateDefinitionOptions 
   readCache?: ReadCacheOptions | false;
 }
 
-/** Options accepted by the map definition constructors. */
-export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
+/** The keyset option of map and set collections. */
+interface KeysetOptions {
   /**
    * Keyset bound for ordered scans (`0..=4096`; default 128 core-side; `0`
    * disables ordered-scan tracking). Map and set collections only.
@@ -37,11 +37,8 @@ export interface MapDefinitionOptions extends PublishedStateDefinitionOptions {
   keysetLimit?: number;
 }
 
-/** Options accepted by the set definition constructor. */
-export type SetDefinitionOptions = MapDefinitionOptions;
-
-/** Options accepted by the deque definition constructors. */
-export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions {
+/** The capacity option of deque collections. */
+interface CapacityOptions {
   /**
    * Optional maximum value count, at least 1. Prosody does not store it and it
    * is not part of the collection identity, so a deploy can change it. A push
@@ -51,17 +48,24 @@ export interface DequeDefinitionOptions extends PublishedStateDefinitionOptions 
   capacity?: number;
 }
 
+/** Options accepted by the map definition constructors. */
+export interface MapDefinitionOptions
+  extends PublishedStateDefinitionOptions, KeysetOptions {}
+
+/** Options accepted by the set definition constructor. */
+export type SetDefinitionOptions = MapDefinitionOptions;
+
+/** Options accepted by the deque definition constructors. */
+export interface DequeDefinitionOptions
+  extends PublishedStateDefinitionOptions, CapacityOptions {}
+
 /** Options accepted by message-map definitions, which cannot be published. */
-export interface MessageMapDefinitionOptions extends StateDefinitionOptions {
-  /** Keyset bound for ordered scans (`0..=4096`; default 128 core-side). */
-  keysetLimit?: number;
-}
+export interface MessageMapDefinitionOptions
+  extends StateDefinitionOptions, KeysetOptions {}
 
 /** Options accepted by message-deque definitions, which cannot be published. */
-export interface MessageDequeDefinitionOptions extends StateDefinitionOptions {
-  /** Optional maximum element count. Must be a whole number >= 1. */
-  capacity?: number;
-}
+export interface MessageDequeDefinitionOptions
+  extends StateDefinitionOptions, CapacityOptions {}
 
 /**
  * Phantom brand carrying a definition's item type. Never present at runtime —
@@ -76,83 +80,63 @@ interface DefinitionBrand {
 }
 
 /** A frozen single-value JSON collection definition. */
-export interface ValueDefinition<T = JsonValue> extends DefinitionBrand {
+export interface ValueDefinition<T = JsonValue>
+  extends DefinitionBrand, Readonly<PublishedStateDefinitionOptions> {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "json";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly published?: boolean;
-  readonly readCache?: ReadCacheOptions | false;
   readonly [StateItem]?: T;
 }
 
 /** A frozen ordered-map JSON collection definition (string keys). */
-export interface MapDefinition<V = JsonValue> extends DefinitionBrand {
+export interface MapDefinition<V = JsonValue>
+  extends DefinitionBrand, Readonly<MapDefinitionOptions> {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "json";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly published?: boolean;
-  readonly readCache?: ReadCacheOptions | false;
-  readonly keysetLimit?: number;
   readonly [StateItem]?: V;
 }
 
 /** A frozen set collection definition. A set stores string members only. */
-export interface SetDefinition extends DefinitionBrand {
+export interface SetDefinition
+  extends DefinitionBrand, Readonly<SetDefinitionOptions> {
   readonly name: string;
   readonly kind: "set";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly published?: boolean;
-  readonly readCache?: ReadCacheOptions | false;
-  readonly keysetLimit?: number;
 }
 
 /** A frozen deque JSON collection definition. */
-export interface DequeDefinition<T = JsonValue> extends DefinitionBrand {
+export interface DequeDefinition<T = JsonValue>
+  extends DefinitionBrand, Readonly<DequeDefinitionOptions> {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "json";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly published?: boolean;
-  readonly readCache?: ReadCacheOptions | false;
-  readonly capacity?: number;
   readonly [StateItem]?: T;
 }
 
 /** A frozen single-value message collection definition (items are `Message<P>`). */
-export interface MessageValueDefinition<P = JsonValue> extends DefinitionBrand {
+export interface MessageValueDefinition<P = JsonValue>
+  extends DefinitionBrand, Readonly<StateDefinitionOptions> {
   readonly name: string;
   readonly kind: "value";
   readonly payload: "message";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
   readonly [StateItem]?: P;
 }
 
 /** A frozen ordered-map message collection definition (values are `Message<P>`). */
-export interface MessageMapDefinition<P = JsonValue> extends DefinitionBrand {
+export interface MessageMapDefinition<P = JsonValue>
+  extends DefinitionBrand, Readonly<MessageMapDefinitionOptions> {
   readonly name: string;
   readonly kind: "map";
   readonly payload: "message";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly keysetLimit?: number;
   readonly [StateItem]?: P;
 }
 
 /** A frozen deque message collection definition (elements are `Message<P>`). */
-export interface MessageDequeDefinition<P = JsonValue> extends DefinitionBrand {
+export interface MessageDequeDefinition<P = JsonValue>
+  extends DefinitionBrand, Readonly<MessageDequeDefinitionOptions> {
   readonly name: string;
   readonly kind: "deque";
   readonly payload: "message";
-  readonly ttlSeconds?: number;
-  readonly readUncommitted?: boolean;
-  readonly capacity?: number;
   readonly [StateItem]?: P;
 }
 
