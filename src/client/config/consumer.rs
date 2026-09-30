@@ -87,13 +87,13 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
 
     if let Some(ref s) = config.message_spans {
         let relation = SpanRelation::from_str(s)
-            .map_err(|e| Error::from_reason(format!("message_spans: {e}")))?;
+            .map_err(|e| Error::from_reason(format!("messageSpans: {e}")))?;
         builder.message_spans(relation);
     }
 
     if let Some(ref s) = config.timer_spans {
         let relation = SpanRelation::from_str(s)
-            .map_err(|e| Error::from_reason(format!("timer_spans: {e}")))?;
+            .map_err(|e| Error::from_reason(format!("timerSpans: {e}")))?;
         builder.timer_spans(relation);
     }
 

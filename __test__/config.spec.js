@@ -20,17 +20,14 @@ describe("configuration validation", () => {
     await configured.shutdown();
   });
 
-  it("rejects invalid messageSpans with field name in error", async () => {
-    await expect(
-      ProsodyClient.create(makeConfig({ messageSpans: "invalid" })),
-    ).rejects.toThrow(/message_spans/);
-  });
-
-  it("rejects invalid timerSpans with field name in error", async () => {
-    await expect(
-      ProsodyClient.create(makeConfig({ timerSpans: "invalid" })),
-    ).rejects.toThrow(/timer_spans/);
-  });
+  it.each(["messageSpans", "timerSpans"])(
+    "rejects an invalid %s and names it in the error",
+    async (option) => {
+      await expect(
+        ProsodyClient.create(makeConfig({ [option]: "invalid" })),
+      ).rejects.toThrow(`${option}: `);
+    },
+  );
 
   // A number option converts to its Prosody type without loss, or the create
   // call names the option and fails. A negative, fractional, or non-finite
