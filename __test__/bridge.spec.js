@@ -1,0 +1,464 @@
+const {
+  AdminClient,
+  Context,
+  ProsodyClient,
+  PublishedDeque,
+  PublishedMap,
+  PublishedSet,
+  SetState,
+  deque,
+  flushTelemetry,
+  map,
+  messageDeque,
+  messageMap,
+  messageValue,
+  set,
+  shutdownTelemetry,
+  value,
+} = require("../index.js");
+const { BOOTSTRAP_SERVERS, GROUP_NAME } = require("./support");
+
+test("exports utility APIs", () => {
+  expect(AdminClient).toBeDefined();
+  expect(flushTelemetry).toEqual(expect.any(Function));
+  expect(shutdownTelemetry).toEqual(expect.any(Function));
+});
+
+test.each(["onMessage", "onExcise", "onTimer"])(
+  "rejects a missing %s handler before native subscription",
+  async (missing) => {
+    const nativeSubscribe = jest.fn();
+    const client = Object.create(ProsodyClient.prototype);
+    client.nativeClient = { subscribe: nativeSubscribe };
+    const handler = {
+      onMessage: () => null,
+      onExcise: () => null,
+      onTimer: () => {},
+    };
+    delete handler[missing];
+
+    await expect(client.subscribe(handler)).rejects.toThrow(
+      `EventHandler.${missing} must be a function`,
+    );
+    expect(nativeSubscribe).not.toHaveBeenCalled();
+  },
+);
+
+test.each([
+  ["onMessage", { payload: "{}" }],
+  ["onExcise", {}],
+])("%s converts an undefined response to JSON null", async (name, record) => {
+  let nativeHandler;
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    subscribe: jest.fn(async (handler) => {
+      nativeHandler = handler;
+    }),
+  };
+  const handler = {
+    onMessage: () => undefined,
+    onExcise: () => undefined,
+    onTimer: () => {},
+  };
+  await client.subscribe(handler);
+  const context = { onCancel: () => new Promise(() => {}) };
+  const message = {
+    topic: "orders",
+    key: "order-1",
+    partition: 0,
+    offset: 1,
+    ...record,
+  };
+
+  await expect(nativeHandler[name](null, [context, message, {}])).resolves.toBe(
+    "null",
+  );
+});
+
+test("published state options stay on the descriptor", () => {
+  expect(
+    value("cart", { published: true, readCache: { ttlMs: 2_000 } }),
+  ).toMatchObject({
+    name: "cart",
+    kind: "value",
+    payload: "json",
+    published: true,
+    readCache: { ttlMs: 2_000 },
+  });
+});
+
+test.each([
+  { stateReadCache: { disabled: true, ttlMs: 1 } },
+  { stateReadCacheSize: "0" },
+])("rejects invalid published read cache config %p", async (options) => {
+  await expect(
+    ProsodyClient.create({
+      mock: true,
+      groupId: GROUP_NAME,
+      bootstrapServers: [BOOTSTRAP_SERVERS],
+      ...options,
+    }),
+  ).rejects.toThrow(/stateReadCache/);
+});
+
+test("published state uses the owned read method names", async () => {
+  const mapNative = {
+    contains: jest.fn().mockResolvedValue(true),
+    containsMany: jest.fn().mockResolvedValue([true, false]),
+    isEmpty: jest.fn().mockResolvedValue(true),
+  };
+  const dequeNative = {
+    isEmpty: jest.fn().mockResolvedValue(false),
+    peekFront: jest.fn().mockResolvedValue(JSON.stringify("first")),
+    peekBack: jest.fn().mockResolvedValue(JSON.stringify("last")),
+  };
+
+  const mapState = new PublishedMap(mapNative);
+  expect(await mapState.has("user-1", "item")).toBe(true);
+  expect(await mapState.hasMany("user-1", ["item", "gone"])).toEqual([
+    true,
+    false,
+  ]);
+  expect(mapNative.containsMany).toHaveBeenCalledWith(
+    "user-1",
+    ["item", "gone"],
+    expect.any(Object),
+  );
+  expect(await mapState.isEmpty("user-1")).toBe(true);
+  expect(mapNative.isEmpty).toHaveBeenCalledWith("user-1", expect.any(Object));
+  const dequeState = new PublishedDeque(dequeNative);
+  expect(await dequeState.isEmpty("user-1")).toBe(false);
+  expect(await dequeState.at("user-1", 0)).toBe("first");
+  expect(await dequeState.at("user-1", -1)).toBe("last");
+});
+
+test("published scans return an async iterator and open lazily", async () => {
+  const cursor = {
+    nextChunk: jest
+      .fn()
+      .mockResolvedValueOnce([["item", 7]])
+      .mockResolvedValueOnce(null),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+  const scan = jest.fn().mockReturnValue(cursor);
+  const entries = new PublishedMap({ entries: scan }).entries("user-1");
+
+  expect(scan).not.toHaveBeenCalled();
+  expect(entries[Symbol.asyncIterator]()).toBe(entries);
+  await expect(entries.next()).resolves.toEqual({
+    value: ["item", 7],
+    done: false,
+  });
+  expect(scan).toHaveBeenCalledTimes(1);
+  await expect(entries.next()).resolves.toEqual({
+    value: undefined,
+    done: true,
+  });
+});
+
+test("descriptors retain their owned and published access strategies", async () => {
+  const publishedCalls = [];
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = {
+    publishedValue: async (...args) => {
+      publishedCalls.push(["value", ...args]);
+      return {};
+    },
+    publishedMap: async (...args) => {
+      publishedCalls.push(["map", ...args]);
+      return {};
+    },
+    publishedDeque: async (...args) => {
+      publishedCalls.push(["deque", ...args]);
+      return {};
+    },
+    publishedSet: async (...args) => {
+      publishedCalls.push(["set", ...args]);
+      return {};
+    },
+  };
+
+  const definitions = [
+    value("cart"),
+    map("items"),
+    deque("jobs"),
+    set("tags", { readCache: { ttlMs: 250 } }),
+  ];
+  await Promise.all(
+    definitions.map((definition) => client.state("accounts", definition)),
+  );
+  expect(
+    publishedCalls.map(([kind, subsystem, name]) => [kind, subsystem, name]),
+  ).toEqual([
+    ["value", "accounts", "cart"],
+    ["map", "accounts", "items"],
+    ["deque", "accounts", "jobs"],
+    ["set", "accounts", "tags"],
+  ]);
+  expect(publishedCalls[3]).toEqual(["set", "accounts", "tags", 250, false]);
+
+  const ownedCalls = [];
+  const nativeContext = {};
+  for (const method of [
+    "valueState",
+    "mapState",
+    "dequeState",
+    "setState",
+    "messageValueState",
+    "messageMapState",
+    "messageDequeState",
+  ]) {
+    nativeContext[method] = (name) => {
+      ownedCalls.push([method, name]);
+      return {};
+    };
+  }
+  const context = new Context(nativeContext);
+  [
+    value("value"),
+    map("map"),
+    deque("deque"),
+    set("set"),
+    messageValue("message-value"),
+    messageMap("message-map"),
+    messageDeque("message-deque"),
+  ].forEach((definition) => context.state(definition));
+  expect(ownedCalls).toEqual([
+    ["valueState", "value"],
+    ["mapState", "map"],
+    ["dequeState", "deque"],
+    ["setState", "set"],
+    ["messageValueState", "message-value"],
+    ["messageMapState", "message-map"],
+    ["messageDequeState", "message-deque"],
+  ]);
+});
+
+test("set definitions carry set options and no payload", () => {
+  expect(
+    set("tags", { ttlSeconds: 60, keysetLimit: 8, published: true }),
+  ).toEqual({
+    name: "tags",
+    kind: "set",
+    ttlSeconds: 60,
+    keysetLimit: 8,
+    published: true,
+  });
+  expect(Object.isFrozen(set("tags"))).toBe(true);
+});
+
+test("set handles and published sets call the native set methods", async () => {
+  const calls = [];
+  const record =
+    (name, result) =>
+    (...args) => {
+      calls.push([name, ...args.slice(0, -1)]);
+      return Promise.resolve(result);
+    };
+  const members = new SetState({
+    insert: record("insert"),
+    contains: record("contains", true),
+    containsMany: record("containsMany", [true, false]),
+    remove: record("remove"),
+    clear: record("clear"),
+    isEmpty: record("isEmpty", false),
+  });
+  await expect(members.add("a")).resolves.toBeUndefined();
+  await expect(members.has("a")).resolves.toBe(true);
+  await expect(members.hasMany(["a", "b"])).resolves.toEqual([true, false]);
+  await expect(members.delete("a")).resolves.toBeUndefined();
+  await expect(members.clear()).resolves.toBeUndefined();
+  await expect(members.isEmpty()).resolves.toBe(false);
+
+  const reader = new PublishedSet({
+    contains: record("published.contains", false),
+    containsMany: record("published.containsMany", [false]),
+    isEmpty: record("published.isEmpty", true),
+  });
+  await expect(reader.has("u", "a")).resolves.toBe(false);
+  await expect(reader.hasMany("u", ["a"])).resolves.toEqual([false]);
+  await expect(reader.isEmpty("u")).resolves.toBe(true);
+
+  expect(calls).toEqual([
+    ["insert", "a"],
+    ["contains", "a"],
+    ["containsMany", ["a", "b"]],
+    ["remove", "a"],
+    ["clear"],
+    ["isEmpty"],
+    ["published.contains", "u", "a"],
+    ["published.containsMany", "u", ["a"]],
+    ["published.isEmpty", "u"],
+  ]);
+});
+
+test("set iterators yield bare members through the key cursor", async () => {
+  const opened = [];
+  const cursor = (items) => {
+    let done = false;
+    return {
+      nextChunk: async () => {
+        if (done) return null;
+        done = true;
+        return items;
+      },
+      close: async () => {},
+    };
+  };
+  const keys = (...args) => {
+    opened.push(args);
+    return cursor(["apple", "berry"]);
+  };
+  const collect = async (iterator) => {
+    const items = [];
+    for await (const item of iterator) items.push(item);
+    return items;
+  };
+  const members = new SetState({ keys });
+  const reader = new PublishedSet({ keys });
+
+  expect(await collect(members)).toEqual(["apple", "berry"]);
+  expect(await collect(members.values({ prefix: "a" }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(members.keys("backward"))).toEqual(["apple", "berry"]);
+  expect(await collect(reader.values("u", { limit: 1 }))).toEqual([
+    "apple",
+    "berry",
+  ]);
+  expect(await collect(reader.keys("u"))).toEqual(["apple", "berry"]);
+  expect(opened).toEqual([
+    [{}],
+    [{ prefix: "a" }],
+    [{ direction: "backward" }],
+    ["u", { limit: 1 }],
+    ["u", {}],
+  ]);
+  expect(() => members.keys({ limit: 0 })).toThrow(RangeError);
+  expect(() => reader.values("u", { from: "a", after: "b" })).toThrow(
+    TypeError,
+  );
+});
+
+test("request maps native subsystem outcomes", async () => {
+  const request = jest.fn().mockResolvedValue([
+    {
+      subsystem: "inventory",
+      outcome: JSON.stringify({ accepted: true }),
+    },
+    {
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
+    },
+    {
+      subsystem: "email",
+      outcome: {
+        kind: "timeout",
+        message: "no response arrived before the deadline",
+      },
+    },
+    {
+      subsystem: "shipping",
+      outcome: {
+        kind: "formatMismatch",
+        message: "the responder answered in another format",
+      },
+    },
+    {
+      subsystem: "crm",
+      outcome: {
+        kind: "malformedResponse",
+        message: "the response did not decode",
+      },
+    },
+    { subsystem: "search", outcome: "{" },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { request };
+
+  const results = await client.request(
+    "orders",
+    "order-1",
+    { type: "order.created" },
+    {
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
+      timeoutMs: 2_000,
+    },
+  );
+
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { accepted: true },
+  });
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(results.get("email").error.kind).toBe("timeout");
+  expect(results.get("shipping").error.kind).toBe("formatMismatch");
+  expect(results.get("crm").error.kind).toBe("malformedResponse");
+  expect(results.get("search").error.kind).toBe("malformedResponse");
+  expect(request).toHaveBeenCalledWith(
+    {
+      topic: "orders",
+      key: "order-1",
+      payload: JSON.stringify({ type: "order.created" }),
+      metadata: { eventId: undefined, eventType: "order.created" },
+      subsystems: [
+        "inventory",
+        "billing",
+        "email",
+        "shipping",
+        "crm",
+        "search",
+      ],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
+});
+
+test("requestExcise maps native subsystem outcomes", async () => {
+  const requestExcise = jest.fn().mockResolvedValue([
+    { subsystem: "inventory", outcome: JSON.stringify({ deleted: true }) },
+    {
+      subsystem: "billing",
+      outcome: { kind: "handler", message: "rejected" },
+    },
+  ]);
+  const client = Object.create(ProsodyClient.prototype);
+  client.nativeClient = { requestExcise };
+
+  const results = await client.requestExcise("orders", "order-1", {
+    subsystems: ["inventory", "billing"],
+    timeoutMs: 2_000,
+  });
+
+  expect(results.get("inventory")).toEqual({
+    ok: true,
+    value: { deleted: true },
+  });
+  expect(results.get("billing")).toEqual({
+    ok: false,
+    error: { kind: "handler", message: "rejected" },
+  });
+  expect(requestExcise).toHaveBeenCalledWith(
+    {
+      topic: "orders",
+      key: "order-1",
+      subsystems: ["inventory", "billing"],
+      timeoutMs: 2_000,
+    },
+    expect.any(Object),
+    undefined,
+  );
+});
