@@ -1190,6 +1190,8 @@ Represents a Kafka message with the following properties:
 - `timestamp: Date`: The timestamp when the message was created or sent.
 - `key: string`: The message key.
 - `payload: P`: The statically typed message payload.
+- `sourceSystem: string | null`: The source system of the producer, or `null` when the message has no source system header.
+- `responseRequested: boolean`: Whether the sender waits for a response. The handler result becomes the response only when this is `true`.
 
 `Message` takes an optional payload type parameter, `Message<P>`, used by handlers and message-backed state collections to type `payload`. Unparameterized `Message` is `Message<JsonValue>`, preserving useful JSON safety without requiring an application-specific payload type.
 
@@ -1199,7 +1201,7 @@ Ordinary interfaces work with `send()`. TypeScript rejects functions, `undefined
 
 ### ExciseMessage
 
-An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, and `key` properties. It has no `payload` property.
+An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, `key`, `sourceSystem`, and `responseRequested` properties. It has no `payload` property.
 
 ### Context
 
