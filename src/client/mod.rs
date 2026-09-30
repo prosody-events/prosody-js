@@ -1,5 +1,6 @@
 use crate::client::config::{
-    Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
+    Configuration, ReadCacheOption, build_cassandra_config, build_consumer_builders,
+    build_producer_config, read_cache_policy,
 };
 use crate::handler::JsHandler;
 use crate::number::milliseconds;
@@ -11,9 +12,7 @@ use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::codec::BinaryPayload;
-use prosody::high_level::erased::{
-    ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
-};
+use prosody::high_level::erased::{ErasedConsumerState, SharedHighLevelClient, new_erased};
 use prosody::propagator::new_propagator;
 use prosody::subsystem::SubsystemName;
 use std::collections::HashMap;
@@ -94,12 +93,12 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedValue> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .value_state(subsystem, name, policy)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
         Ok(NativePublishedValue {
@@ -114,12 +113,12 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedMap> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .map_state(subsystem, name, policy)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
         Ok(NativePublishedMap {
@@ -134,12 +133,12 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedSet> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .set_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .set_state(subsystem, name, policy)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
         Ok(NativePublishedSet {
@@ -154,12 +153,12 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedDeque> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .deque_state(subsystem, name, policy)
             .await
             .map_err(|error| Error::from_reason(error.to_string()))?;
         Ok(NativePublishedDeque {
@@ -467,18 +466,5 @@ where
             span.record("aborted", false);
             result
         }
-    }
-}
-
-fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
-    match (cache_ms, disabled.unwrap_or(false)) {
-        (Some(_), true) => Err(Error::from_reason(
-            "read cache cannot set both ttlMs and disabled",
-        )),
-        (None, true) => Ok(ErasedReadCache::Disabled),
-        (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
-            milliseconds,
-        )))),
-        (None, false) => Ok(ErasedReadCache::Inherit),
     }
 }

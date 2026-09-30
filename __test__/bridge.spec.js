@@ -88,7 +88,9 @@ test("published state options stay on the descriptor", () => {
 });
 
 test.each([
-  { stateReadCache: { disabled: true, ttlMs: 1 } },
+  { stateReadCache: true },
+  { stateReadCache: { ttlMs: -1 } },
+  { stateReadCache: { ttlMs: NaN } },
   { stateReadCacheSize: "0" },
 ])("rejects invalid published read cache config %p", async (options) => {
   await expect(
@@ -195,7 +197,12 @@ test("descriptors retain their owned and published access strategies", async () 
     ["deque", "accounts", "jobs"],
     ["set", "accounts", "tags"],
   ]);
-  expect(publishedCalls[3]).toEqual(["set", "accounts", "tags", 250, false]);
+  expect(publishedCalls[3]).toEqual([
+    "set",
+    "accounts",
+    "tags",
+    { ttlMs: 250 },
+  ]);
 
   const ownedCalls = [];
   const nativeContext = {};

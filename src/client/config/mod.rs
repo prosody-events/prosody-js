@@ -8,7 +8,8 @@ mod consumer;
 mod state;
 
 pub use consumer::build_consumer_builders;
-pub use state::{ReadCacheConfiguration, StateCollectionConfig};
+pub(crate) use state::read_cache_policy;
+pub use state::{ReadCacheOption, StateCollectionConfig};
 
 use crate::number::{milliseconds, seconds, whole};
 use napi::bindgen_prelude::Null;
@@ -265,9 +266,11 @@ pub struct Configuration {
     /// cache size when set, or 1 MiB when both sizes are unset.
     pub state_read_cache_size: Option<String>,
 
-    /// Default cache policy for published-state reads. Uses
+    /// Default cache policy for published-state reads: `false` turns the
+    /// cache off, and `{ ttlMs }` sets the cache duration. Uses
     /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
-    pub state_read_cache: Option<ReadCacheConfiguration>,
+    #[napi(ts_type = "ReadCacheConfiguration | false")]
+    pub state_read_cache: Option<ReadCacheOption>,
 
     /// Subsystem under which published JSON and set collections are
     /// advertised. Uses `PROSODY_SUBSYSTEM` when omitted. Published

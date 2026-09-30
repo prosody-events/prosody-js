@@ -1,6 +1,9 @@
 const {
   ProsodyClient,
+  PublishedDeque,
   PublishedMap,
+  PublishedSet,
+  PublishedValue,
   deque,
   map,
   messageDeque,
@@ -194,14 +197,45 @@ describe("keyed state configuration validation", () => {
     },
   );
 
-  // A client that only reads published state needs no topic list.
-  it("opens a published reader without subscribed topics", async () => {
-    const client = await makeClient(
-      makeConfig({ subscribedTopics: undefined, subsystem: "readers" }),
-    );
-    const reader = await client.state("accounts", map("balances"));
-    expect(reader).toBeInstanceOf(PublishedMap);
-  });
+  // A client that only reads published state needs no topic list. The client
+  // default and a definition's readCache take the same forms, and each form
+  // crosses into the native reader of every kind.
+  const READ_CACHES = [undefined, false, { ttlMs: 1 }, { ttlMs: 1500 }];
+  it.each(READ_CACHES)(
+    "opens published readers of every kind with readCache %p",
+    async (readCache) => {
+      const client = await makeClient(
+        makeConfig({
+          subscribedTopics: undefined,
+          subsystem: "readers",
+          stateReadCache: readCache,
+        }),
+      );
+      const readers = await Promise.all(
+        [value, map, set, deque].map((define) =>
+          client.state("accounts", define("balances", { readCache })),
+        ),
+      );
+      expect(readers.map((reader) => reader.constructor)).toEqual([
+        PublishedValue,
+        PublishedMap,
+        PublishedSet,
+        PublishedDeque,
+      ]);
+    },
+  );
+
+  it.each([true, { ttlMs: -1 }, { ttlMs: NaN }, { ttlMs: Infinity }])(
+    "rejects readCache %p when a reader opens",
+    async (readCache) => {
+      const client = await makeClient(
+        makeConfig({ subscribedTopics: undefined, subsystem: "readers" }),
+      );
+      await expect(
+        client.state("accounts", map("balances", { readCache })),
+      ).rejects.toThrow(/readCache/);
+    },
+  );
 
   it("accepts the full canonical collection set", async () => {
     await makeClient(makeConfig({ stateCollections: STATE_COLLECTIONS }));

@@ -851,7 +851,7 @@ The reader cannot see pending changes that exist only in a handler. It cannot ch
 
 Map, set, and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
 
-The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache.
+The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache. The client option `stateReadCache` sets the default for every reader and takes the same two forms.
 
 To stop publication, deploy the definition with `published: false`. Keep the definition registered during that deployment. Keep the subsystem configured during that deployment.
 

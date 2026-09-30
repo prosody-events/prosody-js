@@ -3,12 +3,13 @@
 
 use super::Configuration;
 use crate::number::{milliseconds, whole};
-use napi::{Error, Result};
+use napi::{Either, Error, Result};
 use napi_derive::napi;
 use prosody::ByteSize;
 use prosody::codec::{JsonBinaryCodec, JsonBinaryMessageCodec};
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::kafka_state::{message_deque_state, message_map_state, message_state};
+use prosody::high_level::erased::ErasedReadCache as ReadCachePolicy;
 use prosody::loader::KafkaLoader;
 use prosody::state::descriptor::{
     MapDescriptor, StateDescriptor, deque_state, map_state, set_state, value_state,
@@ -60,14 +61,17 @@ pub struct StateCollectionConfig {
     pub capacity: Option<f64>,
 }
 
-/// Default cache policy for published-state reads.
+/// The cache duration for published-state reads.
 #[napi(object)]
 pub struct ReadCacheConfiguration {
     /// Cache duration in milliseconds.
-    pub ttl_ms: Option<f64>,
-    /// Read durable storage on every operation.
-    pub disabled: Option<bool>,
+    pub ttl_ms: f64,
 }
+
+/// A read cache option: `false` turns the cache off, and
+/// `{ ttlMs }` sets the cache duration.
+#[napi]
+pub type ReadCacheOption = Either<bool, ReadCacheConfiguration>;
 
 /// The kind of a keyed-state collection.
 #[derive(Clone, Copy)]
@@ -340,6 +344,31 @@ fn register_state_collection(
     Ok(())
 }
 
+/// Converts a read cache option into the Prosody cache policy.
+///
+/// The client option and a definition's `readCache` share this rule. An
+/// absent option inherits the default policy.
+///
+/// @param option The option, if set.
+/// @param field The option name for the error message.
+/// @returns The cache policy.
+/// @throws Error if the option is `true` or its `ttlMs` cannot convert.
+pub(crate) fn read_cache_policy(
+    option: Option<&ReadCacheOption>,
+    field: &str,
+) -> Result<ReadCachePolicy> {
+    match option {
+        None => Ok(ReadCachePolicy::Inherit),
+        Some(Either::A(false)) => Ok(ReadCachePolicy::Disabled),
+        Some(Either::A(true)) => Err(Error::from_reason(format!(
+            "{field}: expected false or {{ ttlMs }}, got true"
+        ))),
+        Some(Either::B(cache)) => {
+            milliseconds(cache.ttl_ms, &format!("{field}.ttlMs")).map(ReadCachePolicy::Ttl)
+        }
+    }
+}
+
 /// Builds the real `KeyedStateConfiguration` from the given Configuration.
 ///
 /// Registers each declared collection synchronously before subscribe. Host
@@ -377,20 +406,13 @@ pub(super) fn build_keyed_state_config(config: &Configuration) -> Result<KeyedSt
         builder.read_cache_size(Some(size));
     }
 
-    if let Some(cache) = &config.state_read_cache {
-        match (cache.ttl_ms, cache.disabled.unwrap_or(false)) {
-            (None, false) => {}
-            (None, true) => {
-                builder.read_cache_ttl(None);
-            }
-            (Some(value), false) => {
-                builder.read_cache_ttl(Some(milliseconds(value, "stateReadCache.ttlMs")?));
-            }
-            (Some(_), true) => {
-                return Err(Error::from_reason(
-                    "stateReadCache: cannot set both ttlMs and disabled",
-                ));
-            }
+    match read_cache_policy(config.state_read_cache.as_ref(), "stateReadCache")? {
+        ReadCachePolicy::Inherit => {}
+        ReadCachePolicy::Disabled => {
+            builder.read_cache_ttl(None);
+        }
+        ReadCachePolicy::Ttl(ttl) => {
+            builder.read_cache_ttl(Some(ttl));
         }
     }
 

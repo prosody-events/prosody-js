@@ -65,8 +65,20 @@ const config: Configuration = {
   stateCollections: [cart, totals, tags, seen, lastOrder, orderIndex, backlog],
   stateOwnedCacheSize: "64 MiB",
   stateMemtableSize: "16 MiB",
+  stateReadCache: false,
 };
 void config;
+
+// The client default and a definition's readCache take the same two forms.
+const cachedConfig: Configuration = { stateReadCache: { ttlMs: 1000 } };
+void cachedConfig;
+void value("uncached", { readCache: false });
+// @ts-expect-error the cache is off only through false
+const trueConfig: Configuration = { stateReadCache: true };
+void trueConfig;
+// @ts-expect-error the { disabled } form is gone
+const disabledConfig: Configuration = { stateReadCache: { disabled: true } };
+void disabledConfig;
 
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
