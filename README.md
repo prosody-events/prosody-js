@@ -1168,7 +1168,7 @@ your changes before merging to `main`.
 ### AdminClient
 
 - `new AdminClient(bootstrapServers)`: Create an admin client for the specified Kafka servers.
-- `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
+- `createTopic(name, partitions, replicationFactor, options?)`: Create a Kafka topic. `options` takes `cleanupPolicy`, such as `"compact"`, and `retentionMs`. The cluster default applies to each setting you omit.
 - `deleteTopic(name)`: Delete a Kafka topic.
 
 ### EventHandler

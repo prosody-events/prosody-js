@@ -11,6 +11,7 @@ import type {
   Mode,
   ReadCacheConfiguration,
   Timer,
+  TopicOptions,
 } from "./bindings";
 
 export {
@@ -19,6 +20,7 @@ export {
   ConsumerState,
   ReadCacheConfiguration,
   Timer,
+  TopicOptions,
   Mode,
 };
 
