@@ -6,7 +6,7 @@
  */
 
 const { Readable } = require("stream");
-const { EventEmitter } = require("events");
+const { EventEmitter, on, once } = require("events");
 const { trace } = require("@opentelemetry/api");
 const { NodeSDK } = require("@opentelemetry/sdk-node");
 const {
@@ -55,81 +55,27 @@ const createMessageStream = () =>
     read() {},
   });
 
-const waitForMessages = (stream, count, timeout) =>
-  new Promise((resolve, reject) => {
-    const messages = [];
-    let resolved = false;
-
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        stream.removeListener("data", dataHandler);
-        reject(new Error(`Timeout waiting for ${count} messages`));
-      }
-    }, timeout);
-
-    const dataHandler = (message) => {
-      if (!resolved) {
-        messages.push(message);
-        if (messages.length === count) {
-          resolved = true;
-          clearTimeout(timer);
-          stream.removeListener("data", dataHandler);
-          resolve(messages);
-        }
-      }
-    };
-
-    stream.on("data", dataHandler);
-  });
-
-// Waits for the first observation pushed into an object-mode sink that matches
-// `predicate`. Used by the live keyed-state tests that need to key off a
-// specific observation rather than a fixed count.
-const waitForObservation = (stream, predicate, timeout) =>
-  new Promise((resolve, reject) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        stream.removeListener("data", dataHandler);
-        reject(new Error("Timeout waiting for matching observation"));
-      }
-    }, timeout);
-    const dataHandler = (message) => {
-      if (!resolved && predicate(message)) {
-        resolved = true;
-        clearTimeout(timer);
-        stream.removeListener("data", dataHandler);
-        resolve(message);
-      }
-    };
-    stream.on("data", dataHandler);
-  });
-
-const waitForEvent = (emitter, eventName, timeout) => {
-  return new Promise((resolve, reject) => {
-    let resolved = false;
-
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        emitter.removeListener(eventName, eventHandler);
-        reject(new Error(`Timeout waiting for ${eventName}`));
-      }
-    }, timeout);
-
-    const eventHandler = (...args) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        resolve(args);
-      }
-    };
-
-    emitter.once(eventName, eventHandler);
-  });
+// Waits for the first observation pushed into an object-mode stream that
+// matches `predicate`.
+const waitForObservation = async (stream, predicate, timeout) => {
+  const signal = AbortSignal.timeout(timeout);
+  for await (const [message] of on(stream, "data", { signal })) {
+    if (predicate(message)) return message;
+  }
 };
+
+const waitForMessages = async (stream, count, timeout) => {
+  const messages = [];
+  await waitForObservation(
+    stream,
+    (message) => messages.push(message) === count,
+    timeout,
+  );
+  return messages;
+};
+
+const waitForEvent = (emitter, eventName, timeout) =>
+  once(emitter, eventName, { signal: AbortSignal.timeout(timeout) });
 
 // A mock-mode client configuration for the tests that need no services.
 const mockConfig = (overrides) => ({
@@ -320,8 +266,6 @@ function liveSuite() {
 
 module.exports = {
   BOOTSTRAP_SERVERS,
-  CASSANDRA_KEYSPACE,
-  CASSANDRA_NODES,
   GROUP_NAME,
   MESSAGE_TIMEOUT,
   SOURCE_NAME,
@@ -335,5 +279,4 @@ module.exports = {
   waitForEvent,
   waitForMessages,
   waitForObservation,
-  withCompleteHandlers,
 };
