@@ -28,9 +28,7 @@ pub struct Configuration {
     /// Use mock client for testing if true.
     pub mock: Option<bool>,
 
-    /// Timeout for message send operations in milliseconds. Pipeline mode
-    /// ignores this option and retries a send until it succeeds. Low-latency
-    /// and best-effort modes use it, with a default of 1 second.
+    /// Timeout for message send operations in milliseconds.
     pub send_timeout_ms: Option<f64>,
 
     /// Consumer group name.
