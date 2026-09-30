@@ -102,6 +102,19 @@ describe("keyed state (unit)", () => {
     );
   });
 
+  // A JSON null has a JSON form. The client adds no check, so core decides.
+  it("a JSON write of null reaches the native method as null", async () => {
+    const write = jest.fn();
+    const native = { set: write, pushBack: write, pushFront: write };
+    const deque = new DequeState(native, jsonItems);
+    await new ValueState(native, jsonItems).set(null);
+    await new MapState(native, jsonItems).set("k", null);
+    await deque.push(null);
+    await deque.unshift(null);
+    const texts = write.mock.calls.map((call) => call.at(-2));
+    expect(texts).toEqual(["null", "null", "null", "null"]);
+  });
+
   // DequeState.at() rejects a non-integer index as a caller mistake
   // (TransientStateError), because the native u32 conversion would truncate a
   // fraction. It reads an out-of-range position as null. It routes the
