@@ -67,7 +67,7 @@
     "universal": "napi universalize",
     "version": "napi version"
   },
-  "packageManager": "yarn@4.4.0",
+  "packageManager": "yarn@4.18.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/prosody-events/prosody-js.git"
