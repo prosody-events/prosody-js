@@ -33,7 +33,7 @@ The JavaScript client rejects a number that has no exact form in the Prosody typ
 | `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                              | -                      |
 | `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for message deduplication. Must be at least 1. | 8192                   |
 | `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                     | `"1"`                  |
-| `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`             | TTL for dedup records in Cassandra in seconds                                                     | 604800                 |
+| `idempotenceTtlSeconds` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds                                                     | 604800                 |
 | `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                 | 1h                     |
 | `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                          | `child`                |
 | `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                            | `follows_from`         |

@@ -54,7 +54,7 @@ describe("configuration validation", () => {
     "deferBaseMs",
     "deferFailureWindowMs",
     "deferMaxDelayMs",
-    "idempotenceTtlS",
+    "idempotenceTtlSeconds",
     "loaderSeekTimeoutMs",
     "maxRetryDelayMs",
     "monopolizationWindowMs",

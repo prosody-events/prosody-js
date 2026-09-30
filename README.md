@@ -439,7 +439,7 @@ Deduplication uses a two-tier approach:
 - **Global in-memory cache**: A single cache shared across all partitions within the same consumer instance. Survives
   partition reassignments within the same process. Controlled by `idempotenceCacheSize` (default 8192).
 - **Cassandra-backed persistent store**: Survives restarts and rebalances across instances. TTL controlled by
-  `idempotenceTtlS` (default 7 days, i.e. 604800s).
+  `idempotenceTtlSeconds` (default 7 days, i.e. 604800s).
 
 Deduplication is always active. `idempotenceCacheSize` must be greater than `0`; a value of `0` (via either the option
 or `PROSODY_IDEMPOTENCE_CACHE_SIZE=0`) is rejected when the client is constructed.

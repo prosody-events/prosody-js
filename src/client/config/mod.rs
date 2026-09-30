@@ -46,7 +46,7 @@ pub struct Configuration {
     /// TTL for deduplication records in Cassandra in seconds.
     ///
     /// Must be at least 1 minute. Defaults to 7 days.
-    pub idempotence_ttl_s: Option<f64>,
+    pub idempotence_ttl_seconds: Option<f64>,
 
     /// Topics to subscribe to.
     pub subscribed_topics: Option<Either<String, Vec<String>>>,

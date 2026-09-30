@@ -311,8 +311,8 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
         builder.version(version.clone());
     }
 
-    if let Some(value) = config.idempotence_ttl_s {
-        builder.ttl(seconds(value, "idempotenceTtlS")?);
+    if let Some(value) = config.idempotence_ttl_seconds {
+        builder.ttl(seconds(value, "idempotenceTtlSeconds")?);
     }
 
     Ok(builder)
