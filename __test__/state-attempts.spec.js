@@ -46,38 +46,23 @@ describe("ProsodyClient", () => {
     it("rollback discards uncommitted writes back to the committed floor", async () => {
       const A = nonce();
       const B = nonce();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const c = ctx.state(STATE_DEFS.cart);
-          try {
-            const outcomes = [];
-            await c.set({ v: A });
-            outcomes.push(await c.commit());
-            outcomes.push(await c.commit());
-            await c.set({ v: B });
-            const before = await c.get();
-            outcomes.push(await c.rollback());
-            outcomes.push(await c.rollback());
-            const after = await c.get();
-            env.messageStream.push({
-              before: before.v,
-              after: after.v,
-              outcomes,
-            });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
+      const obs = await env.observe(async (ctx, msg) => {
+        const c = ctx.state(STATE_DEFS.cart);
+        const outcomes = [];
+        await c.set({ v: A });
+        outcomes.push(await c.commit());
+        outcomes.push(await c.commit());
+        await c.set({ v: B });
+        const before = await c.get();
+        outcomes.push(await c.rollback());
+        outcomes.push(await c.rollback());
+        const after = await c.get();
+        return {
+          before: before.v,
+          after: after.v,
+          outcomes,
+        };
       });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
       expect(obs.before).toBe(B);
       expect(obs.after).toBe(A);
       // Each call reports whether it drained buffered operations.
@@ -88,38 +73,23 @@ describe("ProsodyClient", () => {
     // BoxMapState commit/rollback branch (C5a/C5b only reach ValueState). A
     // committed entry survives a rollback that discards a later uncommitted one.
     it("map commit floor survives a rollback of later uncommitted writes", async () => {
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const m = ctx.state(STATE_DEFS.totals);
-          try {
-            await m.set("kept", 1);
-            await m.commit();
-            await m.set("kept", 2);
-            await m.set("dropped", 9);
-            const before = {
-              kept: await m.get("kept"),
-              dropped: await m.get("dropped"),
-            };
-            await m.rollback();
-            const after = {
-              kept: await m.get("kept"),
-              dropped: await m.get("dropped"),
-            };
-            env.messageStream.push({ before, after });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
+      const obs = await env.observe(async (ctx, msg) => {
+        const m = ctx.state(STATE_DEFS.totals);
+        await m.set("kept", 1);
+        await m.commit();
+        await m.set("kept", 2);
+        await m.set("dropped", 9);
+        const before = {
+          kept: await m.get("kept"),
+          dropped: await m.get("dropped"),
+        };
+        await m.rollback();
+        const after = {
+          kept: await m.get("kept"),
+          dropped: await m.get("dropped"),
+        };
+        return { before, after };
       });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
       // before rollback: the uncommitted overwrite and insert are both visible.
       expect(obs.before).toEqual({ kept: 2, dropped: 9 });
       // after rollback: reverts to the committed floor — kept=1, dropped gone.
@@ -256,31 +226,16 @@ describe("ProsodyClient", () => {
     // assertion is the fake-cursor unit test). A follow-up op succeeds.
     it("breaking out of a scan leaves the collection usable", async () => {
       const K = nonce();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const m = ctx.state(STATE_DEFS.totals);
-          try {
-            await m.set("a", 1);
-            await m.set("b", 2);
-            await m.set("c", 3);
-            // eslint-disable-next-line no-unused-vars
-            for await (const _entry of m.entries()) break;
-            await m.set("after", 99);
-            env.messageStream.push({ ok: (await m.get("after")) === 99 });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await env.client.send(env.topic, K, { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
+      const obs = await env.observe(async (ctx, msg) => {
+        const m = ctx.state(STATE_DEFS.totals);
+        await m.set("a", 1);
+        await m.set("b", 2);
+        await m.set("c", 3);
+        // eslint-disable-next-line no-unused-vars
+        for await (const _entry of m.entries()) break;
+        await m.set("after", 99);
+        return { ok: (await m.get("after")) === 99 };
+      }, K);
       expect(obs.ok).toBe(true);
     });
   });

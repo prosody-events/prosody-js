@@ -23,30 +23,19 @@ describe("ProsodyClient", () => {
     // collector, not here.
     it("a state op runs under the active JS trace context (smoke)", async () => {
       const V = nonce();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          await env.tracer.startActiveSpan("test.state_op", async (span) => {
-            try {
-              const c = ctx.state(STATE_DEFS.cart);
-              await c.set({ v: V });
-              const got = await c.get();
-              env.messageStream.push({
-                got,
-                activeSpan: trace.getActiveSpan() !== undefined,
-              });
-            } finally {
-              span.end();
-            }
-          });
-        },
-      });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
+      const obs = await env.observe((ctx) =>
+        env.tracer.startActiveSpan("test.state_op", async (span) => {
+          try {
+            const c = ctx.state(STATE_DEFS.cart);
+            await c.set({ v: V });
+            return {
+              got: await c.get(),
+              activeSpan: trace.getActiveSpan() !== undefined,
+            };
+          } finally {
+            span.end();
+          }
+        }),
       );
       expect(obs.got).toEqual({ v: V });
       expect(obs.activeSpan).toBe(true);

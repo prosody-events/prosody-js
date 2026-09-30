@@ -33,28 +33,13 @@ describe("ProsodyClient", () => {
         arr: [1, "x", null],
         nested: { z: [true, 2] },
       };
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const c = ctx.state(STATE_DEFS.cart);
-          try {
-            const before = await c.get(); // never written -> null
-            await c.set(rich);
-            const after = await c.get(); // read-your-writes -> the marshalled value
-            env.messageStream.push({ before, after });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await env.client.send(env.topic, K, { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
+      const obs = await env.observe(async (ctx, msg) => {
+        const c = ctx.state(STATE_DEFS.cart);
+        const before = await c.get(); // never written -> null
+        await c.set(rich);
+        const after = await c.get(); // read-your-writes -> the marshalled value
+        return { before, after };
+      }, K);
       expect(obs.before).toBeNull();
       // The serde bridge round-trips the whole value, nested null included.
       expect(obs.after).toEqual(rich);
@@ -68,34 +53,19 @@ describe("ProsodyClient", () => {
     it("map marshals keys (incl. unicode) and values, and entries() yields pairs", async () => {
       const K = nonce();
       const entriesIn = { k1: 1, café: 9, "😀": 7 };
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const m = ctx.state(STATE_DEFS.totals);
-          try {
-            for (const [k, v] of Object.entries(entriesIn)) await m.set(k, v);
-            const collected = [];
-            for await (const entry of m.entries()) collected.push(entry);
-            env.messageStream.push({
-              collected,
-              k1: await m.get("k1"),
-              cafe: await m.get("café"),
-              emoji: await m.get("😀"),
-              absent: await m.get(nonce()),
-            });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await env.client.send(env.topic, K, { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
+      const obs = await env.observe(async (ctx, msg) => {
+        const m = ctx.state(STATE_DEFS.totals);
+        for (const [k, v] of Object.entries(entriesIn)) await m.set(k, v);
+        const collected = [];
+        for await (const entry of m.entries()) collected.push(entry);
+        return {
+          collected,
+          k1: await m.get("k1"),
+          cafe: await m.get("café"),
+          emoji: await m.get("😀"),
+          absent: await m.get(nonce()),
+        };
+      }, K);
       // point reads marshal keys + values faithfully; absent -> null
       expect(obs.k1).toBe(1);
       expect(obs.cafe).toBe(9);
@@ -124,34 +94,19 @@ describe("ProsodyClient", () => {
     it("reads several keys at once, giving one array entry per key", async () => {
       const K = nonce();
       const missing = nonce();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          const m = ctx.state(STATE_DEFS.totals);
-          try {
-            const emptyBefore = await m.isEmpty();
-            await m.set("a", 1);
-            await m.set("b", { v: 2 });
-            env.messageStream.push({
-              result: await m.getMany(["a", missing, "b"]),
-              empty: await m.getMany([]),
-              present: await m.hasMany(["b", missing, "a"]),
-              emptyBefore,
-              emptyAfter: await m.isEmpty(),
-            });
-          } catch (e) {
-            env.messageStream.push({ error: e.message });
-          }
-        },
-      });
-
-      await env.client.send(env.topic, K, { go: true });
-      const [obs] = await waitForMessages(
-        env.messageStream,
-        1,
-        MESSAGE_TIMEOUT,
-      );
-      expect(obs.error).toBeUndefined();
+      const obs = await env.observe(async (ctx, msg) => {
+        const m = ctx.state(STATE_DEFS.totals);
+        const emptyBefore = await m.isEmpty();
+        await m.set("a", 1);
+        await m.set("b", { v: 2 });
+        return {
+          result: await m.getMany(["a", missing, "b"]),
+          empty: await m.getMany([]),
+          present: await m.hasMany(["b", missing, "a"]),
+          emptyBefore,
+          emptyAfter: await m.isEmpty(),
+        };
+      }, K);
       // we get back an array with one entry per key we asked for; the values
       // come through unchanged and a missing key is null. We check what came
       // back and how many, not the order — the store decides the order.

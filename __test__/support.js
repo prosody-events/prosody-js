@@ -201,6 +201,29 @@ function liveSuite() {
       });
     },
 
+    // Runs `onMessage` for one message on a state client and returns the
+    // value it returns. It rejects with the error when the handler throws.
+    async observe(onMessage, key = nonce()) {
+      env.client = await env.makeStateClient();
+      await env.client.subscribe({
+        onMessage: async (ctx, msg) => {
+          try {
+            env.messageStream.push({ value: await onMessage(ctx, msg) });
+          } catch (error) {
+            env.messageStream.push({ error });
+          }
+        },
+      });
+      await env.client.send(env.topic, key, { go: true });
+      const [observation] = await waitForMessages(
+        env.messageStream,
+        1,
+        MESSAGE_TIMEOUT,
+      );
+      if ("error" in observation) throw observation.error;
+      return observation.value;
+    },
+
     async sendTestMessage(key = "timer-test-key") {
       const testMessage = {
         key,
