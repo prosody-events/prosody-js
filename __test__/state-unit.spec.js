@@ -15,10 +15,32 @@ const {
   ValueState,
   isStateError,
 } = require("../index.js");
+const { Message: NativeMessage } = require("../bindings");
 const { wrapNative } = require("../lib/client");
+const { withParsedPayload } = require("../lib/state/codec");
 const { RAW_ITEMS, makeFiniteCursor } = require("./fakes");
 
 describe("keyed state (unit)", () => {
+  // The native payload getter throws for bytes that are not UTF-8, before any
+  // JSON parse. A native object with no message behind it makes the same
+  // getter throw. The read must still be the permanent payload error, and a
+  // second read must throw the same error.
+  it("a payload that the native getter cannot read is a permanent error", () => {
+    const message = withParsedPayload(Object.create(NativeMessage.prototype));
+    const read = () => {
+      try {
+        return message.payload;
+      } catch (error) {
+        return error;
+      }
+    };
+    const first = read();
+    expect(first).toBeInstanceOf(PermanentError);
+    expect(first.message).toMatch(/^message payload is not JSON: /);
+    expect(first.cause.message).toMatch(/Message/);
+    expect(read()).toBe(first);
+  });
+
   // The public objects keep their native handles in private fields, so user
   // code cannot read, replace, or call them.
   it("public objects expose no own properties", () => {
