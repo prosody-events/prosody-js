@@ -57,10 +57,9 @@ describe("ProsodyClient", () => {
       expect(count).toBe(2);
     });
 
-    // C10a — set(null)/push(null) are caller mistakes: they reject
-    // TransientStateError (retry, stay visible, never discard) and leave the
-    // store untouched. The value message names clear() as the way to delete.
-    it("null-item writes reject transient and leave the store untouched", async () => {
+    // Prosody rejects a JSON null write with a permanent error. The binding
+    // maps it to a PermanentStateError and the store keeps its value.
+    it("null-item writes reject permanent and leave the store untouched", async () => {
       const V = nonce();
       env.client = await makeStateClient();
       await env.client.subscribe({
@@ -74,11 +73,11 @@ describe("ProsodyClient", () => {
             let valueOutcome;
             try {
               await c.set(null);
-              valueOutcome = { transient: false, threw: false };
+              valueOutcome = { permanent: false, threw: false };
             } catch (e) {
               valueOutcome = {
                 threw: true,
-                transient: e instanceof TransientStateError,
+                permanent: e instanceof PermanentStateError,
                 msg: e.message,
               };
             }
@@ -86,11 +85,11 @@ describe("ProsodyClient", () => {
             let dequeOutcome;
             try {
               await d.push(null);
-              dequeOutcome = { transient: false, threw: false };
+              dequeOutcome = { permanent: false, threw: false };
             } catch (e) {
               dequeOutcome = {
                 threw: true,
-                transient: e instanceof TransientStateError,
+                permanent: e instanceof PermanentStateError,
               };
             }
 
@@ -113,10 +112,10 @@ describe("ProsodyClient", () => {
       );
       expect(obs.error).toBeUndefined();
       expect(obs.valueOutcome.threw).toBe(true);
-      expect(obs.valueOutcome.transient).toBe(true);
+      expect(obs.valueOutcome.permanent).toBe(true);
       expect(obs.valueOutcome.msg).toMatch(/clear/);
       expect(obs.dequeOutcome.threw).toBe(true);
-      expect(obs.dequeOutcome.transient).toBe(true);
+      expect(obs.dequeOutcome.permanent).toBe(true);
       expect(obs.after).toBe(V);
     });
 

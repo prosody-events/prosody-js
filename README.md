@@ -807,7 +807,7 @@ async function orderPage(context: Context, after?: string) {
 
 Set `direction: "backward"` to page from the highest key down.
 
-Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
+Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Prosody rejects a JSON `null` write with a `PermanentStateError`. Use `clear()` (value, deque) or `delete()` (map) to delete.
 
 ### When keyed-state changes become visible
 

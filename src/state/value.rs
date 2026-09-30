@@ -34,8 +34,8 @@ impl NativeJsonValueState {
 
     /// Buffers a write of a JSON document.
     ///
-    /// JSON null is rejected with a transient error naming `clear` as the way
-    /// to delete.
+    /// Prosody rejects JSON null with a permanent error. Use `clear` to
+    /// delete.
     ///
     /// @param json The document's JSON text.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -47,7 +47,7 @@ impl NativeJsonValueState {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json, "; use clear() to remove the value")?;
+        let payload = json_payload(json);
         self.state
             .set(payload)
             .with_context(context)

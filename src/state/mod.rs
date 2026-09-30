@@ -19,8 +19,7 @@
 //! typed layer branches on without parsing the human message. No fencing or
 //! cursor safety lives here: those are core-owned and this layer only
 //! transports and types. Caller-mistake conditions the glue detects (an
-//! unrepresentable value, a `null` write, or an invalid enum
-//! token) reject TRANSIENT — a caller code error retries and stays visible
+//! unrepresentable value or an invalid enum token) reject TRANSIENT — a caller code error retries and stays visible
 //! rather than discarding the message (see the error classification rule in
 //! AGENTS.md).
 
@@ -30,7 +29,7 @@ use napi::{Error, Status};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
-use prosody::codec::{BinaryPayload, ErasedStateCodec};
+use prosody::codec::BinaryPayload;
 use prosody::consumer::event_context::{
     BoxDequeState, BoxMapState, BoxSetState, BoxValueState, ErasedCategory, ErasedStateError,
     StateCursor,
@@ -117,8 +116,9 @@ pub(crate) fn state_error(error: &ErasedStateError) -> Error {
 }
 
 /// Builds a transient-category napi error for a caller-caused condition the
-/// glue detects (an unrepresentable value, a `null` write, a wrong argument
-/// shape, an out-of-range index, an invalid enum token).
+/// glue detects (an unrepresentable value, a wrong argument shape, an
+/// out-of-range index, an invalid enum token). Prosody rejects a JSON `null`
+/// write itself, with a permanent error.
 ///
 /// Caller mistakes are TRANSIENT, never permanent: a permanent error discards
 /// the in-flight message and can silently lose data or corrupt downstream
@@ -178,24 +178,12 @@ pub(crate) fn op_context(
 /// Prepares JSON text for a write.
 ///
 /// Takes the string's buffer, so the document is stored verbatim with no copy.
-/// Rejects the `null` document: `null` is the erased seam's name for absence,
-/// so it is not a storable value. Like every caller mistake it rejects
-/// TRANSIENT — it retries and stays visible rather than discarding the
-/// message. `advice` names the deletion verb for the collection kind (a deque
-/// has none).
+/// Prosody rejects a JSON `null` document with a permanent error.
 ///
 /// @param json The document's JSON text.
-/// @param advice A trailing clause naming how to delete instead.
 /// @returns The payload to hand core.
-/// @throws Error (transient) if the document is JSON `null`.
-fn json_payload(json: String, advice: &str) -> napi::Result<BinaryPayload> {
-    let payload = BinaryPayload::new(json.into_bytes(), None::<String>, None::<String>);
-    if payload.is_absent_sentinel() {
-        return Err(transient_error(format!(
-            "JSON null is not a storable value{advice}"
-        )));
-    }
-    Ok(payload)
+fn json_payload(json: String) -> BinaryPayload {
+    BinaryPayload::new(json.into_bytes(), None::<String>, None::<String>)
 }
 
 /// Hands a stored JSON document to JavaScript as its raw text.

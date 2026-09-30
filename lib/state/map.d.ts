@@ -41,12 +41,10 @@ export declare class MapState<V = JsonValue> {
   /** Reports whether the map holds no live entries. */
   isEmpty(): Promise<boolean>;
   /**
-   * Inserts or overwrites `key`. The value type excludes `null`/`undefined`
-   * (via {@link !NonNullable}) because a top-level `null` is not a storable
-   * value — writing one (or an unrepresentable value) is a caller mistake,
-   * rejected at runtime with a {@link TransientStateError} — use
-   * {@link MapState#delete} to remove. Transient so it retries and stays visible
-   * rather than discarding the message. (Nested `null` is permitted.)
+   * Inserts or overwrites `key`. The value type excludes `null` and
+   * `undefined`, because a top-level `null` is not a storable value. At run
+   * time Prosody rejects JSON `null` with a {@link PermanentStateError}; use
+   * {@link MapState#delete} to remove an entry. A nested `null` is stored.
    */
   set(key: string, value: NonNullable<V>): Promise<void>;
   /**

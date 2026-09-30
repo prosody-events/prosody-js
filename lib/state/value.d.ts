@@ -17,13 +17,10 @@ export declare class ValueState<T = JsonValue> {
   /** Reads the current value, or null when absent/cleared. */
   get(): Promise<T | null>;
   /**
-   * Buffers a write of the value. The parameter type excludes `null`/`undefined`
-   * (via {@link !NonNullable}) because a top-level `null` is not a storable
-   * value — writing one (or an unrepresentable value) is a caller mistake,
-   * rejected at runtime with a {@link TransientStateError} naming `clear()` —
-   * use {@link ValueState#clear}. Transient so it retries and stays visible
-   * rather than discarding the message. (Nested `null`, e.g. inside an object or
-   * array, is permitted and round-trips.)
+   * Buffers a write of the value. The parameter type excludes `null` and
+   * `undefined`, because a top-level `null` is not a storable value. At run
+   * time Prosody rejects JSON `null` with a {@link PermanentStateError}; use
+   * {@link ValueState#clear} to delete. A nested `null` is stored.
    */
   set(value: NonNullable<T>): Promise<void>;
   /** Deletes the stored value. */

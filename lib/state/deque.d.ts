@@ -16,12 +16,10 @@ export declare class DequeState<T = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */
   private constructor(native: unknown);
   /**
-   * Appends an element at the back. The item type excludes `null`/`undefined`
-   * (via {@link !NonNullable}) because a top-level `null` is not a storable
-   * element — writing one (or an unrepresentable value) is a caller mistake,
-   * rejected at runtime with a {@link TransientStateError} so it retries and
-   * stays visible rather than discarding the message. (Nested `null` is
-   * permitted.)
+   * Appends an element at the back. The item type excludes `null` and
+   * `undefined`, because a top-level `null` is not a storable element. At run
+   * time Prosody rejects JSON `null` with a {@link PermanentStateError}. A
+   * nested `null` is stored.
    */
   push(item: NonNullable<T>): Promise<void>;
   /**

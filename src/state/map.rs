@@ -130,8 +130,8 @@ impl NativeJsonMapState {
 
     /// Inserts or overwrites `key` with a JSON document.
     ///
-    /// JSON null is rejected with a transient error naming `delete` as the way
-    /// to remove an entry.
+    /// Prosody rejects JSON null with a permanent error. Use `delete` to
+    /// remove an entry.
     ///
     /// @param key The map key.
     /// @param json The document's JSON text.
@@ -145,7 +145,7 @@ impl NativeJsonMapState {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json, "; use delete(key) to remove the entry")?;
+        let payload = json_payload(json);
         self.state
             .set(key, payload)
             .with_context(context)

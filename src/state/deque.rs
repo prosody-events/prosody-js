@@ -126,8 +126,7 @@ impl NativeJsonDequeState {
 
     /// Appends a JSON document at the back.
     ///
-    /// JSON null is not a storable element and is rejected with a transient
-    /// error.
+    /// Prosody rejects JSON null with a permanent error.
     ///
     /// @param json The document's JSON text.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -139,7 +138,7 @@ impl NativeJsonDequeState {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json, " in a deque")?;
+        let payload = json_payload(json);
         self.state
             .push_back(payload)
             .with_context(context)
@@ -149,8 +148,7 @@ impl NativeJsonDequeState {
 
     /// Prepends a JSON document at the front.
     ///
-    /// JSON null is not a storable element and is rejected with a transient
-    /// error.
+    /// Prosody rejects JSON null with a permanent error.
     ///
     /// @param json The document's JSON text.
     /// @param otelContext The OpenTelemetry context for tracing.
@@ -162,7 +160,7 @@ impl NativeJsonDequeState {
         otel_context: HashMap<String, String>,
     ) -> napi::Result<()> {
         let context = op_context(&self.propagator, &otel_context);
-        let payload = json_payload(json, " in a deque")?;
+        let payload = json_payload(json);
         self.state
             .push_front(payload)
             .with_context(context)
