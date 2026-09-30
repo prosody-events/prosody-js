@@ -36,11 +36,11 @@ jobs:
     outputs:
       release_created: ${{ steps.release_context.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Release Please Action
         if: inputs.retry_version == ''
         id: release
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.GH_PAT }}
           config-file: release-please-config.json
@@ -91,12 +91,12 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       # Native builds (macOS/Windows)
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: ${{ !matrix.settings.use_docker }}
 
       - name: Setup node
         if: ${{ !matrix.settings.use_docker }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: yarn
@@ -107,7 +107,7 @@ jobs:
           targets: ${{ matrix.settings.target }}
       - name: Cache cargo
         if: ${{ !matrix.settings.use_docker }}
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo
@@ -117,7 +117,7 @@ jobs:
         if: ${{ !matrix.settings.use_docker }}
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
-          version: "25.9"
+          version: "36.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         if: ${{ !matrix.settings.use_docker }}
@@ -127,14 +127,14 @@ jobs:
         run: yarn build --target ${{ matrix.settings.target }}
 
       # Docker builds (Linux)
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: ${{ matrix.settings.use_docker }}
       - name: Set up Docker Buildx
         if: ${{ matrix.settings.use_docker }}
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build in Docker
         if: ${{ matrix.settings.use_docker }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: .github/docker/linux-release.Dockerfile
@@ -173,7 +173,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -267,9 +267,9 @@ jobs:
       - test-linux-bindings
     if: needs.release-please.outputs.release_created == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
