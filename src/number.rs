@@ -29,7 +29,7 @@ pub(crate) fn whole<T: TryFrom<usize>>(value: f64, field: &str) -> Result<T> {
         return Ok(converted);
     }
     Err(Error::from_reason(format!(
-        "{field}: must be a non-negative whole number in range, got {value}"
+        "{field}: must be a whole number in the range of the option, got {value}"
     )))
 }
 

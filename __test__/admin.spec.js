@@ -31,7 +31,7 @@ describe("AdminClient", () => {
     async (partitions, replicas) => {
       await expect(
         admin.createTopic(generateTopicName(), partitions, replicas),
-      ).rejects.toThrow("must be a non-negative whole number");
+      ).rejects.toThrow("must be a whole number");
     },
   );
 });

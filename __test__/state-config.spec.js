@@ -43,7 +43,7 @@ describe("keyed state configuration validation", () => {
   ])("rejects %s = %p", async (option, bad, define) => {
     await rejectsConfig(
       mockConfig({ stateCollections: [define("c", { [option]: bad })] }),
-      `${option}: must be a non-negative whole number`,
+      `${option}: must be a whole number`,
     );
   });
 

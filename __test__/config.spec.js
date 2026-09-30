@@ -64,7 +64,7 @@ describe("configuration validation", () => {
     async (option, value) => {
       await expect(
         ProsodyClient.create(mockConfig({ [option]: value })),
-      ).rejects.toThrow(`${option}: must be a non-negative whole number`);
+      ).rejects.toThrow(`${option}: must be a whole number`);
     },
   );
 
@@ -80,7 +80,7 @@ describe("configuration validation", () => {
   it("rejects a probe port above the port range", async () => {
     await expect(
       ProsodyClient.create(mockConfig({ probePort: 70000 })),
-    ).rejects.toThrow("probePort: must be a non-negative whole number");
+    ).rejects.toThrow("probePort: must be a whole number");
   });
 
   // Prosody accepts a statistics interval from 1 ms to 24 hours. It checks
