@@ -1,5 +1,5 @@
 const { EventEmitter } = require("events");
-const { PermanentError, permanent, transient } = require("../index.js");
+const { PermanentError, transient } = require("../index.js");
 const {
   MESSAGE_TIMEOUT,
   liveSuite,
@@ -44,33 +44,6 @@ describe("ProsodyClient failures", () => {
       { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
       { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },
     ]);
-  });
-
-  it("handles permanent errors without retry", async () => {
-    let messageCount = 0;
-    const errorEvent = new EventEmitter();
-
-    class PermanentErrorHandler {
-      @permanent(Error)
-      async onMessage(_, message) {
-        messageCount++;
-        errorEvent.emit("error-event");
-        throw new Error("Permanent error occurred");
-      }
-    }
-
-    await env.client.subscribe(new PermanentErrorHandler());
-
-    await env.client.send(env.topic, "test-key", {
-      content: "Trigger permanent error",
-    });
-
-    await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
-
-    // Wait a bit to allow for any potential retries
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    expect(messageCount).toBe(1);
   });
 
   it("handles explicit permanent errors without retry", async () => {

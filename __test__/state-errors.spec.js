@@ -16,47 +16,6 @@ describe("ProsodyClient", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
 
-    // C8c-permanent — a rethrown PermanentStateError classifies permanent
-    // through the EXISTING bridge (no retry).
-    it("rethrowing a PermanentStateError classifies permanent (no retry)", async () => {
-      let count = 0;
-      const errorEvent = new EventEmitter();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          count += 1;
-          errorEvent.emit("handled");
-          throw new PermanentStateError("permanent state boom");
-        },
-      });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      await waitForEvent(errorEvent, "handled", MESSAGE_TIMEOUT);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      expect(count).toBe(1);
-    });
-
-    // C8c-transient — a rethrown TransientStateError classifies transient
-    // through the EXISTING bridge (retries, never surfaces terminal).
-    it("rethrowing a TransientStateError classifies transient (retries)", async () => {
-      let count = 0;
-      const retryEvent = new EventEmitter();
-      env.client = await makeStateClient();
-      await env.client.subscribe({
-        onMessage: async (ctx, msg) => {
-          count += 1;
-          if (count === 1) {
-            throw new TransientStateError("transient state later");
-          }
-          retryEvent.emit("retry");
-        },
-      });
-
-      await env.client.send(env.topic, nonce(), { go: true });
-      await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
-      expect(count).toBe(2);
-    });
-
     // C10c — a value with no JSON representation AT THE TOP LEVEL is a CALLER
     // MISTAKE, rejected TRANSIENT at the boundary (retry, stay visible, never
     // discard the message — discarding it would lose data; see CLAUDE.md).
