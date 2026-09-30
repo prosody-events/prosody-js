@@ -143,7 +143,7 @@ describe("keyed state configuration validation", () => {
     async (capacity) => {
       await rejectsConfig(
         makeConfig({ stateCollections: [deque("d", { capacity })] }),
-        /capacity: must be a (positive|non-negative) whole number/,
+        /capacity: must be a non-negative whole number in range/,
       );
     },
   );

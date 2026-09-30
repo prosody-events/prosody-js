@@ -216,12 +216,7 @@ fn parse_capacity(
             "stateCollections[{index}].capacity: only valid for deque collections"
         )));
     }
-    let field = format!("stateCollections[{index}].capacity");
-    NonZeroUsize::new(whole(value, &field)?)
-        .map(Some)
-        .ok_or_else(|| {
-            Error::from_reason(format!("{field}: must be a positive whole number, got 0"))
-        })
+    whole(value, &format!("stateCollections[{index}].capacity")).map(Some)
 }
 
 /// Validates one collection and registers its descriptor.

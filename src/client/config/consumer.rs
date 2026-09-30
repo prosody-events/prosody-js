@@ -19,7 +19,6 @@ use prosody::high_level::ConsumerBuilders;
 use prosody::loader::KafkaLoaderConfiguration;
 use prosody::telemetry::emitter::TelemetryEmitterConfiguration;
 use std::net::SocketAddr;
-use std::num::NonZeroUsize;
 use std::str::FromStr;
 
 /// Builds a `ConsumerConfigurationBuilder` from the given Configuration.
@@ -304,11 +303,7 @@ fn build_dedup_config(config: &Configuration) -> Result<DeduplicationConfigurati
     let mut builder = DeduplicationConfigurationBuilder::default();
 
     if let Some(value) = config.idempotence_cache_size {
-        let capacity =
-            NonZeroUsize::new(whole(value, "idempotenceCacheSize")?).ok_or_else(|| {
-                Error::from_reason("idempotenceCacheSize: must be a positive whole number, got 0")
-            })?;
-        builder.cache_capacity(capacity);
+        builder.cache_capacity(whole(value, "idempotenceCacheSize")?);
     }
 
     if let Some(version) = &config.idempotence_version {
