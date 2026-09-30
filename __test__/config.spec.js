@@ -137,15 +137,6 @@ describe("configuration validation", () => {
     await expect(escaped.shutdown()).resolves.toBeUndefined();
   });
 
-  // null means no send timeout. The Rust tests check that it reaches the
-  // producer configuration as no timeout.
-  it("accepts a null sendTimeoutMs", async () => {
-    const configured = await ProsodyClient.create(
-      makeConfig({ sendTimeoutMs: null }),
-    );
-    await configured.shutdown();
-  });
-
   it("accepts a maxUncommitted above the 16-bit range", async () => {
     const configured = await ProsodyClient.create(
       makeConfig({ maxUncommitted: 100000 }),

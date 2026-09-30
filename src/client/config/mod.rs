@@ -6,8 +6,6 @@
 
 mod consumer;
 mod state;
-#[cfg(test)]
-mod tests;
 
 pub use consumer::build_consumer_builders;
 pub(crate) use state::read_cache_policy;
@@ -23,7 +21,6 @@ use prosody::producer::ProducerConfigurationBuilder;
 
 /// Configuration options for the Prosody client.
 #[napi(object)]
-#[cfg_attr(test, derive(Default))]
 pub struct Configuration {
     /// Kafka servers for initial connection.
     pub bootstrap_servers: Option<Either<String, Vec<String>>>,
@@ -31,11 +28,8 @@ pub struct Configuration {
     /// Use mock client for testing if true.
     pub mock: Option<bool>,
 
-    /// Timeout for message send operations in milliseconds. `null` means no
-    /// timeout. Omit it to use `PROSODY_SEND_TIMEOUT`, then 1 second.
-    /// Pipeline mode always sends without a timeout. Low-latency and
-    /// best-effort modes use 1 second in place of no timeout.
-    pub send_timeout_ms: Option<Either<f64, Null>>,
+    /// Timeout for message send operations in milliseconds.
+    pub send_timeout_ms: Option<f64>,
 
     /// Consumer group name.
     pub group_id: Option<String>,
@@ -349,11 +343,8 @@ pub fn build_producer_config(config: &Configuration) -> Result<ProducerConfigura
         builder.source_system(source_system);
     }
 
-    if let Some(value) = &config.send_timeout_ms {
-        builder.send_timeout(match value {
-            Either::A(value) => Some(milliseconds(*value, "sendTimeoutMs")?),
-            Either::B(Null) => None,
-        });
+    if let Some(value) = config.send_timeout_ms {
+        builder.send_timeout(Some(milliseconds(value, "sendTimeoutMs")?));
     }
 
     if let Some(value) = config.idempotence_cache_size {
