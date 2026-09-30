@@ -176,12 +176,13 @@ export declare class ProsodyClient implements AsyncDisposable {
    * Sends a request and returns one outcome for each subsystem.
    *
    * The map contains every selected subsystem. A missing response has a timeout outcome.
+   * `R` types the response. `P` types the payload and is inferred when you give no type arguments.
    * @throws Error if the input is invalid, sending fails, shutdown starts, or the signal aborts.
    */
-  request<R = JsonValue>(
+  request<R = JsonValue, P = JsonValue>(
     topic: string,
     key: string,
-    payload: JsonValue,
+    payload: P & JsonCompatible<P>,
     options: RequestOptions,
   ): Promise<ReadonlyMap<string, Outcome<R>>>;
 

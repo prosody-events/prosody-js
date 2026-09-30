@@ -1,4 +1,12 @@
-import { ProsodyClient, type Outcome, type ResponseError } from "../../index";
+import {
+  AdminClient,
+  ConsumerState,
+  Mode,
+  ProsodyClient,
+  type JsonValue,
+  type Outcome,
+  type ResponseError,
+} from "../../index";
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -30,6 +38,33 @@ async function request(): Promise<void> {
     Equal<typeof results, ReadonlyMap<string, Outcome<{ total: number }>>>
   >();
 
+  // An interface payload has no index signature. The payload type is
+  // inferred, so the interface passes as it does for send().
+  interface OrderCreated {
+    type: string;
+    id: string;
+  }
+  const order: OrderCreated = { type: "order.created", id: "order-1" };
+  await client.send("orders", "order-1", order);
+  const inferred = await client.request("orders", "order-1", order, {
+    subsystems: ["billing"],
+    timeoutMs: 2_000,
+  });
+  assertTrue<Equal<typeof inferred, ReadonlyMap<string, Outcome<JsonValue>>>>();
+  await client.request<{ total: number }, OrderCreated>(
+    "orders",
+    "order-1",
+    order,
+    { subsystems: ["billing"], timeoutMs: 2_000 },
+  );
+  await client.request(
+    "orders",
+    "order-1",
+    // @ts-expect-error Date is not a JSON payload.
+    { at: new Date() },
+    { subsystems: ["billing"], timeoutMs: 2_000 },
+  );
+
   const outcome = results.get("billing");
   if (outcome?.ok) {
     assertTrue<Equal<typeof outcome.value, { total: number }>>();
@@ -58,5 +93,15 @@ client.subscribe({
   onMessage: () => undefined,
   onExcise: () => null,
 });
+
+// The runtime enums and the admin client are values, not only types.
+export async function values(): Promise<void> {
+  const client = await ProsodyClient.create({ mode: Mode.Pipeline });
+  const running: boolean =
+    (await client.consumerState()) === ConsumerState.Running;
+  void running;
+  const admin = new AdminClient("localhost:9094");
+  await admin.createTopic("orders", 1, 1, { cleanupPolicy: "compact" });
+}
 
 void request;

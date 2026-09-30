@@ -14,6 +14,7 @@ import {
   Message,
   PermanentStateError,
   PositionQuery,
+  ProsodyClient,
   PublishedDeque,
   PublishedMap,
   PublishedSet,
@@ -80,6 +81,7 @@ void trueConfig;
 const disabledConfig: Configuration = { stateReadCache: { disabled: true } };
 void disabledConfig;
 
+declare const client: ProsodyClient;
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
 declare const publishedCart: PublishedValue<Cart>;
@@ -106,6 +108,20 @@ export async function checks(): Promise<void> {
   assertTrue<Equal<Demand["retry"], number>>();
   // @ts-expect-error the demand is read-only
   context.demand.retry = 2;
+
+  // ---- ProsodyClient.state opens the exact published reader types ----
+  const readerCart = await client.state("checkout", cart);
+  assertTrue<Equal<typeof readerCart, PublishedValue<Cart>>>();
+  const readerTotals = await client.state("checkout", totals);
+  assertTrue<Equal<typeof readerTotals, PublishedMap<number>>>();
+  const readerSeen = await client.state("checkout", seen);
+  assertTrue<Equal<typeof readerSeen, PublishedSet>>();
+  const readerTags = await client.state("checkout", tags);
+  assertTrue<Equal<typeof readerTags, PublishedDeque<string>>>();
+  // @ts-expect-error a message collection has no published reader
+  await client.state("checkout", lastOrder);
+  const keys = ["a", "b"] as const;
+  await readerTotals.getMany("customer-1", keys);
 
   // ---- overload resolution returns the exact handle types ----
   const c = context.state(cart);

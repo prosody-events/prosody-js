@@ -5,24 +5,29 @@
  */
 
 import type {
-  AdminClient,
+  ConsumerState as ConsumerStateName,
+  Mode as ModeName,
+} from "./bindings";
+
+export { AdminClient } from "./bindings";
+export type {
   Configuration,
-  ConsumerState,
-  Mode,
   ReadCacheConfiguration,
   Timer,
   TopicOptions,
 } from "./bindings";
 
-export {
-  AdminClient,
-  Configuration,
-  ConsumerState,
-  ReadCacheConfiguration,
-  Timer,
-  TopicOptions,
-  Mode,
+/** The consumer states, keyed by name: `ConsumerState.Running` is `"Running"`. */
+export declare const ConsumerState: {
+  readonly [State in ConsumerStateName]: State;
 };
+/** A consumer state that `consumerState()` reports. */
+export type ConsumerState = ConsumerStateName;
+
+/** The operating modes, keyed by name: `Mode.Pipeline` is `"Pipeline"`. */
+export declare const Mode: { readonly [Name in ModeName]: Name };
+/** The operating mode of a client. */
+export type Mode = ModeName;
 
 /** Exports all pending telemetry data. */
 export function flushTelemetry(): void;

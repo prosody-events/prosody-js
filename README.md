@@ -1162,7 +1162,7 @@ your changes before merging to `main`.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
-- `request<R>(topic, key, payload: JsonValue, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
+- `request<R, P>(topic, key, payload: P, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem. `P` is inferred from the payload when you give no type arguments.
 - `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one excise outcome for each subsystem.
 - `consumerState(): Promise<ConsumerState>`: Get the current state of the consumer.
 - `assignedPartitionCount(): Promise<number>`: Get the assigned partition count.
