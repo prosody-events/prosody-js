@@ -71,6 +71,10 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.commit_interval(milliseconds(value, "commitIntervalMs")?);
     }
 
+    if let Some(value) = config.statistics_interval_ms {
+        builder.statistics_interval(milliseconds(value, "statisticsIntervalMs")?);
+    }
+
     if let Some(probe_port) = config.probe_port {
         builder.probe_port(match probe_port {
             Either::A(port) => Some(whole::<u16>(port, "probePort")?),

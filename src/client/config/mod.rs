@@ -77,6 +77,11 @@ pub struct Configuration {
     /// Time between offset commits in milliseconds.
     pub commit_interval_ms: Option<f64>,
 
+    /// Time between librdkafka statistics reports in milliseconds. Prosody
+    /// accepts 1 ms to 24 hours. Uses `PROSODY_STATISTICS_INTERVAL` when
+    /// omitted, then 5 seconds.
+    pub statistics_interval_ms: Option<f64>,
+
     /// Operating mode.
     pub mode: Option<Mode>,
 

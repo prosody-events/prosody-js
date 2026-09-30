@@ -66,6 +66,7 @@ describe("configuration validation", () => {
     "shutdownTimeoutMs",
     "slabSizeMs",
     "stallThresholdMs",
+    "statisticsIntervalMs",
     "timeoutMs",
   ];
   const cases = (options, values) =>
@@ -93,6 +94,32 @@ describe("configuration validation", () => {
     await expect(
       ProsodyClient.create(makeConfig({ probePort: 70000 })),
     ).rejects.toThrow("probePort: must be a non-negative whole number");
+  });
+
+  // Prosody accepts a statistics interval from 1 ms to 24 hours. It checks
+  // the consumer options when the consumer starts, so subscribe reports a
+  // zero interval.
+  it.each([
+    [60000, "resolves"],
+    [0, "rejects"],
+  ])("passes statisticsIntervalMs %p to Prosody", async (value, outcome) => {
+    const configured = await ProsodyClient.create(
+      makeConfig({ statisticsIntervalMs: value }),
+    );
+    try {
+      const subscribed = configured.subscribe({
+        onMessage: () => null,
+        onExcise: () => null,
+        onTimer: () => {},
+      });
+      if (outcome === "resolves") {
+        await expect(subscribed).resolves.toBeUndefined();
+      } else {
+        await expect(subscribed).rejects.toThrow(/statistics_interval/);
+      }
+    } finally {
+      await configured.shutdown();
+    }
   });
 
   it("accepts a maxUncommitted above the 16-bit range", async () => {

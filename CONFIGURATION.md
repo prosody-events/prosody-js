@@ -29,7 +29,7 @@ The JavaScript client rejects a number that has no exact form in the Prosody typ
 | `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Shutdown budget; handlers run freely until cancellation near the deadline                         | 30s                    |
 | `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                     | 5m                     |
 | `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks; use `null` or the environment value `none` to disable                | 8000                   |
-| - / `PROSODY_STATISTICS_INTERVAL`                         | How often librdkafka reports client statistics; must be between 1ms and 24h                       | 5s                     |
+| `statisticsIntervalMs` / `PROSODY_STATISTICS_INTERVAL`    | How often librdkafka reports client statistics; must be between 1ms and 24h                       | 5s                     |
 | `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                              | -                      |
 | `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for message deduplication. Must be at least 1. | 8192                   |
 | `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                     | `"1"`                  |
