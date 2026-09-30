@@ -25,6 +25,7 @@ import type {
   PublishedValue,
 } from "./state/published";
 
+/** The callbacks that a subscription runs for each message, excise, and timer. */
 export interface EventHandler<P = JsonValue, R = JsonValue> {
   /** Handles an excise record. */
   onExcise: (
@@ -93,6 +94,7 @@ export interface RequestOptions {
   readonly signal?: AbortSignal;
 }
 
+/** The Prosody client: send, request, subscribe, and shut down. */
 export declare class ProsodyClient implements AsyncDisposable {
   private constructor();
 
