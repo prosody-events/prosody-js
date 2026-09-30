@@ -3,6 +3,10 @@
 //! This module defines the `Context` struct, which encapsulates a
 //! `MessageContext` from the `prosody` crate and exposes its functionality to
 //! Node.js through NAPI.
+//!
+//! The state vend methods allow `needless_pass_by_value`. napi passes a
+//! JavaScript string by value and copies each lint attribute onto its
+//! generated callback, where an `expect` would be unfulfilled.
 
 use crate::state::{
     NativeJsonDequeState, NativeJsonMapState, NativeJsonValueState, NativeMessageDequeState,
@@ -219,8 +223,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn value_state(&self, name: String) -> napi::Result<NativeJsonValueState> {
         let handle = self
@@ -244,8 +246,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn map_state(&self, name: String) -> napi::Result<NativeJsonMapState> {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
@@ -265,8 +265,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn set_state(&self, name: String) -> napi::Result<NativeSetState> {
         let handle = self.context.set_state(&name).map_err(|e| state_error(&e))?;
@@ -287,8 +285,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn deque_state(&self, name: String) -> napi::Result<NativeJsonDequeState> {
         let handle = self
@@ -311,8 +307,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_value_state(&self, name: String) -> napi::Result<NativeMessageValueState> {
         let handle = self
@@ -335,8 +329,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_map_state(&self, name: String) -> napi::Result<NativeMessageMapState> {
         let handle = self
@@ -359,8 +351,6 @@ impl NativeContext {
     /// @throws Error (permanent) if the name is unregistered or its registered
     ///   identity mismatches.
     #[napi(writable = false)]
-    // napi passes the name by value and copies this attribute onto its
-    // generated callback, where `expect` would be unfulfilled.
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_deque_state(&self, name: String) -> napi::Result<NativeMessageDequeState> {
         let handle = self
