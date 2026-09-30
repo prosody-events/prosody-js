@@ -6,6 +6,7 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "lib",
     "bindings.js",
     "bindings.d.ts",
     "README.md"
