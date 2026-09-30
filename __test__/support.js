@@ -227,10 +227,10 @@ function liveSuite() {
       };
     },
 
-    // Builds a client with the canonical state collections registered against
-    // the per-test topic. It replaces `client`, which afterEach shuts down.
-    // maxConcurrency >= 2 so the async-bridging test can observe interleaving.
-    async makeStateClient() {
+    // Builds a pipeline client for the per-test topic and group. The options
+    // override the shared defaults. Assign the result to `client`, which
+    // afterEach shuts down.
+    async makeClient(options) {
       return withCompleteHandlers(
         await ProsodyClient.create({
           bootstrapServers: BOOTSTRAP_SERVERS,
@@ -241,11 +241,19 @@ function liveSuite() {
           mode: Mode.Pipeline,
           cassandraNodes: CASSANDRA_NODES,
           cassandraKeyspace: CASSANDRA_KEYSPACE,
-          stateCollections: STATE_COLLECTIONS,
-          maxConcurrency: 4,
           peerBindAddress: "127.0.0.1:0",
+          ...options,
         }),
       );
+    },
+
+    // Builds a client with the canonical state collections registered.
+    // maxConcurrency >= 2 so the async-bridging test can observe interleaving.
+    makeStateClient() {
+      return env.makeClient({
+        stateCollections: STATE_COLLECTIONS,
+        maxConcurrency: 4,
+      });
     },
 
     async sendTestMessage(key = "timer-test-key") {
@@ -279,20 +287,7 @@ function liveSuite() {
     env.groupId = `${GROUP_NAME}-${nonce()}`;
     await env.admin.createTopic(env.topic, 4, 1);
 
-    env.client = withCompleteHandlers(
-      await ProsodyClient.create({
-        bootstrapServers: BOOTSTRAP_SERVERS,
-        groupId: env.groupId,
-        sourceSystem: SOURCE_NAME,
-        subscribedTopics: env.topic,
-        probePort: null,
-        mode: Mode.Pipeline,
-        cassandraNodes: CASSANDRA_NODES,
-        cassandraKeyspace: CASSANDRA_KEYSPACE,
-        subsystem: "inventory",
-        peerBindAddress: "127.0.0.1:0",
-      }),
-    );
+    env.client = await env.makeClient({ subsystem: "inventory" });
     env.messageStream = createMessageStream();
   });
 

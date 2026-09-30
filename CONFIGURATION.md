@@ -19,24 +19,24 @@ The JavaScript client rejects a number that has no exact form in the Prosody typ
 
 ## Consumer
 
-| Option / Environment Variable                             | Description                                                                                       | Default                |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------- |
-| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                       | 32                     |
-| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                    | 64                     |
-| `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                        | 80% of stall threshold |
-| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                               | 1s                     |
-| `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                        | 100ms                  |
-| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Shutdown budget; handlers run freely until cancellation near the deadline                         | 30s                    |
-| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                     | 5m                     |
-| `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks; use `null` or the environment value `none` to disable                | 8000                   |
-| `statisticsIntervalMs` / `PROSODY_STATISTICS_INTERVAL`    | How often librdkafka reports client statistics; must be between 1ms and 24h                       | 5s                     |
-| `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                              | -                      |
-| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for message deduplication. Must be at least 1. | 8192                   |
-| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                     | `"1"`                  |
-| `idempotenceTtlSeconds` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds                                                     | 604800                 |
-| `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                 | 1h                     |
-| `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                          | `child`                |
-| `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                            | `follows_from`         |
+| Option / Environment Variable                             | Description                                                                                                   | Default                |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                                   | 32                     |
+| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                                | 64                     |
+| `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                                    | 80% of stall threshold |
+| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                                           | 1s                     |
+| `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                                    | 100ms                  |
+| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Shutdown budget; handlers run freely until cancellation near the deadline                                     | 30s                    |
+| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                                 | 5m                     |
+| `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks; use `null` or the environment value `none` to disable                            | 8000                   |
+| `statisticsIntervalMs` / `PROSODY_STATISTICS_INTERVAL`    | How often librdkafka reports client statistics; must be between 1ms and 24h                                   | 5s                     |
+| `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                                          | -                      |
+| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Capacity of the producer cache of sent event IDs and of the consumer deduplication cache. Must be at least 1. | 8192                   |
+| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                                 | `"1"`                  |
+| `idempotenceTtlSeconds` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds                                                                 | 604800                 |
+| `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                             | 1h                     |
+| `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                                      | `child`                |
+| `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                                        | `follows_from`         |
 
 ## Producer
 

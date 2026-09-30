@@ -441,6 +441,9 @@ Deduplication uses a two-tier approach:
 - **Cassandra-backed persistent store**: Survives restarts and rebalances across instances. TTL controlled by
   `idempotenceTtlSeconds` (default 7 days, i.e. 604800s).
 
+The producer also keeps a cache of the event IDs it sent. It skips a send that repeats a recent ID for the same topic
+and key. `idempotenceCacheSize` sets the capacity of this cache too.
+
 Deduplication is always active. `idempotenceCacheSize` must be greater than `0`; a value of `0` (via either the option
 or `PROSODY_IDEMPOTENCE_CACHE_SIZE=0`) is rejected when the client is constructed.
 

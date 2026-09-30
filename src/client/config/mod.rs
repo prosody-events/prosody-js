@@ -10,7 +10,7 @@ mod state;
 pub use consumer::build_consumer_builders;
 pub use state::{ReadCacheConfiguration, StateCollectionConfig};
 
-use crate::number::{milliseconds, seconds};
+use crate::number::{milliseconds, seconds, whole};
 use napi::bindgen_prelude::Null;
 use napi::{Either, Result};
 use napi_derive::napi;
@@ -33,8 +33,9 @@ pub struct Configuration {
     /// Consumer group name.
     pub group_id: Option<String>,
 
-    /// Global shared cache capacity across all partitions for deduplicating
-    /// messages. Must be greater than 0.
+    /// Capacity of both idempotence caches: the producer cache that skips a
+    /// repeated event ID, and the consumer cache that drops a duplicate
+    /// message. The consumer cache requires at least 1.
     pub idempotence_cache_size: Option<f64>,
 
     /// Version string for cache-busting deduplication hashes.
@@ -341,6 +342,10 @@ pub fn build_producer_config(config: &Configuration) -> Result<ProducerConfigura
 
     if let Some(value) = config.send_timeout_ms {
         builder.send_timeout(Some(milliseconds(value, "sendTimeoutMs")?));
+    }
+
+    if let Some(value) = config.idempotence_cache_size {
+        builder.idempotence_cache_size(whole::<usize>(value, "idempotenceCacheSize")?);
     }
 
     Ok(builder)
