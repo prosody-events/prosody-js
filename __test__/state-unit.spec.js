@@ -17,7 +17,7 @@ const {
 } = require("../index.js");
 const { Message: NativeMessage } = require("../bindings");
 const { wrapNative } = require("../lib/client");
-const { withParsedPayload } = require("../lib/state/codec");
+const { jsonItems, withParsedPayload } = require("../lib/state/codec");
 const { RAW_ITEMS, makeFiniteCursor } = require("./fakes");
 
 describe("keyed state (unit)", () => {
@@ -72,6 +72,34 @@ describe("keyed state (unit)", () => {
     expect(isStateError(new PermanentStateError("x"))).toBe(true);
     expect(isStateError(new TransientStateError("x"))).toBe(true);
     expect(isStateError(new Error("x"))).toBe(false);
+  });
+
+  // A value with no JSON form is a caller mistake. Every JSON write rejects
+  // it transient before the native call, so the event retries.
+  it.each([
+    ["undefined", undefined],
+    ["a function", () => 1],
+  ])("a JSON write of %s rejects transient", async (_label, bad) => {
+    const native = {
+      set: jest.fn(),
+      pushBack: jest.fn(),
+      pushFront: jest.fn(),
+    };
+    const deque = new DequeState(native, jsonItems);
+    const writes = [
+      new ValueState(native, jsonItems).set(bad),
+      new MapState(native, jsonItems).set("k", bad),
+      deque.push(bad),
+      deque.unshift(bad),
+    ];
+    await Promise.all(
+      writes.map((write) =>
+        expect(write).rejects.toBeInstanceOf(TransientStateError),
+      ),
+    );
+    expect(Object.values(native).flatMap((call) => call.mock.calls)).toEqual(
+      [],
+    );
   });
 
   // A5 — DequeState.at() rejects a non-integer index as a caller mistake

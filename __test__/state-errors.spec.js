@@ -1,6 +1,5 @@
 const { trace } = require("@opentelemetry/api");
 const { EventEmitter } = require("events");
-const { PermanentStateError, TransientStateError } = require("../index.js");
 const {
   MESSAGE_TIMEOUT,
   STATE_DEFS,
@@ -15,61 +14,6 @@ describe("ProsodyClient", () => {
   describe("keyed state", () => {
     const env = liveSuite();
     const { makeStateClient } = env;
-
-    // C10c — a value with no JSON representation AT THE TOP LEVEL is a CALLER
-    // MISTAKE, rejected TRANSIENT at the boundary (retry, stay visible, never
-    // discard the message — discarding it would lose data; see CLAUDE.md).
-    // `JSON.stringify` answers `undefined` for these, which the binding turns
-    // into a transient state error.
-    const unrepresentable = [
-      ["a bare undefined", undefined],
-      ["a bare function", () => 1],
-    ];
-    it.each(unrepresentable)(
-      "rejects an unrepresentable write (%s) transient, not permanent",
-      async (_label, bad) => {
-        const V = nonce();
-        env.client = await makeStateClient();
-        await env.client.subscribe({
-          onMessage: async (ctx, msg) => {
-            const c = ctx.state(STATE_DEFS.cart);
-            try {
-              await c.set({ v: V });
-              await c.commit();
-
-              let outcome;
-              try {
-                await c.set(bad);
-                outcome = { threw: false };
-              } catch (e) {
-                outcome = {
-                  threw: true,
-                  permanent: e instanceof PermanentStateError,
-                  transient: e instanceof TransientStateError,
-                };
-              }
-
-              env.messageStream.push({ outcome, after: (await c.get()).v });
-            } catch (e) {
-              env.messageStream.push({ error: e.message });
-            }
-          },
-        });
-
-        await env.client.send(env.topic, nonce(), { go: true });
-        const [obs] = await waitForMessages(
-          env.messageStream,
-          1,
-          MESSAGE_TIMEOUT,
-        );
-        expect(obs.error).toBeUndefined();
-        expect(obs.outcome.threw).toBe(true);
-        expect(obs.outcome.transient).toBe(true);
-        expect(obs.outcome.permanent).toBe(false);
-        // The rejected write left the committed value untouched.
-        expect(obs.after).toBe(V);
-      },
-    );
 
     // C11 — Tracing (item 12), GREEN-IS-CORRECT. In-process JS cannot observe
     // the Rust collection span (separate OTLP pipeline), so this asserts only
