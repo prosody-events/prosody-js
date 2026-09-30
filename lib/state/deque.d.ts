@@ -11,6 +11,9 @@ import type { PositionQuery, ScanDirection } from "./query";
  * Typed handle over a double-ended-queue keyed-state collection, vended by
  * `Context.state()`. Valid only within the handler invocation (attempt) that
  * vended it. Every method opens its own per-operation trace span.
+ * A failed call rejects with a {@link PermanentStateError} or a
+ * {@link TransientStateError}. A write of a value with no JSON form rejects
+ * with a {@link TransientStateError}.
  */
 export declare class DequeState<T = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */

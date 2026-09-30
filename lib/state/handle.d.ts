@@ -12,8 +12,9 @@ export type StoreOutcome = "applied" | "noOp";
 /** The commit and rollback methods of every state handle. */
 export interface StateTransaction {
   /**
-   * Durably commits the buffered operations mid-handler (at-least-once).
-   * Resolves to `"applied"` when it wrote buffered operations, or `"noOp"`.
+   * Durably commits the buffered operations mid-handler (at-least-once). The
+   * committed changes survive a later rollback or a failed event. Resolves to
+   * `"applied"` when it wrote buffered operations, or `"noOp"`.
    */
   commit(): Promise<StoreOutcome>;
   /**

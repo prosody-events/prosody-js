@@ -4,32 +4,6 @@
  * Provides functionality for sending messages, subscribing to topics, and managing consumer state.
  */
 
-/**
- * @typedef {Object} Logger
- * @property {Function} error - Function for logging error messages. Called with (message, metadata).
- * @property {Function} warn - Function for logging warning messages. Called with (message, metadata).
- * @property {Function} info - Function for logging informational messages. Called with (message, metadata).
- * @property {Function} debug - Function for logging debug messages. Called with (message, metadata).
- * @property {Function} trace - Function for logging trace messages. Called with (message, metadata).
- */
-
-/**
- * @typedef {Object} EventHandler
- * @property {Function} onMessage - Handles a message and returns its response.
- * @property {Function} onExcise - Handles an excise record and returns its response.
- * @property {Function} onTimer - Handles a timer and returns no value.
- */
-
-/**
- * @typedef {import('./bindings').Configuration} Configuration
- * @typedef {import('./bindings').ConsumerState} ConsumerState
- * @typedef {import('./lib/context').Context} Context
- * @typedef {import('./lib/payload').ExciseMessage} ExciseMessage
- * @typedef {import('./lib/payload').Message} Message
- * @typedef {import('./bindings').Timer} Timer
- * @typedef {import('./bindings').Mode} Mode
- */
-
 const {
   AdminClient,
   ConsumerState,

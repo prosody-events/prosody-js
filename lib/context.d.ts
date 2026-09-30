@@ -32,8 +32,13 @@ export interface Demand {
 }
 
 /**
- * Wrapper around `MessageContext` for use in Node.js bindings.
- * Automatically injects OpenTelemetry context for all operations.
+ * The event context that a handler receives. Each call propagates the active
+ * trace context.
+ *
+ * `state()` caches one handle per definition object, so repeated calls with
+ * the same definition return the same handle. It throws a
+ * {@link TransientStateError} for an object that no definition constructor
+ * made.
  */
 export declare class Context {
   private constructor();

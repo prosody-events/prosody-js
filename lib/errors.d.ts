@@ -46,10 +46,10 @@ export class PermanentError extends EventHandlerError {
  * A keyed-state failure that a later attempt can resolve.
  *
  * A store timeout is transient. A caller mistake is transient too: an
- * unrepresentable write, a wrong item type, a bad index, or a bad scan
- * direction. The event then retries, so the mistake stays visible and no
- * message is discarded. It extends {@link TransientError}, so a handler that
- * rethrows it retries the event.
+ * unrepresentable write, a wrong item type, or a bad index. The event then
+ * retries, so the mistake stays visible and no message is discarded. State
+ * handles and scan iterators throw it. It extends {@link TransientError}, so a
+ * handler that rethrows it retries the event.
  */
 export class TransientStateError extends TransientError {}
 
@@ -58,9 +58,8 @@ export class TransientStateError extends TransientError {}
  *
  * Examples are an unregistered collection name, a registered identity that
  * does not match, a JSON `null` write, and a stored value that cannot be
- * decoded. A caller mistake
- * is a {@link TransientStateError} instead. A handler can also throw this
- * error to mark its own failure permanent. It extends {@link PermanentError},
+ * decoded. A caller mistake is a {@link TransientStateError} instead. A
+ * handler can also throw this error to mark its own failure permanent. It extends {@link PermanentError},
  * so a handler that rethrows it does not retry the event.
  */
 export class PermanentStateError extends PermanentError {}

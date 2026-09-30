@@ -221,10 +221,13 @@ Constants → Statics → Types → Implementations → Functions → Errors (bo
 The public typed surface is hand-written and must track the runtime exactly:
 
 - `index.js` — the public entry point. It re-exports the runtime wrapper
-  modules in `lib/` (JSDoc), which wrap the generated `bindings.js`.
+  modules in `lib/`, which wrap the generated `bindings.js`.
 - `index.d.ts` — the public TypeScript entry point. It re-exports the
   hand-written declarations in `lib/`. Every API change updates the matching
   `lib/*.d.ts` file in the same commit.
+- Public API docs live only in the `lib/*.d.ts` files. A runtime `.js` module
+  keeps its module header, a one-line summary for each class, and comments
+  that explain the implementation.
 - `lib/` — one module for each concern: the client, the context, errors,
   logging, payloads, and `lib/state/` for keyed state (definitions, handles,
   queries, and published readers).

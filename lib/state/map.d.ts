@@ -12,6 +12,9 @@ import type { KeyQuery, ScanDirection } from "./query";
  * `Context.state()`. Map keys are always `string`. Valid only within the
  * handler invocation (attempt) that vended it. Every method opens its own
  * per-operation trace span.
+ * A failed call rejects with a {@link PermanentStateError} or a
+ * {@link TransientStateError}. A write of a value with no JSON form rejects
+ * with a {@link TransientStateError}.
  */
 export declare class MapState<V = JsonValue> {
   /** Vended only by {@link Context#state}; not constructible directly. */

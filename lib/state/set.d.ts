@@ -10,6 +10,8 @@ import type { KeyQuery, ScanDirection } from "./query";
  * Handle over a presence-only ordered set of string members, vended by
  * `Context.state()`. It mirrors the JavaScript `Set` with asynchronous
  * methods. Valid only within the handler invocation (attempt) that vended it.
+ * A failed call rejects with a {@link PermanentStateError} or a
+ * {@link TransientStateError}.
  */
 export declare class SetState {
   /** Vended only by {@link Context#state}; not constructible directly. */
