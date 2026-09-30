@@ -121,6 +121,7 @@ describe("keyed state configuration validation", () => {
       ["stateMemtableSize", size],
     ]),
     ["stateReadCacheSize", "0"],
+    ["stateReadCache", true],
   ])("rejects %s = %p", async (option, size) => {
     await rejectsConfig(mockConfig({ [option]: size }), `${option}: `);
   });
