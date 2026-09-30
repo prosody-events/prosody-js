@@ -84,7 +84,7 @@ describe("ProsodyClient failures", () => {
       env.topic,
       "order-1",
       { type: "order.created" },
-      { subsystems: ["inventory"], timeoutMs: MESSAGE_TIMEOUT },
+      { subsystems: ["inventory"], timeoutMs: 3_000 },
     );
     await waitForMessages(env.messageStream, 2, MESSAGE_TIMEOUT);
 
