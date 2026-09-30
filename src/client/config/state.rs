@@ -11,9 +11,7 @@ use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::kafka_state::{message_deque_state, message_map_state, message_state};
 use prosody::high_level::erased::ErasedReadCache as ReadCachePolicy;
 use prosody::loader::KafkaLoader;
-use prosody::state::descriptor::{
-    MapDescriptor, StateDescriptor, deque_state, map_state, set_state, value_state,
-};
+use prosody::state::descriptor::{StateDescriptor, deque_state, map_state, set_state, value_state};
 use prosody::state::order_codec::Utf8KeyCodec;
 use prosody::subsystem::SubsystemName;
 use prosody::timers::duration::CompactDuration;
@@ -156,21 +154,6 @@ fn with_def<D: StateDescriptor>(
     descriptor
 }
 
-/// Applies the map-only keyset bound when configured.
-///
-/// @param descriptor The map descriptor to configure.
-/// @param `keyset_limit` The validated keyset bound, if any.
-/// @returns The configured map descriptor.
-fn with_keyset<KC, V>(
-    descriptor: MapDescriptor<KC, V>,
-    keyset_limit: Option<usize>,
-) -> MapDescriptor<KC, V> {
-    match keyset_limit {
-        Some(limit) => descriptor.keyset_limit(limit),
-        None => descriptor,
-    }
-}
-
 /// Parses the keyset bound for map and set collections when configured.
 ///
 /// @param index The collection's index (for error messages).
@@ -239,13 +222,10 @@ fn register_state_collection(
     let kind = parse_kind(index, &collection.kind)?;
     let payload = parse_payload(index, collection.payload.as_deref())?;
 
-    let ttl_seconds = match collection.ttl_seconds {
-        Some(value) => Some(whole(
-            value,
-            &format!("stateCollections[{index}].ttlSeconds"),
-        )?),
-        None => None,
-    };
+    let ttl_seconds = collection
+        .ttl_seconds
+        .map(|value| whole(value, &format!("stateCollections[{index}].ttlSeconds")))
+        .transpose()?;
 
     let keyset_limit = parse_keyset_limit(index, collection, kind)?;
 
@@ -285,13 +265,16 @@ fn register_state_collection(
             ));
         }
         (CollectionKind::Map, Some(CollectionPayload::Json)) => {
-            let descriptor = with_def(
+            let mut descriptor = with_def(
                 map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
             );
-            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
+            if let Some(limit) = keyset_limit {
+                descriptor = descriptor.keyset_limit(limit);
+            }
+            let _ = keyed.register(descriptor);
         }
         (CollectionKind::Deque, Some(CollectionPayload::Json)) => {
             let mut descriptor = with_def(
@@ -314,13 +297,16 @@ fn register_state_collection(
             ));
         }
         (CollectionKind::Map, Some(CollectionPayload::Message)) => {
-            let descriptor = with_def(
+            let mut descriptor = with_def(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
                 read_uncommitted,
                 collection.published,
             );
-            let _ = keyed.register(with_keyset(descriptor, keyset_limit));
+            if let Some(limit) = keyset_limit {
+                descriptor = descriptor.keyset_limit(limit);
+            }
+            let _ = keyed.register(descriptor);
         }
         (CollectionKind::Deque, Some(CollectionPayload::Message)) => {
             let mut descriptor = with_def(
@@ -364,6 +350,17 @@ pub(crate) fn read_cache_policy(
     }
 }
 
+/// Parses a byte size option, such as `"64 MiB"`, and names `field` in the
+/// error.
+fn byte_size(option: Option<&str>, field: &str) -> Result<Option<ByteSize>> {
+    option
+        .map(|size| {
+            size.parse::<ByteSize>()
+                .map_err(|error| Error::from_reason(format!("{field}: {error}")))
+        })
+        .transpose()
+}
+
 /// Builds the real `KeyedStateConfiguration` from the given Configuration.
 ///
 /// Registers each declared collection synchronously before subscribe. Host
@@ -380,24 +377,21 @@ pub(super) fn build_keyed_state_config(config: &Configuration) -> Result<KeyedSt
         builder.cache_dir(PathBuf::from(dir));
     }
 
-    if let Some(size) = &config.state_owned_cache_size {
-        let size = size
-            .parse::<ByteSize>()
-            .map_err(|error| Error::from_reason(format!("stateOwnedCacheSize: {error}")))?;
+    if let Some(size) = byte_size(
+        config.state_owned_cache_size.as_deref(),
+        "stateOwnedCacheSize",
+    )? {
         builder.owned_cache_size(Some(size));
     }
 
-    if let Some(size) = &config.state_memtable_size {
-        let size = size
-            .parse::<ByteSize>()
-            .map_err(|error| Error::from_reason(format!("stateMemtableSize: {error}")))?;
+    if let Some(size) = byte_size(config.state_memtable_size.as_deref(), "stateMemtableSize")? {
         builder.memtable_size(Some(size));
     }
 
-    if let Some(size) = &config.state_read_cache_size {
-        let size = size
-            .parse::<ByteSize>()
-            .map_err(|error| Error::from_reason(format!("stateReadCacheSize: {error}")))?;
+    if let Some(size) = byte_size(
+        config.state_read_cache_size.as_deref(),
+        "stateReadCacheSize",
+    )? {
         builder.read_cache_size(Some(size));
     }
 
