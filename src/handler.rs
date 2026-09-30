@@ -27,7 +27,7 @@ use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use tracing::{Instrument, debug, error};
+use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Type alias for message handler arguments.
@@ -233,39 +233,42 @@ impl JsHandler {
         })
     }
 
-    async fn handle_record<C, P, F, Fut>(
+    /// Calls one JavaScript event callback under the event span.
+    ///
+    /// @param context The event context to hand the callback.
+    /// @param demand The demand that started this invocation.
+    /// @param span The event span. The callback receives it as a carrier.
+    /// @param call Calls the callback with the native context and the carrier.
+    /// @returns The callback's result payload.
+    /// @throws `JsHandlerError` if the callback rejects, classified by
+    ///   `isPermanent`.
+    async fn run_callback<C, F, Fut>(
         &self,
         context: C,
         demand: DemandType,
-        message: ConsumerMessage<P>,
+        span: Span,
         call: F,
     ) -> Result<BinaryPayload, JsHandlerError>
     where
         C: EventContext<Payload = BinaryPayload>,
-        F: FnOnce(NativeContext, ConsumerMessage<P>, HashMap<String, String>) -> Fut,
+        F: FnOnce(NativeContext, HashMap<String, String>) -> Fut,
         Fut: Future<Output = napi::Result<Promise<String>>>,
-        P: Send + Sync + 'static,
     {
-        let span = message.span();
         let native_context =
             NativeContext::new(context.boxed(), demand, Arc::clone(&self.inner.propagator));
         let mut carrier = HashMap::with_capacity(2);
         self.inner
             .propagator
             .inject_context(&span.context(), &mut carrier);
-        let result = call(native_context, message, carrier)
-            .instrument(span.clone())
-            .await?
-            .await;
 
-        match result {
+        match call(native_context, carrier).instrument(span).await?.await {
             Ok(output) => Ok(BinaryPayload::new(
                 output.into_bytes(),
                 None::<String>,
                 None::<String>,
             )),
             Err(error) => {
-                error!(error = %error, "record handler error");
+                error!(error = %error, "handler error");
                 Err(self.categorize_error(error).await?)
             }
         }
@@ -349,7 +352,7 @@ impl FallibleHandler for JsHandler {
     {
         debug!("processing message");
         let result = self
-            .handle_record(context, demand, message, |context, message, carrier| {
+            .run_callback(context, demand, message.span(), |context, carrier| {
                 self.inner
                     .on_message
                     .call_async(Ok((context, Message::new(message), carrier)))
@@ -370,7 +373,7 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        self.handle_record(context, demand, message, |context, message, carrier| {
+        self.run_callback(context, demand, message.span(), |context, carrier| {
             self.inner
                 .on_excise
                 .call_async(Ok((context, ExciseMessage::from(message), carrier)))
@@ -409,40 +412,18 @@ impl FallibleHandler for JsHandler {
             ));
         }
 
-        let span = trigger.span();
-        let mut carrier = HashMap::with_capacity(2);
-        self.inner
-            .propagator
-            .inject_context(&span.context(), &mut carrier);
-
-        let native_context =
-            NativeContext::new(context.boxed(), demand, Arc::clone(&self.inner.propagator));
-        let timer: Timer = trigger.into();
-
         debug!("processing timer");
-
         let result = self
-            .inner
-            .on_timer
-            .call_async(Ok((native_context, timer, carrier)))
-            .instrument(span.clone())
-            .await?
+            .run_callback(context, demand, trigger.span(), |context, carrier| {
+                self.inner
+                    .on_timer
+                    .call_async(Ok((context, Timer::from(trigger), carrier)))
+            })
             .await;
-
-        match result {
-            Ok(output) => {
-                debug!("timer processed successfully");
-                Ok(BinaryPayload::new(
-                    output.into_bytes(),
-                    None::<String>,
-                    None::<String>,
-                ))
-            }
-            Err(error) => {
-                error!(error = %error, "timer handler error");
-                Err(self.categorize_error(error).await?)
-            }
+        if result.is_ok() {
+            debug!("timer processed successfully");
         }
+        result
     }
 
     /// Shuts down the handler.
