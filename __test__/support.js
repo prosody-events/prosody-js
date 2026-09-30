@@ -196,33 +196,21 @@ function liveSuite() {
     ) {
       return class TimerHandler {
         async onMessage(context, message) {
-          return env.tracer.startActiveSpan("test.onMessage", async (span) => {
-            try {
-              testEvents.emit("messageReceived", { context, message });
-              if (customOnMessage) {
-                await customOnMessage(context, message);
-              }
-            } finally {
-              span.end();
-            }
-          });
+          testEvents.emit("messageReceived", { context, message });
+          if (customOnMessage) {
+            await customOnMessage(context, message);
+          }
         }
 
         async onTimer(context, timer) {
-          return env.tracer.startActiveSpan("test.onTimer", async (span) => {
-            try {
-              testEvents.emit("timerFired", {
-                context,
-                timer,
-                actualTime: new Date(),
-              });
-              if (customOnTimer) {
-                await customOnTimer(context, timer);
-              }
-            } finally {
-              span.end();
-            }
+          testEvents.emit("timerFired", {
+            context,
+            timer,
+            actualTime: new Date(),
           });
+          if (customOnTimer) {
+            await customOnTimer(context, timer);
+          }
         }
       };
     },

@@ -11,140 +11,90 @@ describe("ProsodyClient failures", () => {
   const env = liveSuite();
 
   it("handles transient errors with retry", async () => {
-    return env.tracer.startActiveSpan("test.transient_error", async (span) => {
-      try {
-        let messageCount = 0;
-        const demands = [];
-        const retryEvent = new EventEmitter();
+    let messageCount = 0;
+    const demands = [];
+    const retryEvent = new EventEmitter();
 
-        class TransientErrorHandler {
-          @transient(Error)
-          async onMessage(context, message) {
-            return env.tracer.startActiveSpan(
-              "test.onMessage",
-              async (span) => {
-                try {
-                  messageCount++;
-                  demands.push({
-                    demand: context.demand,
-                    frozen: Object.isFrozen(context.demand),
-                    stable: context.demand === context.demand,
-                  });
-                  if (messageCount === 1) {
-                    throw new Error("Transient error occurred");
-                  } else {
-                    retryEvent.emit("retry");
-                  }
-                } finally {
-                  span.end();
-                }
-              },
-            );
-          }
-        }
-
-        await env.client.subscribe(new TransientErrorHandler());
-
-        await env.client.send(env.topic, "test-key", {
-          content: "Trigger transient error",
+    class TransientErrorHandler {
+      @transient(Error)
+      async onMessage(context, message) {
+        messageCount++;
+        demands.push({
+          demand: context.demand,
+          frozen: Object.isFrozen(context.demand),
+          stable: context.demand === context.demand,
         });
-
-        await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
-        // The first attempt is normal demand; the retry carries ordinal 1.
-        expect(demands.slice(0, 2)).toEqual([
-          { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
-          { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },
-        ]);
-      } finally {
-        span.end();
+        if (messageCount === 1) {
+          throw new Error("Transient error occurred");
+        } else {
+          retryEvent.emit("retry");
+        }
       }
+    }
+
+    await env.client.subscribe(new TransientErrorHandler());
+
+    await env.client.send(env.topic, "test-key", {
+      content: "Trigger transient error",
     });
+
+    await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
+    // The first attempt is normal demand; the retry carries ordinal 1.
+    expect(demands.slice(0, 2)).toEqual([
+      { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
+      { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },
+    ]);
   });
 
   it("handles permanent errors without retry", async () => {
-    return env.tracer.startActiveSpan("test.permanent_error", async (span) => {
-      try {
-        let messageCount = 0;
-        const errorEvent = new EventEmitter();
+    let messageCount = 0;
+    const errorEvent = new EventEmitter();
 
-        class PermanentErrorHandler {
-          @permanent(Error)
-          async onMessage(_, message) {
-            return env.tracer.startActiveSpan(
-              "test.onMessage",
-              async (span) => {
-                try {
-                  messageCount++;
-                  errorEvent.emit("error-event");
-                  throw new Error("Permanent error occurred");
-                } finally {
-                  span.end();
-                }
-              },
-            );
-          }
-        }
-
-        await env.client.subscribe(new PermanentErrorHandler());
-
-        await env.client.send(env.topic, "test-key", {
-          content: "Trigger permanent error",
-        });
-
-        await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
-
-        // Wait a bit to allow for any potential retries
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-
-        expect(messageCount).toBe(1);
-      } finally {
-        span.end();
+    class PermanentErrorHandler {
+      @permanent(Error)
+      async onMessage(_, message) {
+        messageCount++;
+        errorEvent.emit("error-event");
+        throw new Error("Permanent error occurred");
       }
+    }
+
+    await env.client.subscribe(new PermanentErrorHandler());
+
+    await env.client.send(env.topic, "test-key", {
+      content: "Trigger permanent error",
     });
+
+    await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
+
+    // Wait a bit to allow for any potential retries
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    expect(messageCount).toBe(1);
   });
 
   it("handles explicit permanent errors without retry", async () => {
-    return env.tracer.startActiveSpan(
-      "test.explicit_permanent_error",
-      async (span) => {
-        try {
-          let messageCount = 0;
-          const errorEvent = new EventEmitter();
+    let messageCount = 0;
+    const errorEvent = new EventEmitter();
 
-          await env.client.subscribe({
-            onMessage: async (context, message) => {
-              return env.tracer.startActiveSpan(
-                "test.onMessage",
-                async (span) => {
-                  try {
-                    messageCount++;
-                    errorEvent.emit("error-event");
-                    throw new PermanentError(
-                      "Explicit permanent error occurred",
-                    );
-                  } finally {
-                    span.end();
-                  }
-                },
-              );
-            },
-          });
-
-          await env.client.send(env.topic, "test-key", {
-            content: "Trigger explicit permanent error",
-          });
-
-          await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
-
-          // Wait a bit to allow for any potential retries
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-
-          expect(messageCount).toBe(1);
-        } finally {
-          span.end();
-        }
+    await env.client.subscribe({
+      onMessage: async (context, message) => {
+        messageCount++;
+        errorEvent.emit("error-event");
+        throw new PermanentError("Explicit permanent error occurred");
       },
-    );
+    });
+
+    await env.client.send(env.topic, "test-key", {
+      content: "Trigger explicit permanent error",
+    });
+
+    await waitForEvent(errorEvent, "error-event", MESSAGE_TIMEOUT);
+
+    // Wait a bit to allow for any potential retries
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    expect(messageCount).toBe(1);
   });
 
   // A result with no JSON form is a handler mistake, so it is transient: the
