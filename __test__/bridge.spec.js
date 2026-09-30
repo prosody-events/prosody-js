@@ -1,3 +1,4 @@
+const { getEventListeners } = require("node:events");
 const {
   AdminClient,
   Context,
@@ -464,4 +465,24 @@ test("requestExcise maps native subsystem outcomes", async () => {
     expect.any(Object),
     undefined,
   );
+});
+
+// One long-lived signal can serve any number of calls: each call removes its
+// abort listener when it settles.
+test("client calls remove their abort listener when they settle", async () => {
+  const { signal } = new AbortController();
+  const client = wrapNative({
+    send: async () => undefined,
+    excise: async () => undefined,
+    request: async () => [],
+    requestExcise: async () => [],
+  });
+  const options = { subsystems: [], timeoutMs: 1, signal };
+  for (let call = 0; call < 3; call += 1) {
+    await client.send("orders", "order-1", {}, signal);
+    await client.excise("orders", "order-1", signal);
+    await client.request("orders", "order-1", {}, options);
+    await client.requestExcise("orders", "order-1", options);
+  }
+  expect(getEventListeners(signal, "abort")).toHaveLength(0);
 });
