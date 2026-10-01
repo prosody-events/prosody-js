@@ -267,7 +267,8 @@ pub struct Configuration {
     pub state_read_cache_size: Option<String>,
 
     /// Default cache policy for published-state reads: `false` turns the
-    /// cache off, and `{ ttlMs }` sets the cache duration. Uses
+    /// cache off, and `{ ttlMs }` sets the cache duration. The older form
+    /// `{ disabled: true }` still turns the cache off. Uses
     /// `PROSODY_STATE_READ_CACHE_TTL` when omitted, then 5 seconds.
     #[napi(ts_type = "ReadCacheConfiguration | false")]
     pub state_read_cache: Option<ReadCacheOption>,

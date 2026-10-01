@@ -123,6 +123,7 @@ describe("keyed state configuration validation", () => {
     ]),
     ["stateReadCacheSize", "0"],
     ["stateReadCache", true],
+    ["stateReadCache", { disabled: true, ttlMs: 1 }],
   ])("rejects %s = %p", async (option, size) => {
     await rejectsConfig(mockConfig({ [option]: size }), `${option}: `);
   });
@@ -131,7 +132,14 @@ describe("keyed state configuration validation", () => {
   // default and a definition's readCache take the same forms, and each form
   // crosses into the native reader of every kind. Mock mode holds no
   // publication, so each read fails with the typed error of an owned read.
-  const READ_CACHES = [undefined, false, { ttlMs: 1 }, { ttlMs: 1500 }];
+  const READ_CACHES = [
+    undefined,
+    false,
+    {},
+    { disabled: true },
+    { ttlMs: 1 },
+    { ttlMs: 1500 },
+  ];
   it.each(READ_CACHES)(
     "opens published readers of every kind with readCache %p",
     async (readCache) => {

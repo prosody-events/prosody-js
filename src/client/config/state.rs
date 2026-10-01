@@ -58,11 +58,13 @@ pub struct StateCollectionConfig {
     pub capacity: Option<f64>,
 }
 
-/// The cache duration for published-state reads.
+/// The cache options for published-state reads.
 #[napi(object)]
 pub struct ReadCacheConfiguration {
-    /// Cache duration in milliseconds.
-    pub ttl_ms: f64,
+    /// Cache duration in milliseconds. Omit it to use the default duration.
+    pub ttl_ms: Option<f64>,
+    /// `true` turns the cache off, the same as `false`.
+    pub disabled: Option<bool>,
 }
 
 /// A read cache option: `false` turns the cache off, and
@@ -281,7 +283,8 @@ fn register_state_collection(
 /// @param option The option, if set.
 /// @param field The option name for the error message.
 /// @returns The cache policy.
-/// @throws Error if the option is `true` or its `ttlMs` cannot convert.
+/// @throws Error if the option is `true`, sets both `ttlMs` and
+///   `disabled: true`, or has a `ttlMs` that cannot convert.
 pub(crate) fn read_cache_policy(
     option: Option<&ReadCacheOption>,
     field: &str,
@@ -292,9 +295,16 @@ pub(crate) fn read_cache_policy(
         Some(Either::A(true)) => Err(Error::from_reason(format!(
             "{field}: expected false or {{ ttlMs }}, got true"
         ))),
-        Some(Either::B(cache)) => {
-            milliseconds(cache.ttl_ms, &format!("{field}.ttlMs")).map(ReadCachePolicy::Ttl)
-        }
+        Some(Either::B(cache)) => match (cache.ttl_ms, cache.disabled == Some(true)) {
+            (None, false) => Ok(ReadCachePolicy::Inherit),
+            (None, true) => Ok(ReadCachePolicy::Disabled),
+            (Some(ttl), false) => {
+                milliseconds(ttl, &format!("{field}.ttlMs")).map(ReadCachePolicy::Ttl)
+            }
+            (Some(_), true) => Err(Error::from_reason(format!(
+                "{field}: cannot set both ttlMs and disabled"
+            ))),
+        },
     }
 }
 

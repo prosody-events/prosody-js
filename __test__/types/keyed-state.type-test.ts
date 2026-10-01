@@ -77,7 +77,7 @@ void value("uncached", { readCache: false });
 // @ts-expect-error the cache is off only through false
 const trueConfig: Configuration = { stateReadCache: true };
 void trueConfig;
-// @ts-expect-error the { disabled } form is gone
+// The older { disabled: true } form still turns the cache off.
 const disabledConfig: Configuration = { stateReadCache: { disabled: true } };
 void disabledConfig;
 
