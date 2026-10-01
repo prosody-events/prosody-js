@@ -95,7 +95,9 @@ export declare class PublishedDeque<T = JsonValue> {
   /**
    * Reads the value at `index`, or null when the position is out of range.
    * `0` is the front and `-1` is the back. A negative index other than `-1`
-   * also reads the length, so it makes two reads.
+   * also reads the length, so it makes two reads. Under a TTL, an expired
+   * element reads as null. This is also true for an expired front or back
+   * element when live elements remain inside the deque.
    * @throws TransientStateError if `index` is not a safe integer.
    */
   at(key: string, index: number): Promise<T | null>;

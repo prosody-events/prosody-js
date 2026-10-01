@@ -51,6 +51,9 @@ export declare class DequeState<T = JsonValue> {
    * A non-negative `index` and `at(-1)` make a single read. Any other negative
    * `index` is resolved against the current {@link DequeState#length}, so it
    * makes an extra read.
+   *
+   * Under a TTL, an expired element reads as null. This is also true for an
+   * expired front or back element when live elements remain inside the deque.
    */
   at(index: number): Promise<T | null>;
   /**

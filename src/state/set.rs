@@ -16,11 +16,6 @@ pub struct NativeSetState {
 #[napi]
 impl NativeSetState {
     /// Reports whether `member` belongs to the set.
-    ///
-    /// @param member The member to test.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when the set contains `member`.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn contains(
         &self,
@@ -31,11 +26,6 @@ impl NativeSetState {
     }
 
     /// Tests several members in one read.
-    ///
-    /// @param members The members to test, in order.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns One result per member, in input order.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn contains_many(
         &self,
@@ -51,20 +41,12 @@ impl NativeSetState {
     }
 
     /// Reports whether the set has no live members.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when the set is empty.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
         run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Adds `member` to the set.
-    ///
-    /// @param member The member to add.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(writable = false)]
     pub async fn insert(
         &self,
@@ -74,11 +56,7 @@ impl NativeSetState {
         run(&self.propagator, &otel_context, self.state.insert(member)).await
     }
 
-    /// Removes `member` from the set. An absent member is not an error.
-    ///
-    /// @param member The member to remove.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
+    /// Removes `member` from the set.
     #[napi(writable = false)]
     pub async fn remove(
         &self,
@@ -89,21 +67,12 @@ impl NativeSetState {
     }
 
     /// Removes every member.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
-    /// Opens a demand-driven cursor over the selected members.
-    ///
-    /// Synchronous — it performs no I/O. The first chunk pull starts the read.
-    ///
-    /// @param query The query options.
-    /// @returns A cursor over the members.
-    /// @throws Error (transient) if an option is invalid.
+    /// Opens a cursor over the selected members.
     #[napi(writable = false)]
     pub fn keys(&self, query: NativeKeyQuery) -> napi::Result<NativeKeyCursor> {
         Ok(NativeKeyCursor {

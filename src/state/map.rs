@@ -17,11 +17,6 @@ pub struct NativeJsonMapState {
 #[napi]
 impl NativeJsonMapState {
     /// Reads the value for `key`.
-    ///
-    /// @param key The map key.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The value, or null when the key is absent.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn get(
         &self,
@@ -33,18 +28,7 @@ impl NativeJsonMapState {
             .and_then(json_value)
     }
 
-    /// Reads several keys in a single call.
-    ///
-    /// Returns one entry per key, in the same order requested: the entry at
-    /// index `i` is the value for `keys[i]`. A key that isn't there reads as
-    /// null, and a key listed more than once is answered at each of its spots.
-    /// The whole read happens as one step, so no other change to this event's
-    /// state can slip in partway through.
-    ///
-    /// @param keys The keys to read, in order.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns One result per input key; null for a key that is absent.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reads several keys in one operation.
     #[napi(writable = false)]
     pub async fn get_many(
         &self,
@@ -57,16 +41,6 @@ impl NativeJsonMapState {
     }
 
     /// Reports whether the map holds an entry for `key`.
-    ///
-    /// The answer includes the uncommitted writes of this event. It does not
-    /// decode the value, so a message map reads no Kafka message and can
-    /// report `true` for a message that Kafka no longer holds. A cache miss
-    /// still reads Cassandra, so the call is async and can fail like `get`.
-    ///
-    /// @param key The map key.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when the map holds an entry for `key`.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn contains(
         &self,
@@ -82,14 +56,6 @@ impl NativeJsonMapState {
     }
 
     /// Tests several keys for presence in one read.
-    ///
-    /// Returns one result per key, in input order. Like `contains`, it skips
-    /// the value decode and the resolver.
-    ///
-    /// @param keys The keys to test, in order.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns One presence result per input key.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn contains_many(
         &self,
@@ -104,25 +70,13 @@ impl NativeJsonMapState {
         .await
     }
 
-    /// Reports whether the map holds no live entries.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when the map is empty.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reports whether the map has no live entries.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
         run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
     /// Inserts or overwrites `key` with a JSON document.
-    ///
-    /// Prosody rejects JSON null with a permanent error. Use `delete` to
-    /// remove an entry.
-    ///
-    /// @param key The map key.
-    /// @param json The document's JSON text.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(writable = false)]
     pub async fn set(
         &self,
@@ -139,10 +93,6 @@ impl NativeJsonMapState {
     }
 
     /// Removes `key`.
-    ///
-    /// @param key The map key.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the removal fails.
     #[napi(writable = false)]
     pub async fn remove(
         &self,
@@ -153,23 +103,12 @@ impl NativeJsonMapState {
     }
 
     /// Removes every entry.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
-    /// Opens a demand-driven cursor over the selected entries.
-    ///
-    /// Synchronous — it performs no I/O. The first chunk pull starts the read
-    /// under that pull's trace context. Entries are yielded as `(key, value)`
-    /// pairs.
-    ///
-    /// @param query The query options.
-    /// @returns A cursor over the map entries.
-    /// @throws Error (transient) if an option is invalid.
+    /// Opens a cursor over the selected entries.
     #[napi(writable = false)]
     pub fn entries(&self, query: NativeKeyQuery) -> napi::Result<NativeJsonMapCursor> {
         Ok(NativeJsonMapCursor {
@@ -182,17 +121,7 @@ impl NativeJsonMapState {
         })
     }
 
-    /// Opens a demand-driven cursor over the selected keys.
-    ///
-    /// Skips the value codec and the resolver (no value decode, no Kafka
-    /// fetch), so a message-backed map enumerates keys with zero Kafka
-    /// fetches — but it still reads presence, so it is not zero-I/O.
-    /// Synchronous like `entries`: the first chunk pull starts the read.
-    /// Yields bare keys.
-    ///
-    /// @param query The query options.
-    /// @returns A cursor over the map keys.
-    /// @throws Error (transient) if an option is invalid.
+    /// Opens a cursor over the selected keys.
     #[napi(writable = false)]
     pub fn keys(&self, query: NativeKeyQuery) -> napi::Result<NativeKeyCursor> {
         Ok(NativeKeyCursor {
@@ -235,7 +164,7 @@ impl NativeMessageMapState {
             .map(|items| items.into_iter().map(message_value).collect())
     }
 
-    /// Reports whether the published map holds an entry for `key`.
+    /// Reports whether the map holds an entry for `key`.
     #[napi(writable = false)]
     pub async fn contains(
         &self,

@@ -16,33 +16,19 @@ pub struct NativeJsonDequeState {
 
 #[napi]
 impl NativeJsonDequeState {
-    /// The number of live elements.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The element count.
-    /// @throws Error carrying the category on `cause` if the read fails, or if
-    ///   the count exceeds the `u32` range.
+    /// Returns the number of live elements.
     #[napi(writable = false)]
     pub async fn len(&self, otel_context: HashMap<String, String>) -> napi::Result<u32> {
         length(run(&self.propagator, &otel_context, self.state.len()).await?)
     }
 
-    /// Whether the deque holds no live elements.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns True when the deque is empty.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reports whether the deque has no live elements.
     #[napi(writable = false)]
     pub async fn is_empty(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
         run(&self.propagator, &otel_context, self.state.is_empty()).await
     }
 
-    /// Reads the element at front-relative position `index`.
-    ///
-    /// @param index The zero-based position from the front.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The element, or null past the end.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reads one element by its position from the front.
     #[napi(writable = false)]
     pub async fn get(
         &self,
@@ -58,16 +44,7 @@ impl NativeJsonDequeState {
         .and_then(json_value)
     }
 
-    /// Reads the front endpoint slot without a length round trip — exactly
-    /// `get(0)`.
-    ///
-    /// Decodes and resolves the returned element (unlike eviction). An empty
-    /// deque, or a front endpoint slot expired under a TTL, yields null even
-    /// when live interior elements exist — a peek never searches inward.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The front element, or null when the endpoint slot is empty.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reads the front endpoint.
     #[napi(writable = false)]
     pub async fn peek_front(
         &self,
@@ -78,16 +55,7 @@ impl NativeJsonDequeState {
             .and_then(json_value)
     }
 
-    /// Reads the back endpoint slot without a length round trip — exactly
-    /// `get(len − 1)`.
-    ///
-    /// Decodes and resolves the returned element (unlike eviction). An empty
-    /// deque, or a back endpoint slot expired under a TTL, yields null even
-    /// when live interior elements exist — a peek never searches inward.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The back element, or null when the endpoint slot is empty.
-    /// @throws Error carrying the category on `cause` if the read fails.
+    /// Reads the back endpoint.
     #[napi(writable = false)]
     pub async fn peek_back(
         &self,
@@ -98,13 +66,7 @@ impl NativeJsonDequeState {
             .and_then(json_value)
     }
 
-    /// Appends a JSON document at the back.
-    ///
-    /// Prosody rejects JSON null with a permanent error.
-    ///
-    /// @param json The document's JSON text.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
+    /// Appends a JSON document.
     #[napi(writable = false)]
     pub async fn push_back(
         &self,
@@ -119,13 +81,7 @@ impl NativeJsonDequeState {
         .await
     }
 
-    /// Prepends a JSON document at the front.
-    ///
-    /// Prosody rejects JSON null with a permanent error.
-    ///
-    /// @param json The document's JSON text.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
+    /// Prepends a JSON document.
     #[napi(writable = false)]
     pub async fn push_front(
         &self,
@@ -141,10 +97,6 @@ impl NativeJsonDequeState {
     }
 
     /// Removes and returns the front element.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The removed front element, or null when empty.
-    /// @throws Error carrying the category on `cause` if the operation fails.
     #[napi(writable = false)]
     pub async fn pop_front(
         &self,
@@ -156,10 +108,6 @@ impl NativeJsonDequeState {
     }
 
     /// Removes and returns the back element.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The removed back element, or null when empty.
-    /// @throws Error carrying the category on `cause` if the operation fails.
     #[napi(writable = false)]
     pub async fn pop_back(
         &self,
@@ -171,22 +119,12 @@ impl NativeJsonDequeState {
     }
 
     /// Removes every element.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         run(&self.propagator, &otel_context, self.state.clear()).await
     }
 
-    /// Opens a demand-driven cursor over the selected elements.
-    ///
-    /// Synchronous — it performs no I/O. The first chunk pull starts the read
-    /// under that pull's trace context.
-    ///
-    /// @param query The query options. Positions count from the front.
-    /// @returns A cursor over the deque elements.
-    /// @throws Error (transient) if an option is invalid.
+    /// Opens a cursor over the selected elements.
     #[napi(writable = false)]
     pub fn values(&self, query: NativePositionQuery) -> napi::Result<NativeJsonDequeCursor> {
         Ok(NativeJsonDequeCursor {

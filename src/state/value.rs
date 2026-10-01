@@ -16,10 +16,6 @@ pub struct NativeJsonValueState {
 #[napi]
 impl NativeJsonValueState {
     /// Reads the current value.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @returns The current value, or null when absent/cleared.
-    /// @throws Error carrying the category on `cause` if the read fails.
     #[napi(writable = false)]
     pub async fn get(&self, otel_context: HashMap<String, String>) -> napi::Result<Option<String>> {
         run(&self.propagator, &otel_context, self.state.get())
@@ -28,13 +24,6 @@ impl NativeJsonValueState {
     }
 
     /// Buffers a write of a JSON document.
-    ///
-    /// Prosody rejects JSON null with a permanent error. Use `clear` to
-    /// delete.
-    ///
-    /// @param json The document's JSON text.
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the write fails.
     #[napi(writable = false)]
     pub async fn set(
         &self,
@@ -50,9 +39,6 @@ impl NativeJsonValueState {
     }
 
     /// Buffers a clear of the value.
-    ///
-    /// @param otelContext The OpenTelemetry context for tracing.
-    /// @throws Error carrying the category on `cause` if the clear fails.
     #[napi(writable = false)]
     pub async fn clear(&self, otel_context: HashMap<String, String>) -> napi::Result<()> {
         run(&self.propagator, &otel_context, self.state.clear()).await

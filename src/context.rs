@@ -213,15 +213,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named JSON value collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The value-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn value_state(&self, name: String) -> napi::Result<NativeJsonValueState> {
@@ -236,15 +227,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named JSON map collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The map-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn map_state(&self, name: String) -> napi::Result<NativeJsonMapState> {
@@ -256,14 +238,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named set collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The set-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn set_state(&self, name: String) -> napi::Result<NativeSetState> {
@@ -275,15 +249,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named JSON deque collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The deque-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn deque_state(&self, name: String) -> napi::Result<NativeJsonDequeState> {
@@ -298,14 +263,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message value collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message value-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_value_state(&self, name: String) -> napi::Result<NativeMessageValueState> {
@@ -320,14 +277,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message map collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message map-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_map_state(&self, name: String) -> napi::Result<NativeMessageMapState> {
@@ -342,14 +291,6 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message deque collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message deque-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
     #[allow(clippy::needless_pass_by_value)]
     pub fn message_deque_state(&self, name: String) -> napi::Result<NativeMessageDequeState> {
