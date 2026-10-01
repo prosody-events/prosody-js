@@ -9,11 +9,11 @@ Prosody Kafka client library. A NAPI-RS v3 crate (`src/`) wraps the published
 
 These come before everything else. Every change is judged against them.
 
-**Write code that is simple, clear, well-factored, elegant, easy to
-understand, correct, and idiomatic.** A reader should grasp the intent without
-effort. If a change makes the code harder to read, the change is wrong, even
-if it is faster or shorter. If two designs are correct, pick the one that is
-easier to delete.
+**Write code that is simple, clear, well-factored, DRY, performant, elegant,
+easy to understand, correct, and idiomatic.** A reader should grasp the intent
+without effort. If a change makes the code harder to read, the change is
+wrong, even if it is faster or shorter. If two designs are correct, pick the
+one that is easier to delete.
 
 **Make invalid states unrepresentable in the type system.** When a compiler
 or type checker can prove a contract, no test, comment, or convention has to.
@@ -25,9 +25,10 @@ uncompilable, do that instead of writing a runtime check.
 **Delete more than you add.** Every change should leave the codebase smaller,
 simpler, or both. If you must add code, look first for duplication you can
 fold, abstractions that no longer pay rent, dead branches, and stale comments.
-The end-state diff should net negative whenever the task allows. Line count is
-not the only axis: plain duplicated arms often read better than generic
-machinery.
+The end-state diff should net negative whenever the task allows. Each added
+line must be inherent to the problem, not incidental to the solution. Line
+count is not the only axis: plain duplicated arms often read better than
+generic machinery.
 
 **Identify, document, and enforce invariants.** For every load-bearing piece
 of state: name the invariant, write it down near the type or function that
@@ -66,7 +67,8 @@ aspirations — perform each one; do not merely agree with it:
    doc vocabulary (see Redesign hygiene). "The new thing works" is half done.
 7. Every claim written this session — doc cross-reference, "covered by" note,
    exemplar path — was verified to resolve, not recalled from memory.
-8. The diff is net-negative, or each addition is individually justified.
+8. The diff is net-negative, or each addition is individually justified as
+   inherent to the problem.
 
 ## Critical Rules
 
