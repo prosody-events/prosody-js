@@ -25,13 +25,12 @@ pub struct StateCollectionConfig {
     /// within the definition set.
     pub name: String,
 
-    /// The collection kind: `"value"`, `"map"`, `"set"`, or `"deque"`.
-    pub kind: String,
+    /// The collection kind.
+    pub kind: CollectionKind,
 
-    /// The item payload: `"json"` (JSON values) or `"message"` (the full Kafka
-    /// message the handler received). Required for value, map, and deque
-    /// collections. Set collections store members only and take no payload.
-    pub payload: Option<String>,
+    /// The item payload. Required for value, map, and deque collections. Set
+    /// collections store members only and take no payload.
+    pub payload: Option<CollectionPayload>,
 
     /// Optional per-write TTL in whole seconds. Must be a whole number >= 1
     /// (fractional, negative, and non-finite values are rejected) and must
@@ -73,7 +72,8 @@ pub type ReadCacheOption = Either<bool, ReadCacheConfiguration>;
 
 /// The kind of a keyed-state collection.
 #[derive(Clone, Copy)]
-enum CollectionKind {
+#[napi(string_enum = "lowercase")]
+pub enum CollectionKind {
     /// A single-value collection.
     Value,
     /// A `String`-keyed ordered map.
@@ -85,70 +85,33 @@ enum CollectionKind {
 }
 
 /// The item payload of a value, map, or deque collection. A set has none.
-enum CollectionPayload {
+#[derive(Clone, Copy)]
+#[napi(string_enum = "lowercase")]
+pub enum CollectionPayload {
     /// JSON values.
     Json,
     /// The full Kafka message the handler received.
     Message,
 }
 
-/// Parses a collection-kind token.
-///
-/// @param index The collection's index in `stateCollections`.
-/// @param kind The kind token.
-/// @returns The parsed kind.
-/// @throws Error if the token is not `"value"`, `"map"`, `"set"`, or
-///   `"deque"`.
-fn parse_kind(index: usize, kind: &str) -> Result<CollectionKind> {
-    match kind {
-        "value" => Ok(CollectionKind::Value),
-        "map" => Ok(CollectionKind::Map),
-        "set" => Ok(CollectionKind::Set),
-        "deque" => Ok(CollectionKind::Deque),
-        other => Err(Error::from_reason(format!(
-            "stateCollections[{index}].kind: expected \"value\", \"map\", \"set\", or \"deque\", \
-             got {other:?}"
-        ))),
-    }
-}
-
-/// Parses a collection-payload token when configured.
-///
-/// @param index The collection's index in `stateCollections`.
-/// @param payload The payload token, if any.
-/// @returns The parsed payload, if any.
-/// @throws Error if the token is not `"json"` or `"message"`.
-fn parse_payload(index: usize, payload: Option<&str>) -> Result<Option<CollectionPayload>> {
-    match payload {
-        None => Ok(None),
-        Some("json") => Ok(Some(CollectionPayload::Json)),
-        Some("message") => Ok(Some(CollectionPayload::Message)),
-        Some(other) => Err(Error::from_reason(format!(
-            "stateCollections[{index}].payload: expected \"json\" or \"message\", got {other:?}"
-        ))),
-    }
-}
-
-/// Applies the shared descriptor options (TTL, commit mode) fluently.
+/// Applies the shared descriptor options: TTL, commit mode, and publication.
 ///
 /// @param descriptor The descriptor to configure.
 /// @param `ttl_seconds` The validated per-write TTL in whole seconds, if any.
-/// @param `read_uncommitted` Whether the collection opts out of staging.
+/// @param collection The collection configuration.
 /// @returns The configured descriptor.
 fn with_def<D: StateDescriptor>(
-    descriptor: D,
+    mut descriptor: D,
     ttl_seconds: Option<u32>,
-    read_uncommitted: Option<bool>,
-    published: Option<bool>,
+    collection: &StateCollectionConfig,
 ) -> D {
-    let mut descriptor = descriptor;
     if let Some(ttl) = ttl_seconds {
         descriptor = descriptor.ttl(CompactDuration::new(ttl));
     }
-    if read_uncommitted == Some(true) {
+    if collection.read_uncommitted == Some(true) {
         descriptor = descriptor.read_uncommitted();
     }
-    if let Some(published) = published {
+    if let Some(published) = collection.published {
         descriptor = descriptor.published(published);
     }
     descriptor
@@ -219,28 +182,19 @@ fn register_state_collection(
     index: usize,
     collection: &StateCollectionConfig,
 ) -> Result<()> {
-    let kind = parse_kind(index, &collection.kind)?;
-    let payload = parse_payload(index, collection.payload.as_deref())?;
-
     let ttl_seconds = collection
         .ttl_seconds
         .map(|value| whole(value, &format!("stateCollections[{index}].ttlSeconds")))
         .transpose()?;
 
-    let keyset_limit = parse_keyset_limit(index, collection, kind)?;
+    let keyset_limit = parse_keyset_limit(index, collection, collection.kind)?;
 
-    let capacity = parse_capacity(index, collection, kind)?;
+    let capacity = parse_capacity(index, collection, collection.kind)?;
 
-    let read_uncommitted = collection.read_uncommitted;
     let name = collection.name.as_str();
-    match (kind, payload) {
+    match (collection.kind, collection.payload) {
         (CollectionKind::Set, None) => {
-            let mut descriptor = with_def(
-                set_state::<Utf8KeyCodec>(name),
-                ttl_seconds,
-                read_uncommitted,
-                collection.published,
-            );
+            let mut descriptor = with_def(set_state::<Utf8KeyCodec>(name), ttl_seconds, collection);
             if let Some(limit) = keyset_limit {
                 descriptor = descriptor.keyset_limit(limit);
             }
@@ -260,16 +214,14 @@ fn register_state_collection(
             let _ = keyed.register(with_def(
                 value_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             ));
         }
         (CollectionKind::Map, Some(CollectionPayload::Json)) => {
             let mut descriptor = with_def(
                 map_state::<Utf8KeyCodec, JsonBinaryCodec>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             );
             if let Some(limit) = keyset_limit {
                 descriptor = descriptor.keyset_limit(limit);
@@ -280,8 +232,7 @@ fn register_state_collection(
             let mut descriptor = with_def(
                 deque_state::<JsonBinaryCodec>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);
@@ -292,16 +243,14 @@ fn register_state_collection(
             let _ = keyed.register(with_def(
                 message_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             ));
         }
         (CollectionKind::Map, Some(CollectionPayload::Message)) => {
             let mut descriptor = with_def(
                 message_map_state::<Utf8KeyCodec, KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             );
             if let Some(limit) = keyset_limit {
                 descriptor = descriptor.keyset_limit(limit);
@@ -312,8 +261,7 @@ fn register_state_collection(
             let mut descriptor = with_def(
                 message_deque_state::<KafkaLoader<JsonBinaryMessageCodec>>(name),
                 ttl_seconds,
-                read_uncommitted,
-                collection.published,
+                collection,
             );
             if let Some(bound) = capacity {
                 descriptor = descriptor.capacity(bound);

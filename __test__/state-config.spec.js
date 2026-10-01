@@ -103,7 +103,7 @@ describe("keyed state configuration validation", () => {
       mockConfig({
         stateCollections: [{ name: "x", kind: "bogus", payload: "json" }],
       }),
-      /kind: expected/,
+      "enum `CollectionKind` on StateCollectionConfig.kind",
     );
   });
 
@@ -112,7 +112,7 @@ describe("keyed state configuration validation", () => {
       mockConfig({
         stateCollections: [{ name: "x", kind: "value", payload: "bogus" }],
       }),
-      'stateCollections[0].payload: expected "json" or "message", got "bogus"',
+      "enum `CollectionPayload` on StateCollectionConfig.payload",
     );
   });
 
