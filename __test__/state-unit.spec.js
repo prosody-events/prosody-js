@@ -41,9 +41,9 @@ describe("keyed state (unit)", () => {
     expect(read()).toBe(first);
   });
 
-  // The public objects keep their native handles in private fields, so user
-  // code cannot read, replace, or call them.
-  it("public objects expose no own properties", () => {
+  // The public objects keep their native handles in properties that do not
+  // enumerate, so `console.log` and object spreads show no internals.
+  it("public objects expose no enumerable own properties", () => {
     const objects = [
       wrapNative({}),
       new Context({}),
@@ -57,9 +57,28 @@ describe("keyed state (unit)", () => {
       new PublishedDeque({}),
     ];
     for (const object of objects) {
-      expect(Reflect.ownKeys(object)).toEqual([]);
+      expect(Object.keys(object)).toEqual([]);
     }
     expect(() => new ProsodyClient()).toThrow(TypeError);
+  });
+
+  // A Proxy that forwards the receiver runs each getter and method with the
+  // Proxy as `this`. The context must still reach its native handle.
+  it("a context works through a forwarding Proxy", async () => {
+    const native = {
+      shouldCancel: true,
+      demand: { kind: "failure", retry: 1 },
+      scheduled: async () => [],
+    };
+    const context = new Proxy(new Context(native), {
+      get: (target, prop, receiver) => Reflect.get(target, prop, receiver),
+      set: () => false,
+    });
+    expect(context.shouldCancel).toBe(true);
+    expect(context.demand).toEqual({ kind: "failure", retry: 1 });
+    expect(context.demand).toBe(context.demand);
+    expect(Object.isFrozen(context.demand)).toBe(true);
+    await expect(context.scheduled()).resolves.toEqual([]);
   });
 
   // Error classes carry category as data and subclass the existing bridge
