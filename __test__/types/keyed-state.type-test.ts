@@ -9,11 +9,11 @@ import {
   Demand,
   DequeState,
   JsonValue,
-  KeyQuery,
+  KeyQueryOptions,
   MapState,
   Message,
   PermanentStateError,
-  PositionQuery,
+  PositionQueryOptions,
   ProsodyClient,
   PublishedDeque,
   PublishedMap,
@@ -210,7 +210,7 @@ export async function checks(): Promise<void> {
   }
 
   // ---- queries: every option, reusable as plain values ----
-  const page: KeyQuery = {
+  const page: KeyQueryOptions = {
     direction: "backward",
     prefix: "user-",
     after: "user-9",
@@ -231,7 +231,7 @@ export async function checks(): Promise<void> {
     assertTrue<Equal<typeof v, number>>();
     void v;
   }
-  const window: PositionQuery = { from: 1, before: 10, limit: 5 };
+  const window: PositionQueryOptions = { from: 1, before: 10, limit: 5 };
   for await (const item of d.values(window)) {
     assertTrue<Equal<typeof item, string>>();
     void item;
@@ -270,17 +270,17 @@ export async function checks(): Promise<void> {
   t.values({ direction: "sideways" });
 
   // ---- range: ascending [start, end]; null is open; edges overlap ----
-  const span: KeyQuery = { range: ["a", "m"], direction: "backward" };
+  const span: KeyQueryOptions = { range: ["a", "m"], direction: "backward" };
   for await (const [key] of publishedTotals.entries("user-1", span)) {
     assertTrue<Equal<typeof key, string>>();
     void key;
   }
-  const positions: PositionQuery = { range: [2, 5], limit: 2 };
+  const positions: PositionQueryOptions = { range: [2, 5], limit: 2 };
   for await (const item of d.values(positions)) {
     assertTrue<Equal<typeof item, string>>();
     void item;
   }
-  const overlap: KeyQuery = { range: ["a", null], after: "b", to: "k" };
+  const overlap: KeyQueryOptions = { range: ["a", null], after: "b", to: "k" };
   for await (const key of t.keys(overlap)) {
     assertTrue<Equal<typeof key, string>>();
     void key;

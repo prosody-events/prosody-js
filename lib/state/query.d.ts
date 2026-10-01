@@ -70,7 +70,7 @@ export interface QueryOptions {
  * `limit` to the page size. To read the keys from `"a"` up to `"m"` in either
  * direction, set `range: ["a", "m"]`.
  */
-export type KeyQuery = QueryOptions & {
+export type KeyQueryOptions = QueryOptions & {
   /** Keeps keys that start with this prefix. */
   readonly prefix?: string;
 } & QueryBounds<string>;
@@ -82,4 +82,4 @@ export type KeyQuery = QueryOptions & {
  * read the last N elements, use `values({ direction: "backward", limit: N })`.
  * To read positions 2, 3, and 4 in either direction, set `range: [2, 5]`.
  */
-export type PositionQuery = QueryOptions & QueryBounds<number>;
+export type PositionQueryOptions = QueryOptions & QueryBounds<number>;

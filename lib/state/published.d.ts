@@ -12,7 +12,11 @@
 
 import type { JsonValue } from "../payload";
 import type { PermanentStateError, TransientStateError } from "../errors";
-import type { KeyQuery, PositionQuery, ScanDirection } from "./query";
+import type {
+  KeyQueryOptions,
+  PositionQueryOptions,
+  ScanDirection,
+} from "./query";
 
 /** Per-collection cache override for published reads. */
 export interface ReadCacheOptions {
@@ -48,17 +52,17 @@ export declare class PublishedMap<V = JsonValue> {
   /** Iterates the selected `[mapKey, value]` entries in key order. */
   entries(
     key: string,
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<[string, V]>;
   /** Iterates the selected map keys in key order. */
   keys(
     key: string,
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<string>;
   /** Iterates the values of the selected entries in key order. */
   values(
     key: string,
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<V>;
 }
 
@@ -75,12 +79,12 @@ export declare class PublishedSet {
   /** Iterates the selected members in order. */
   keys(
     key: string,
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<string>;
   /** The same iterator as `keys`, as on the JavaScript `Set`. */
   values(
     key: string,
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<string>;
 }
 
@@ -104,6 +108,6 @@ export declare class PublishedDeque<T = JsonValue> {
   /** Iterates the selected values from the front. */
   values(
     key: string,
-    options?: ScanDirection | PositionQuery,
+    options?: ScanDirection | PositionQueryOptions,
   ): AsyncIterableIterator<T>;
 }

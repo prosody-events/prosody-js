@@ -5,7 +5,7 @@
 
 import type { JsonValue } from "../payload";
 import type { StateTransaction } from "./handle";
-import type { PositionQuery, ScanDirection } from "./query";
+import type { PositionQueryOptions, ScanDirection } from "./query";
 
 /**
  * Typed handle over a double-ended-queue keyed-state collection, vended by
@@ -58,11 +58,13 @@ export declare class DequeState<T = JsonValue> {
   at(index: number): Promise<T | null>;
   /**
    * Async iterator over the live elements in index order. Pass a direction or
-   * a {@link PositionQuery} to select elements. Valid only within the handler
+   * a {@link PositionQueryOptions} to select elements. Valid only within the handler
    * invocation (attempt) that opened it; early exit from a `for await` loop
    * closes the underlying cursor.
    */
-  values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>;
+  values(
+    options?: ScanDirection | PositionQueryOptions,
+  ): AsyncIterableIterator<T>;
   /**
    * Forward iteration over the elements. Valid only within the handler
    * invocation (attempt) that opened it.

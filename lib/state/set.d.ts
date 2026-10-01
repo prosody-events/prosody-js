@@ -4,7 +4,7 @@
  */
 
 import type { StateTransaction } from "./handle";
-import type { KeyQuery, ScanDirection } from "./query";
+import type { KeyQueryOptions, ScanDirection } from "./query";
 
 /**
  * Handle over a presence-only ordered set of string members, vended by
@@ -35,12 +35,16 @@ export declare class SetState {
   isEmpty(): Promise<boolean>;
   /**
    * Async iterator over the members in order. Pass a direction or a
-   * {@link KeyQuery} to select members. Early exit from a `for await` loop
+   * {@link KeyQueryOptions} to select members. Early exit from a `for await` loop
    * closes the underlying cursor.
    */
-  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  keys(
+    options?: ScanDirection | KeyQueryOptions,
+  ): AsyncIterableIterator<string>;
   /** The same iterator as {@link SetState#keys}, as on the JavaScript `Set`. */
-  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  values(
+    options?: ScanDirection | KeyQueryOptions,
+  ): AsyncIterableIterator<string>;
   /** Forward iteration over the members. */
   [Symbol.asyncIterator](): AsyncIterableIterator<string>;
 }

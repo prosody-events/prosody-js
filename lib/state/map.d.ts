@@ -5,7 +5,7 @@
 
 import type { JsonValue } from "../payload";
 import type { StateTransaction } from "./handle";
-import type { KeyQuery, ScanDirection } from "./query";
+import type { KeyQueryOptions, ScanDirection } from "./query";
 
 /**
  * Typed handle over an ordered-map keyed-state collection, vended by
@@ -60,12 +60,12 @@ export declare class MapState<V = JsonValue> {
   clear(): Promise<void>;
   /**
    * Async iterator over the live `[key, value]` entries in key order. Pass a
-   * direction or a {@link KeyQuery} to select entries. Valid only within the
+   * direction or a {@link KeyQueryOptions} to select entries. Valid only within the
    * handler invocation (attempt) that opened it; early exit from a
    * `for await` loop closes the underlying cursor.
    */
   entries(
-    options?: ScanDirection | KeyQuery,
+    options?: ScanDirection | KeyQueryOptions,
   ): AsyncIterableIterator<[string, V]>;
   /**
    * Async iterator over the live keys in key order. Takes the same options as
@@ -74,14 +74,16 @@ export declare class MapState<V = JsonValue> {
    * the handler invocation (attempt) that opened it; early exit from a
    * `for await` loop closes the underlying cursor.
    */
-  keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>;
+  keys(
+    options?: ScanDirection | KeyQueryOptions,
+  ): AsyncIterableIterator<string>;
   /**
    * Async iterator over the live values in key order. Takes the same options
    * as {@link MapState#entries}. Valid only within the handler invocation
    * (attempt) that opened it; early exit from a `for await` loop closes the
    * underlying cursor.
    */
-  values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>;
+  values(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<V>;
   /**
    * Forward iteration over `[key, value]` entries. Valid only within the
    * handler invocation (attempt) that opened it.

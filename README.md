@@ -776,7 +776,7 @@ await seen.add(message.payload.orderId);
 
 ### Query a collection
 
-Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQuery`. Deque `values` accepts a direction or a `PositionQuery`. Prosody applies each option in storage, so a query reads only the entries, members, or values it selects.
+Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQueryOptions`. Deque `values` accepts a direction or a `PositionQueryOptions`. Prosody applies each option in storage, so a query reads only the entries, members, or values it selects.
 
 | Option           | Effect                                                                                                           |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -1301,9 +1301,9 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
-- `entries(options?: ScanDirection | KeyQuery): AsyncIterableIterator<[string, V]>`
-- `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
-- `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<V>`
+- `entries(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<[string, V]>`
+- `keys(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
 - `commit(): Promise<StoreOutcome>`
 - `rollback(): Promise<StoreOutcome>`
@@ -1316,8 +1316,8 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `delete(member: string): Promise<void>`
 - `clear(): Promise<void>`
 - `isEmpty(): Promise<boolean>`
-- `keys(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
-- `values(options?: ScanDirection | KeyQuery): AsyncIterableIterator<string>`
+- `keys(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<string>`
 - `commit(): Promise<StoreOutcome>`
 - `rollback(): Promise<StoreOutcome>`
@@ -1332,7 +1332,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `isEmpty(): Promise<boolean>`
 - `clear(): Promise<void>`
 - `at(index: number): Promise<T | null>`
-- `values(options?: ScanDirection | PositionQuery): AsyncIterableIterator<T>`
+- `values(options?: ScanDirection | PositionQueryOptions): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
 - `commit(): Promise<StoreOutcome>`
 - `rollback(): Promise<StoreOutcome>`
@@ -1341,7 +1341,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
 
-`KeyQuery`: `{ direction?, prefix?, from? | after?, to? | before?, range?: [start, end], limit? }` with string bounds. A `null` range bound is open. `PositionQuery`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+`KeyQueryOptions`: `{ direction?, prefix?, from? | after?, to? | before?, range?: [start, end], limit? }` with string bounds. A `null` range bound is open. `PositionQueryOptions`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 
 Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
