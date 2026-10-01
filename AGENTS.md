@@ -39,6 +39,15 @@ not yet understand the code well enough to change it.
 encouraged when they are scoped to the area you are already touching. Do not
 sprawl — but do not walk past obvious cleanup either.
 
+**Do not break users without a reason.** The published package has real
+users. A release can break them only for a clear improvement that the
+owner decided on: a fixed defect, an invalid state that the types now
+prevent, or a need of a new feature. "Nothing in this repo calls it" is
+not a reason to remove, rename, or narrow a public member, an error
+class, a log text, or a dependency floor. When you are not sure, keep
+the old shape. List each break under `## Breaking changes` in the PR
+body.
+
 ## Definition of Done
 
 No change is complete until every line below holds. These are acts, not
