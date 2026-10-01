@@ -81,6 +81,31 @@ describe("keyed state (unit)", () => {
     await expect(context.scheduled()).resolves.toEqual([]);
   });
 
+  // The same rule holds for the client, the state handles, and the published
+  // readers.
+  it("the client and the state handles work through a forwarding Proxy", async () => {
+    const forward = (object) =>
+      new Proxy(object, {
+        get: (target, prop, receiver) => Reflect.get(target, prop, receiver),
+      });
+    const native = {
+      sourceSystem: "source",
+      shutdown: async () => {},
+      get: async (...args) => args.length,
+      isEmpty: async () => true,
+    };
+    const client = forward(wrapNative(native));
+    expect(client.sourceSystem).toBe("source");
+    await expect(client.shutdown()).resolves.toBeUndefined();
+    await expect(
+      forward(new ValueState(native, RAW_ITEMS)).get(),
+    ).resolves.toBe(1);
+    await expect(forward(new SetState(native)).isEmpty()).resolves.toBe(true);
+    await expect(forward(new PublishedValue(native)).get("key")).resolves.toBe(
+      2,
+    );
+  });
+
   // Error classes carry category as data and subclass the existing bridge
   // hierarchy so a rethrow classifies with no state-specific bridge path.
   it("state error classes carry category and subclass the bridge hierarchy", () => {
