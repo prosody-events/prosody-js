@@ -3,10 +3,14 @@
 //! This module defines the `Context` struct, which encapsulates a
 //! `MessageContext` from the `prosody` crate and exposes its functionality to
 //! Node.js through NAPI.
+//!
+//! The state vend methods allow `needless_pass_by_value`. napi passes a
+//! JavaScript string by value and copies each lint attribute onto its
+//! generated callback, where an `expect` would be unfulfilled.
 
 use crate::state::{
     NativeJsonDequeState, NativeJsonMapState, NativeJsonValueState, NativeMessageDequeState,
-    NativeMessageMapState, NativeMessageValueState, state_error,
+    NativeMessageMapState, NativeMessageValueState, NativeSetState, state_error,
 };
 use chrono::{DateTime, Utc};
 use napi::Error;
@@ -14,16 +18,37 @@ use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry::trace::FutureExt;
 use prosody::codec::BinaryPayload;
+use prosody::consumer::DemandType;
 use prosody::consumer::event_context::BoxEventContext;
 use prosody::timers::TimerType;
 use prosody::timers::datetime::CompactDateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Why the handler runs: a normal delivery or a retry after a failure.
+#[napi(string_enum = "lowercase")]
+pub enum DemandKind {
+    /// The first attempt at an event.
+    Normal,
+    /// An attempt after one or more failures.
+    Failure,
+}
+
+/// The demand that started this handler invocation.
+#[napi(object)]
+pub struct NativeDemand {
+    /// Whether the handler runs for a normal delivery or a retry.
+    pub kind: DemandKind,
+    /// The retry count: 0 for normal demand and 1 on the first retry. It is
+    /// an estimate. Keep an exact attempt count in keyed state if needed.
+    pub retry: u32,
+}
+
 /// Wrapper around `MessageContext` for use in Node.js bindings.
 #[napi]
 pub struct NativeContext {
     context: BoxEventContext<BinaryPayload>,
+    demand: DemandType,
     propagator: Arc<TextMapCompositePropagator>,
 }
 
@@ -32,15 +57,33 @@ impl NativeContext {
     /// Creates a new `NativeContext` instance.
     ///
     /// @param context The `BoxEventContext` to wrap.
+    /// @param demand The demand that started this invocation.
     /// @param propagator The OpenTelemetry propagator to use for context
     ///   extraction.
     pub fn new(
         context: BoxEventContext<BinaryPayload>,
+        demand: DemandType,
         propagator: Arc<TextMapCompositePropagator>,
     ) -> Self {
         Self {
             context,
+            demand,
             propagator,
+        }
+    }
+
+    /// The demand that started this handler invocation.
+    ///
+    /// @returns The demand kind and its retry count.
+    #[napi(getter, writable = false)]
+    pub fn demand(&self) -> NativeDemand {
+        let kind = match self.demand {
+            DemandType::Normal => DemandKind::Normal,
+            DemandType::Failure { .. } => DemandKind::Failure,
+        };
+        NativeDemand {
+            kind,
+            retry: self.demand.retry(),
         }
     }
 
@@ -170,17 +213,8 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named JSON value collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The value-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
     pub fn value_state(&self, name: String) -> napi::Result<NativeJsonValueState> {
         let handle = self
             .context
@@ -193,17 +227,8 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named JSON map collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The map-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
     pub fn map_state(&self, name: String) -> napi::Result<NativeJsonMapState> {
         let handle = self.context.map_state(&name).map_err(|e| state_error(&e))?;
         Ok(NativeJsonMapState {
@@ -212,18 +237,20 @@ impl NativeContext {
         })
     }
 
-    /// Vends the state handle for the named JSON deque collection.
-    ///
-    /// Vending verifies the collection's registration (core-side); no span is
-    /// opened here — vended handles outlive the call, and every operation opens
-    /// its own span.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The deque-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
+    /// Vends the state handle for the named set collection.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set_state(&self, name: String) -> napi::Result<NativeSetState> {
+        let handle = self.context.set_state(&name).map_err(|e| state_error(&e))?;
+        Ok(NativeSetState {
+            state: handle,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Vends the state handle for the named JSON deque collection.
+    #[napi(writable = false)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn deque_state(&self, name: String) -> napi::Result<NativeJsonDequeState> {
         let handle = self
             .context
@@ -236,16 +263,8 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message value collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message value-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
     pub fn message_value_state(&self, name: String) -> napi::Result<NativeMessageValueState> {
         let handle = self
             .context
@@ -258,16 +277,8 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message map collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message map-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
     pub fn message_map_state(&self, name: String) -> napi::Result<NativeMessageMapState> {
         let handle = self
             .context
@@ -280,16 +291,8 @@ impl NativeContext {
     }
 
     /// Vends the state handle for the named Kafka-message deque collection.
-    ///
-    /// Items are the full `Message` the handler received, loader-resolved on
-    /// read. Vending verifies registration (core-side); no span is opened here.
-    ///
-    /// @param name The registered collection name.
-    /// @returns The message deque-state handle for this event's transaction.
-    /// @throws Error (permanent) if the name is unregistered or its registered
-    ///   identity mismatches.
     #[napi(writable = false)]
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
+    #[allow(clippy::needless_pass_by_value)]
     pub fn message_deque_state(&self, name: String) -> napi::Result<NativeMessageDequeState> {
         let handle = self
             .context

@@ -25,7 +25,7 @@ jobs:
       infra: ${{ steps.rail.outputs.infra }}
       test: ${{ steps.rail.outputs.test }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Plan affected work
         id: rail
         uses: loadingalias/cargo-rail-action@ebc8ef2740efefe2cd5c42826344a8f1213113ae # v6
@@ -38,7 +38,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.plan.outputs.build == 'true' || needs.plan.outputs.test == 'true' || needs.plan.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -54,7 +54,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install build dependencies
         if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@latest
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: cmake libcurl4-openssl-dev protobuf-compiler
           version: 1.0
@@ -66,7 +66,7 @@ jobs:
 #          | sarif-fmt
 #        continue-on-error: true
 #      - name: Upload analysis results to GitHub
-#        uses: github/codeql-action/upload-sarif@v3
+#        uses: github/codeql-action/upload-sarif@v4
 #        with:
 #          sarif_file: results.sarif
 #          wait-for-processing: true

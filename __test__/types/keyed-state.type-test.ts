@@ -6,14 +6,22 @@
 import {
   Configuration,
   Context,
+  Demand,
   DequeState,
   JsonValue,
+  KeyQueryOptions,
   MapState,
   Message,
   PermanentStateError,
+  PositionQueryOptions,
+  ProsodyClient,
   PublishedDeque,
   PublishedMap,
+  PublishedSet,
   PublishedValue,
+  SetDefinition,
+  SetState,
+  StoreOutcome,
   TransientStateError,
   ValueState,
   deque,
@@ -22,6 +30,7 @@ import {
   messageDeque,
   messageMap,
   messageValue,
+  set,
   value,
 } from "../../index";
 
@@ -46,21 +55,74 @@ const lastOrder = messageValue<OrderEvent>("last-order");
 const orderIndex = messageMap<OrderEvent>("order-index");
 const backlog = messageDeque<OrderEvent>("backlog");
 const defaultJson = value("default-json");
+const seen = set("seen", {
+  ttlSeconds: 86400,
+  keysetLimit: 64,
+  published: true,
+});
 
 // The SAME definition objects serialize into the client configuration.
 const config: Configuration = {
-  stateCollections: [cart, totals, tags, lastOrder, orderIndex, backlog],
+  stateCollections: [cart, totals, tags, seen, lastOrder, orderIndex, backlog],
   stateOwnedCacheSize: "64 MiB",
+  stateMemtableSize: "16 MiB",
+  stateReadCache: false,
 };
 void config;
 
+// The client default and a definition's readCache take the same two forms.
+const cachedConfig: Configuration = { stateReadCache: { ttlMs: 1000 } };
+void cachedConfig;
+void value("uncached", { readCache: false });
+// @ts-expect-error the cache is off only through false
+const trueConfig: Configuration = { stateReadCache: true };
+void trueConfig;
+// The older { disabled: true } form still turns the cache off.
+const disabledConfig: Configuration = { stateReadCache: { disabled: true } };
+void disabledConfig;
+
+declare const client: ProsodyClient;
 declare const context: Context;
 declare const incoming: Message<OrderEvent>;
 declare const publishedCart: PublishedValue<Cart>;
 declare const publishedTotals: PublishedMap<number>;
 declare const publishedTags: PublishedDeque<string>;
+declare const publishedSeen: PublishedSet;
 
 export async function checks(): Promise<void> {
+  // ---- handles need a native handle, so only Prosody constructs them ----
+  // @ts-expect-error the context constructor is private
+  void new Context();
+  // @ts-expect-error the published value constructor is private
+  void new PublishedValue();
+  // @ts-expect-error the published map constructor is private
+  void new PublishedMap();
+  // @ts-expect-error the published set constructor is private
+  void new PublishedSet();
+  // @ts-expect-error the published deque constructor is private
+  void new PublishedDeque();
+
+  // ---- demand ----
+  assertTrue<Equal<typeof context.demand, Demand>>();
+  assertTrue<Equal<Demand["kind"], "normal" | "failure">>();
+  assertTrue<Equal<Demand["retry"], number>>();
+  // @ts-expect-error the demand is read-only
+  context.demand.retry = 2;
+
+  // ---- ProsodyClient.state opens the exact published reader types ----
+  const readerCart = await client.state("checkout", cart);
+  assertTrue<Equal<typeof readerCart, PublishedValue<Cart>>>();
+  const readerTotals = await client.state("checkout", totals);
+  assertTrue<Equal<typeof readerTotals, PublishedMap<number>>>();
+  const readerSeen = await client.state("checkout", seen);
+  assertTrue<Equal<typeof readerSeen, PublishedSet>>();
+  const readerTags = await client.state("checkout", tags);
+  assertTrue<Equal<typeof readerTags, PublishedDeque<string>>>();
+  // @ts-expect-error a message collection has no published reader
+  await client.state("checkout", lastOrder);
+  const keys = ["a", "b"] as const;
+  await readerTotals.getMany("customer-1", keys);
+
   // ---- overload resolution returns the exact handle types ----
   const c = context.state(cart);
   assertTrue<Equal<typeof c, ValueState<Cart>>>();
@@ -81,6 +143,12 @@ export async function checks(): Promise<void> {
     Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
   >();
   assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTotals.hasMany>>, boolean[]>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedTotals.isEmpty>>, boolean>
+  >();
   for await (const [key, total] of publishedTotals.entries("user-1")) {
     assertTrue<Equal<typeof key, string>>();
     assertTrue<Equal<typeof total, number>>();
@@ -117,6 +185,9 @@ export async function checks(): Promise<void> {
   const many = await t.getMany([incoming.key, "other"]);
   assertTrue<Equal<typeof many, (number | null)[]>>();
   assertTrue<Equal<Awaited<ReturnType<typeof t.has>>, boolean>>();
+  const presence = await t.hasMany([incoming.key, "other"]);
+  assertTrue<Equal<typeof presence, boolean[]>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.isEmpty>>, boolean>>();
   await t.delete(incoming.key);
   for await (const [key, total] of t.entries("backward")) {
     assertTrue<Equal<typeof key, string>>();
@@ -137,6 +208,142 @@ export async function checks(): Promise<void> {
     assertTrue<Equal<typeof v, number>>();
     void v;
   }
+
+  // ---- queries: every option, reusable as plain values ----
+  const page: KeyQueryOptions = {
+    direction: "backward",
+    prefix: "user-",
+    after: "user-9",
+    before: "user-1",
+    limit: 50,
+  };
+  for await (const [key, total] of t.entries(page)) {
+    assertTrue<Equal<typeof key, string>>();
+    assertTrue<Equal<typeof total, number>>();
+    void key;
+    void total;
+  }
+  for await (const key of t.keys({ from: "a", to: "b" })) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const v of t.values({ limit: 1 })) {
+    assertTrue<Equal<typeof v, number>>();
+    void v;
+  }
+  const window: PositionQueryOptions = { from: 1, before: 10, limit: 5 };
+  for await (const item of d.values(window)) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  for await (const item of d.values({ direction: "backward", after: 3 })) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  for await (const [key] of publishedTotals.entries("user-1", page)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const key of publishedTotals.keys("user-1", { prefix: "a" })) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const total of publishedTotals.values("user-1", { to: "z" })) {
+    assertTrue<Equal<typeof total, number>>();
+    void total;
+  }
+  for await (const tag of publishedTags.values("user-1", window)) {
+    assertTrue<Equal<typeof tag, string>>();
+    void tag;
+  }
+  // @ts-expect-error from and after are exclusive
+  t.keys({ from: "a", after: "b" });
+  // @ts-expect-error to and before are exclusive
+  t.entries({ to: "a", before: "b" });
+  // @ts-expect-error key bounds are strings
+  t.keys({ from: 1 });
+  // @ts-expect-error deque positions are numbers
+  d.values({ from: "a" });
+  // @ts-expect-error deque queries have no prefix
+  d.values({ prefix: "a" });
+  // @ts-expect-error the query direction is the closed ScanDirection set
+  t.values({ direction: "sideways" });
+
+  // ---- range: ascending [start, end]; null is open; edges overlap ----
+  const span: KeyQueryOptions = { range: ["a", "m"], direction: "backward" };
+  for await (const [key] of publishedTotals.entries("user-1", span)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  const positions: PositionQueryOptions = { range: [2, 5], limit: 2 };
+  for await (const item of d.values(positions)) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  const overlap: KeyQueryOptions = { range: ["a", null], after: "b", to: "k" };
+  for await (const key of t.keys(overlap)) {
+    assertTrue<Equal<typeof key, string>>();
+    void key;
+  }
+  for await (const item of d.values({ range: [null, 4], from: 1 })) {
+    assertTrue<Equal<typeof item, string>>();
+    void item;
+  }
+  d.values({ range: [null, null] });
+  // @ts-expect-error an open bound is null, not undefined
+  t.keys({ range: ["a", undefined] });
+  // @ts-expect-error a range still keeps the edge pairs exclusive
+  d.values({ range: [1, 4], to: 2, before: 3 });
+  // @ts-expect-error a range holds exactly two bounds
+  t.keys({ range: ["a"] });
+  // @ts-expect-error key ranges hold strings
+  t.keys({ range: [1, 2] });
+  // @ts-expect-error position ranges hold numbers
+  d.values({ range: ["a", "b"] });
+
+  // ---- set ----
+  const members = context.state(seen);
+  assertTrue<Equal<typeof members, SetState>>();
+  assertTrue<Equal<typeof seen, SetDefinition>>();
+  assertTrue<Equal<typeof seen.keysetLimit, number | undefined>>();
+  await members.add("m1");
+  await members.delete("m1");
+  await members.clear();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.has>>, boolean>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.isEmpty>>, boolean>>();
+  const present = await members.hasMany(["m1", "m2"]);
+  assertTrue<Equal<typeof present, boolean[]>>();
+  for await (const member of members) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of members.values({ prefix: "m", limit: 2 })) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of members.keys("backward")) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  assertTrue<Equal<Awaited<ReturnType<typeof publishedSeen.has>>, boolean>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedSeen.hasMany>>, boolean[]>
+  >();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof publishedSeen.isEmpty>>, boolean>
+  >();
+  for await (const member of publishedSeen.values("user-1", { after: "m" })) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  for await (const member of publishedSeen.keys("user-1")) {
+    assertTrue<Equal<typeof member, string>>();
+    void member;
+  }
+  // @ts-expect-error set members are strings
+  await members.add(1);
+  // @ts-expect-error capacity is deque-only (set options reject it)
+  set("s2", { capacity: 5 });
 
   // ---- deque ----
   await d.push("a");
@@ -178,9 +385,21 @@ export async function checks(): Promise<void> {
   await lv.set(incoming);
   await om.set("latest", incoming);
 
-  // ---- commit/rollback are void (owner directive: no "applied"/"noop") ----
-  assertTrue<Equal<Awaited<ReturnType<typeof c.commit>>, void>>();
-  assertTrue<Equal<Awaited<ReturnType<typeof c.rollback>>, void>>();
+  // ---- commit/rollback resolve to the store outcome on every handle ----
+  assertTrue<Equal<StoreOutcome, "applied" | "noOp">>();
+  assertTrue<Equal<Awaited<ReturnType<typeof c.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof c.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof t.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof d.commit>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof d.rollback>>, StoreOutcome>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof members.commit>>, StoreOutcome>>();
+  assertTrue<
+    Equal<Awaited<ReturnType<typeof members.rollback>>, StoreOutcome>
+  >();
+  // @ts-expect-error the outcome is a closed string set
+  const badOutcome: StoreOutcome = "noop";
+  void badOutcome;
 
   // ---- unparameterized Message retains the safe JSON default ----
   const defaultMessage = null as unknown as Message;
@@ -225,6 +444,8 @@ export async function checks(): Promise<void> {
   new MapState();
   // @ts-expect-error DequeState has a private constructor
   new DequeState();
+  // @ts-expect-error SetState has a private constructor
+  new SetState();
 
   // ---- a top-level null write is a compile error (null is not storable) ----
   const nv = value<string | null>("nv");

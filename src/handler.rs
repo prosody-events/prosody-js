@@ -27,8 +27,20 @@ use prosody::timers::{TimerType, Trigger};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use tracing::{Instrument, debug, error};
+use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+/// Maximum number of queued handler function calls.
+pub const HANDLE_QUEUE_SIZE: usize = 64;
+
+/// Maximum number of queued error classification function calls.
+pub const PERM_QUEUE_SIZE: usize = 64;
+
+/// The log text for a failed message or excise callback.
+const RECORD_FAILURE: &str = "record handler error";
+
+/// The log text for a failed timer callback.
+const TIMER_FAILURE: &str = "timer handler error";
 
 /// Type alias for message handler arguments.
 #[napi]
@@ -45,12 +57,6 @@ pub type TimerHandlerArgs = (NativeContext, Timer, HashMap<String, String>);
 /// Type alias for error classification arguments.
 #[napi]
 pub type IsPermanentArgs = (Error,);
-
-/// Maximum number of queued handler function calls.
-pub const HANDLE_QUEUE_SIZE: usize = 64;
-
-/// Maximum number of queued error classification function calls.
-pub const PERM_QUEUE_SIZE: usize = 64;
 
 type MessageFunction = ThreadsafeFunction<
     MessageHandlerArgs,
@@ -233,38 +239,44 @@ impl JsHandler {
         })
     }
 
-    async fn handle_record<C, P, F, Fut>(
+    /// Calls one JavaScript event callback under the event span.
+    ///
+    /// @param context The event context to hand the callback.
+    /// @param demand The demand that started this invocation.
+    /// @param span The event span. The callback receives it as a carrier.
+    /// @param failure The log text for a failed callback.
+    /// @param call Calls the callback with the native context and the carrier.
+    /// @returns The callback's result payload.
+    /// @throws `JsHandlerError` if the callback rejects, classified by
+    ///   `isPermanent`.
+    async fn run_callback<C, F, Fut>(
         &self,
         context: C,
-        message: ConsumerMessage<P>,
+        demand: DemandType,
+        span: Span,
+        failure: &'static str,
         call: F,
     ) -> Result<BinaryPayload, JsHandlerError>
     where
         C: EventContext<Payload = BinaryPayload>,
-        F: FnOnce(NativeContext, ConsumerMessage<P>, HashMap<String, String>) -> Fut,
+        F: FnOnce(NativeContext, HashMap<String, String>) -> Fut,
         Fut: Future<Output = napi::Result<Promise<String>>>,
-        P: Send + Sync + 'static,
     {
-        let span = message.span();
         let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
+            NativeContext::new(context.boxed(), demand, Arc::clone(&self.inner.propagator));
         let mut carrier = HashMap::with_capacity(2);
         self.inner
             .propagator
             .inject_context(&span.context(), &mut carrier);
-        let result = call(native_context, message, carrier)
-            .instrument(span.clone())
-            .await?
-            .await;
 
-        match result {
+        match call(native_context, carrier).instrument(span).await?.await {
             Ok(output) => Ok(BinaryPayload::new(
                 output.into_bytes(),
                 None::<String>,
                 None::<String>,
             )),
             Err(error) => {
-                error!(error = %error, "record handler error");
+                error!(error = %error, "{failure}");
                 Err(self.categorize_error(error).await?)
             }
         }
@@ -273,20 +285,24 @@ impl JsHandler {
 
 impl FromNapiValue for JsHandler {
     // SAFETY: This implementation is safe because:
-    // 1. We validate the input by calling JsObject::from_napi_value, which performs
-    //    proper type checking and will return an error if the napi_value is not a
-    //    valid JavaScript object
-    // 2. The napi_env and napi_value parameters are guaranteed to be valid by the
-    //    N-API runtime when this method is called through the NAPI-RS framework
+    // 1. We validate the input by calling JsObject::from_napi_value, which
+    //    performs proper type checking and will return an error if the
+    //    napi_value is not a valid JavaScript object
+    // 2. The napi_env and napi_value parameters are guaranteed to be valid by
+    //    the N-API runtime when this method is called through the NAPI-RS
+    //    framework
     // 3. We only access object properties using safe NAPI-RS methods
     //    (get_named_property) which validate property existence and types
-    // 4. The conversion to NativeHandler is temporary and only used to create the
-    //    thread-safe JsHandler
+    // 4. The conversion to NativeHandler is temporary and only used to create
+    //    the thread-safe JsHandler
     // 5. All JavaScript function references are immediately converted to
     //    ThreadsafeFunction objects which are safe to use across threads
     // 6. No raw pointers or memory are directly manipulated - all operations go
     //    through validated NAPI-RS APIs
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "napi declares FromNapiValue::from_napi_value as an unsafe fn"
+    )]
     unsafe fn from_napi_value(env: napi_env, napi_val: napi_value) -> napi::Result<Self> {
         let obj = Object::from_raw(env, napi_val);
         let on_message = obj
@@ -330,25 +346,31 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param message The consumer message to process.
-    /// @param `_demand_type` Whether this is normal processing or failure
+    /// @param `demand` Whether this is normal processing or failure
     /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
     /// execution fails or if error categorization fails.
     async fn on_message<C>(
         &self,
         context: C,
         message: ConsumerMessage<Self::Payload>,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
         debug!("processing message");
         let result = self
-            .handle_record(context, message, |context, message, carrier| {
-                self.inner
-                    .on_message
-                    .call_async(Ok((context, Message::new(message), carrier)))
-            })
+            .run_callback(
+                context,
+                demand,
+                message.span(),
+                RECORD_FAILURE,
+                |context, carrier| {
+                    self.inner
+                        .on_message
+                        .call_async(Ok((context, Message::new(message), carrier)))
+                },
+            )
             .await;
         if result.is_ok() {
             debug!("message processed successfully");
@@ -360,16 +382,24 @@ impl FallibleHandler for JsHandler {
         &self,
         context: C,
         message: ConsumerMessage<()>,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        self.handle_record(context, message, |context, message, carrier| {
-            self.inner
-                .on_excise
-                .call_async(Ok((context, ExciseMessage::from(message), carrier)))
-        })
+        self.run_callback(
+            context,
+            demand,
+            message.span(),
+            RECORD_FAILURE,
+            |context, carrier| {
+                self.inner.on_excise.call_async(Ok((
+                    context,
+                    ExciseMessage::from(message),
+                    carrier,
+                )))
+            },
+        )
         .await
     }
 
@@ -382,19 +412,20 @@ impl FallibleHandler for JsHandler {
     /// @param context The event context providing shutdown signaling and other
     ///   utilities.
     /// @param trigger The timer trigger to process.
-    /// @param `_demand_type` Whether this is normal processing or failure
+    /// @param `demand` Whether this is normal processing or failure
     /// retry. @throws Returns a `JsHandlerError` if the JavaScript callback
     /// execution fails or if error categorization fails.
     async fn on_timer<C>(
         &self,
         context: C,
         trigger: Trigger,
-        _demand_type: DemandType,
+        demand: DemandType,
     ) -> Result<Self::Output, Self::Error>
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        // Only process application timers; internal timers are handled by middleware
+        // Only process application timers; internal timers are handled by
+        // middleware
         if trigger.timer_type != TimerType::Application {
             return Ok(BinaryPayload::new(
                 b"null".to_vec(),
@@ -403,40 +434,24 @@ impl FallibleHandler for JsHandler {
             ));
         }
 
-        let span = trigger.span();
-        let mut carrier = HashMap::with_capacity(2);
-        self.inner
-            .propagator
-            .inject_context(&span.context(), &mut carrier);
-
-        let native_context =
-            NativeContext::new(context.boxed(), Arc::clone(&self.inner.propagator));
-        let timer: Timer = trigger.into();
-
         debug!("processing timer");
-
         let result = self
-            .inner
-            .on_timer
-            .call_async(Ok((native_context, timer, carrier)))
-            .instrument(span.clone())
-            .await?
+            .run_callback(
+                context,
+                demand,
+                trigger.span(),
+                TIMER_FAILURE,
+                |context, carrier| {
+                    self.inner
+                        .on_timer
+                        .call_async(Ok((context, Timer::from(trigger), carrier)))
+                },
+            )
             .await;
-
-        match result {
-            Ok(output) => {
-                debug!("timer processed successfully");
-                Ok(BinaryPayload::new(
-                    output.into_bytes(),
-                    None::<String>,
-                    None::<String>,
-                ))
-            }
-            Err(error) => {
-                error!(error = %error, "timer handler error");
-                Err(self.categorize_error(error).await?)
-            }
+        if result.is_ok() {
+            debug!("timer processed successfully");
         }
+        result
     }
 
     /// Shuts down the handler.

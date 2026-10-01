@@ -62,7 +62,7 @@ async function main() {
 
     onMessage: async (context, message, signal) => {
       // Process the received message
-      console.log(`Received message: ${JSON.stringify(message)}`);
+      console.log(`Received message: ${JSON.stringify(message.payload)}`);
 
       // Schedule a timer for delayed processing
       if (message.payload.scheduleFollowup) {
@@ -221,7 +221,7 @@ Or via environment variables:
 
 ```bash
 PROSODY_PROBE_PORT=8000  # Set to 'none' to disable
-PROSODY_STALL_THRESHOLD=15s  # Default stall detection threshold
+PROSODY_STALL_THRESHOLD=15s  # The default is 5m
 ```
 
 ### Important Notes
@@ -234,14 +234,14 @@ PROSODY_STALL_THRESHOLD=15s  # Default stall detection threshold
    issues.
 5. The probe server is only active when consuming messages (not for producer-only usage).
 
-You can monitor the stall state programmatically using the client's properties:
+You can monitor the stall state programmatically through the client's async methods:
 
 ```javascript
 // Get the number of partitions currently assigned to this consumer
-const partitionCount = client.assignedPartitionCount;
+const partitionCount = await client.assignedPartitionCount();
 
 // You can use these in your own health checks or monitoring
-if (client.isStalled) {
+if (await client.isStalled()) {
   console.warn("Consumer has stalled partitions");
 }
 ```
@@ -309,19 +309,19 @@ All messages must be processed. Retries indefinitely. Uses defer and monopolizat
 **Middleware stack:**
 
 ```
-Kafka → Deduplication → Retry → Defer → Monopolization → Shutdown → Scheduler → Timeout → Telemetry → Handler
+Kafka → Retry → Defer → Monopolization → Deduplication → Cancellation → Scheduler → Timeout → Telemetry → Handler
 ```
 
-| Layer          | Purpose                                           |
-| -------------- | ------------------------------------------------- |
-| Deduplication  | Skips messages whose ID was already processed     |
-| Retry          | Retries transient errors indefinitely             |
-| Defer          | Stores failing messages for timer-based retry     |
-| Monopolization | Rejects keys exceeding execution time threshold   |
-| Shutdown       | Drains in-flight work on partition revocation     |
-| Scheduler      | Enforces concurrency limits and VT-based priority |
-| Timeout        | Cancels handlers exceeding deadline               |
-| Telemetry      | Emits handler lifecycle events                    |
+| Layer          | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| Retry          | Retries transient errors indefinitely                  |
+| Defer          | Stores failing messages for timer-based retry          |
+| Monopolization | Rejects keys exceeding execution time threshold        |
+| Deduplication  | Filters duplicate messages via local cache + Cassandra |
+| Cancellation   | Skips work once shutdown or cancellation is signaled   |
+| Scheduler      | Enforces concurrency limits and VT-based priority      |
+| Timeout        | Cancels handlers exceeding deadline                    |
+| Telemetry      | Emits handler lifecycle events                         |
 
 ```javascript
 const client = await ProsodyClient.create({
@@ -439,7 +439,10 @@ Deduplication uses a two-tier approach:
 - **Global in-memory cache**: A single cache shared across all partitions within the same consumer instance. Survives
   partition reassignments within the same process. Controlled by `idempotenceCacheSize` (default 8192).
 - **Cassandra-backed persistent store**: Survives restarts and rebalances across instances. TTL controlled by
-  `idempotenceTtlS` (default 7 days, i.e. 604800s).
+  `idempotenceTtlSeconds` (default 7 days, i.e. 604800s).
+
+The producer also keeps a cache of the event IDs it sent. It skips a send that repeats a recent ID for the same topic
+and key. `idempotenceCacheSize` sets the capacity of this cache too.
 
 Deduplication is always active. `idempotenceCacheSize` must be greater than `0`; a value of `0` (via either the option
 or `PROSODY_IDEMPOTENCE_CACHE_SIZE=0`) is rejected when the client is constructed.
@@ -571,6 +574,17 @@ default, all errors are considered transient.
 
 The error classes and decorators apply to `onMessage`, `onExcise`, and `onTimer`.
 
+A handler can read `context.demand` to learn whether it runs for a retry. The retry count is 1 on the first retry. It is an estimate, so keep an exact attempt count in keyed state if you need one:
+
+```typescript
+async onMessage(context, message) {
+  if (context.demand.kind === "failure") {
+    console.warn(`retry ${context.demand.retry} for ${message.key}`);
+  }
+  return null;
+}
+```
+
 #### Using Decorators
 
 If you're using TypeScript or a JavaScript environment that supports decorators, you can use the `@permanent` decorator
@@ -579,11 +593,13 @@ to classify exceptions that should not be retried:
 ```javascript
 import { permanent, ProsodyClient } from "@prosody-events/prosody";
 
+class ValidationError extends Error {}
+
 class MyHandler {
-  @permanent(TypeError, AttributeError)
+  @permanent(TypeError, ValidationError)
   async onMessage(context, message, signal) {
     // Your message handling logic here
-    // TypeError and AttributeError will be treated as permanent
+    // TypeError and ValidationError will be treated as permanent
     // All other exceptions will be treated as transient (default behavior)
     return null;
   }
@@ -606,13 +622,15 @@ If you're not using decorators, you can still classify errors as permanent by th
 ```javascript
 import { PermanentError, ProsodyClient } from "@prosody-events/prosody";
 
+class ValidationError extends Error {}
+
 const messageHandler = {
   onMessage: async (context, message, signal) => {
     try {
       // Your message handling logic here
     } catch (error) {
-      if (error instanceof TypeError || error instanceof AttributeError) {
-        throw new PermanentError(error.message);
+      if (error instanceof TypeError || error instanceof ValidationError) {
+        throw new PermanentError(error.message, { cause: error });
       }
       // All other exceptions will be treated as transient (default behavior)
       throw error;
@@ -736,15 +754,60 @@ A definition sets a collection's durable name, kind, and options. Register it on
 
 Do not reuse a durable name for a different collection kind or payload type. Create handles inside the handler. Do not retain handles or iterators.
 
-| Collection         | JSON payload | Kafka message     | Main operations                                                      |
-| ------------------ | ------------ | ----------------- | -------------------------------------------------------------------- |
-| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                |
-| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `set`, `delete`, `entries`, `keys`, `clear` |
-| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear` |
+| Collection         | JSON payload | Kafka message     | Main operations                                                                            |
+| ------------------ | ------------ | ----------------- | ------------------------------------------------------------------------------------------ |
+| Value              | `value<T>`   | `messageValue<P>` | `get`, `set`, `clear`                                                                      |
+| Ordered string map | `map<V>`     | `messageMap<P>`   | `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `set`, `delete`, `entries`, `keys`, `clear` |
+| Deque              | `deque<T>`   | `messageDeque<P>` | `push`, `unshift`, `pop`, `shift`, `at`, `length`, `values`, `clear`                       |
+| Ordered string set | `set`        | (none)            | `add`, `has`, `hasMany`, `delete`, `isEmpty`, `keys`, `values`, `clear`                    |
 
-All operations are asynchronous. Map and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
+All operations are asynchronous. Map, set, and deque scans are asynchronous iterables. A `for await` loop can stop early safely.
 
-Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Use `clear()` or `delete()`.
+A set stores string members and no values. Its methods follow the JavaScript `Set`, but each returns a promise. Use a set to record which IDs a key has seen:
+
+```typescript
+const SEEN = set("seen-orders", { ttlSeconds: 7 * 24 * 60 * 60 });
+
+// In a handler:
+const seen = context.state(SEEN);
+if (await seen.has(message.payload.orderId)) return null;
+await seen.add(message.payload.orderId);
+```
+
+### Query a collection
+
+Map `entries`, `keys`, and `values` and set `keys` and `values` accept a direction or a `KeyQueryOptions`. Deque `values` accepts a direction or a `PositionQueryOptions`. Prosody applies each option in storage, so a query reads only the entries, members, or values it selects.
+
+| Option           | Effect                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `direction`      | `"forward"` (the default) or `"backward"`                                                                        |
+| `from` / `after` | Start at a bound, or start after it. Set at most one.                                                            |
+| `to` / `before`  | Stop at a bound, or stop before it. Set at most one.                                                             |
+| `range`          | Keep keys or positions from `start` up to, but not including, `end`: `[start, end]`. Use `null` for an open end. |
+| `prefix`         | Keep keys that start with a prefix. Keys only.                                                                   |
+| `limit`          | Return at most this many items. Use a positive integer.                                                          |
+
+The edges `from`, `after`, `to`, and `before` are in query order, so a backward query starts at the high end. A `range` is ascending and applies in both directions, so `{ range: ["a", "m"], direction: "backward" }` yields the forward keys in the opposite order. A `null` bound leaves its end open, so `[2, null]` keeps position 2 and every later one. A range whose start is not below its end selects nothing. Bounds and `prefix` narrow the selection, so a query that sets a range and edges keeps their overlap. Deque positions count from the front and cannot be negative. To read the last N elements, use `values({ direction: "backward", limit: N })`.
+
+To page through a map or a set, pass the last key of the previous page as `after`:
+
+```typescript
+const ORDERS = map<Order>("orders");
+
+async function orderPage(context: Context, after?: string) {
+  const page: [string, Order][] = [];
+  for await (const entry of context
+    .state(ORDERS)
+    .entries({ after, limit: 50 })) {
+    page.push(entry);
+  }
+  return page; // Pass page.at(-1)?.[0] as `after` for the next page.
+}
+```
+
+Set `direction: "backward"` to page from the highest key down.
+
+Map keys are strings. `null` and `undefined` mean absence. Do not store these values. Prosody rejects a JSON `null` write with a `PermanentStateError`. Use `clear()` (value, deque) or `delete()` (map) to delete.
 
 ### When keyed-state changes become visible
 
@@ -755,6 +818,8 @@ This transaction applies only to keyed state. Some workflows need state changes 
 - `readUncommitted: true` persists keyed-state changes before Prosody records the event as complete. If the process stops between these steps, Prosody can process the same event again. The retry sees state changes from the earlier attempt. You must make these keyed-state changes idempotent. Each retry must produce the same state.
 - `commit()` commits the collection's pending changes before the handler ends. A later handler failure does not remove them.
 - `rollback()` discards pending changes since the last `commit()`. It cannot undo committed changes.
+
+Both resolve to a `StoreOutcome`: `"applied"` when the call wrote or discarded pending changes, or `"noOp"` when the collection had no pending changes.
 
 ### Published state
 
@@ -777,7 +842,7 @@ const currentOrder = context.state(CURRENT_ORDER);
 await currentOrder.set({ sku: "book" });
 ```
 
-Read published state from a handler or other application code. The Prosody client does not need an active subscription.
+Read published state from a handler or other application code. The Prosody client does not need an active subscription. A client that only reads published state does not need `subscribedTopics`.
 
 Use the subsystem and the same definition to open a reader:
 
@@ -786,11 +851,11 @@ const orderReader = await client.state("checkout", CURRENT_ORDER);
 const currentOrder = await orderReader.get("customer-123");
 ```
 
-The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one.
+The reader cannot see pending changes that exist only in a handler. It cannot change the collection. Each read takes an explicit key because no handler supplies one. A failed read rejects with a `TransientStateError` or a `PermanentStateError`, like an owned read. A reader error at open, such as a zero `readCache` TTL, rejects `state()` the same way.
 
-Map and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
+Map, set, and deque readers fetch data in chunks. They do not load the complete collection before iteration starts.
 
-The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache.
+The default cache window is five seconds. Set `readCache: { ttlMs }` to select a different window. Set `readCache: false` to bypass the cache. The client option `stateReadCache` sets the default for every reader and takes the same two forms.
 
 To stop publication, deploy the definition with `published: false`. Keep the definition registered during that deployment. Keep the subsystem configured during that deployment.
 
@@ -838,7 +903,7 @@ const tracer = opentelemetry.trace.getTracer("my-service-name");
 Set the following standard OpenTelemetry environment variables:
 
 ```
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_SERVICE_NAME=my-service-name
 ```
@@ -870,7 +935,7 @@ const messageHandler = {
     try {
       // Process the received message
       span.addEvent("message.received", {
-        "message.payload": JSON.stringify(message),
+        "message.payload": JSON.stringify(message.payload),
       });
     } finally {
       span.end();
@@ -942,6 +1007,17 @@ Call `shutdown()` when the application terminates. It stops all client services 
 ```javascript
 await client.shutdown();
 ```
+
+A client is `AsyncDisposable`. Declare it with `await using` to shut it down when the block ends, also when the block throws:
+
+```javascript
+{
+  await using client = await ProsodyClient.create(config);
+  await client.send("orders", "order-1", { type: "order.created" });
+} // The client shuts down here.
+```
+
+Concurrent and repeated shutdowns await the same operation, so an explicit `shutdown()` inside the block is safe.
 
 Handle application shutdown:
 
@@ -1090,7 +1166,7 @@ your changes before merging to `main`.
 - `send<P>(topic: string, key: string, payload: P & JsonCompatible<P>, signal?: AbortSignal): Promise<void>`: Send a statically checked JSON-compatible message to a specified
   topic.
 - `excise(topic: string, key: string, signal?: AbortSignal): Promise<void>`: Send an excise record for a key.
-- `request<R>(topic, key, payload: JsonValue, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem.
+- `request<R, P>(topic, key, payload: P, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one outcome for each subsystem. `P` is inferred from the payload when you give no type arguments.
 - `requestExcise<R>(topic, key, options): Promise<ReadonlyMap<string, Outcome<R>>>`: Return one excise outcome for each subsystem.
 - `consumerState(): Promise<ConsumerState>`: Get the current state of the consumer.
 - `assignedPartitionCount(): Promise<number>`: Get the assigned partition count.
@@ -1098,15 +1174,17 @@ your changes before merging to `main`.
 - `sourceSystem: string`: Get the source system identifier configured for the client.
 - `state<T>(subsystem: string, definition: ValueDefinition<T>): Promise<PublishedValue<T>>`: Open a read-only published value.
 - `state<V>(subsystem: string, definition: MapDefinition<V>): Promise<PublishedMap<V>>`: Open a read-only published map.
+- `state(subsystem: string, definition: SetDefinition): Promise<PublishedSet>`: Open a read-only published set.
 - `state<T>(subsystem: string, definition: DequeDefinition<T>): Promise<PublishedDeque<T>>`: Open a read-only published deque.
 - `subscribe<P = JsonValue, R = JsonValue>(eventHandler: EventHandler<P, R>): Promise<void>`: Subscribe with typed payload and response values.
 - `unsubscribe(): Promise<void>`: Stop the consumer. You can subscribe again later.
 - `shutdown(): Promise<void>`: Stop all client services. Concurrent and repeated calls await the same operation.
+- `[Symbol.asyncDispose](): Promise<void>`: Call `shutdown()` when an `await using` block ends.
 
 ### AdminClient
 
 - `new AdminClient(bootstrapServers)`: Create an admin client for the specified Kafka servers.
-- `createTopic(name, partitions, replicationFactor)`: Create a Kafka topic.
+- `createTopic(name, partitions, replicationFactor, options?)`: Create a Kafka topic. `options` takes `cleanupPolicy`, such as `"compact"`, and `retentionMs`. The cluster default applies to each setting you omit.
 - `deleteTopic(name)`: Delete a Kafka topic.
 
 ### EventHandler
@@ -1128,6 +1206,8 @@ Represents a Kafka message with the following properties:
 - `timestamp: Date`: The timestamp when the message was created or sent.
 - `key: string`: The message key.
 - `payload: P`: The statically typed message payload.
+- `sourceSystem: string | null`: The source system of the producer, or `null` when the message has no source system header.
+- `responseRequested: boolean`: Whether the sender waits for a response. The handler result becomes the response only when this is `true`.
 
 `Message` takes an optional payload type parameter, `Message<P>`, used by handlers and message-backed state collections to type `payload`. Unparameterized `Message` is `Message<JsonValue>`, preserving useful JSON safety without requiring an application-specific payload type.
 
@@ -1137,7 +1217,7 @@ Ordinary interfaces work with `send()`. TypeScript rejects functions, `undefined
 
 ### ExciseMessage
 
-An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, and `key` properties. It has no `payload` property.
+An `ExciseMessage` has `topic`, `partition`, `offset`, `timestamp`, `key`, `sourceSystem`, and `responseRequested` properties. It has no `payload` property.
 
 ### Context
 
@@ -1145,6 +1225,7 @@ Represents the current event context:
 
 - `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
 - `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
+- `demand: Demand`: Why the handler runs. `kind` is `"normal"` or `"failure"`. `retry` is the retry count: 0 for normal demand and 1 on the first retry. The count is an estimate. Keep an exact attempt count in keyed state if you need one.
 
 Timer scheduling methods:
 
@@ -1156,7 +1237,7 @@ Timer scheduling methods:
 
 Keyed-state binding:
 
-- `state(definition): ValueState<T> | MapState<V> | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state-2).
+- `state(definition): ValueState<T> | MapState<V> | SetState | DequeState<T>`: Bind a registered collection for the current attempt. Message definitions return handles that contain `Message<P>`. An unregistered or mismatched definition throws `PermanentStateError`. See [Keyed State](#keyed-state).
 
 ### Timer
 
@@ -1194,35 +1275,52 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 - `value<T = JsonValue>(name: string, options?: PublishedStateDefinitionOptions): ValueDefinition<T>`
 - `map<V = JsonValue>(name: string, options?: MapDefinitionOptions): MapDefinition<V>`
+- `set(name: string, options?: SetDefinitionOptions): SetDefinition`
 - `deque<T = JsonValue>(name: string, options?: DequeDefinitionOptions): DequeDefinition<T>`
 - `messageValue<P = JsonValue>(name: string, options?: StateDefinitionOptions): MessageValueDefinition<P>`
 - `messageMap<P = JsonValue>(name: string, options?: MessageMapDefinitionOptions): MessageMapDefinition<P>`
 - `messageDeque<P = JsonValue>(name: string, options?: MessageDequeDefinitionOptions): MessageDequeDefinition<P>`
 
-`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options.
+`StateDefinitionOptions`: `{ ttlSeconds?: number; readUncommitted?: boolean }`. `PublishedStateDefinitionOptions` adds `{ published?: boolean; readCache?: { ttlMs: number } | false }` for JSON definitions. Map and deque option types add `keysetLimit` and `capacity`, respectively; their message equivalents omit publication options. `SetDefinitionOptions` is the map option type: publication options and `keysetLimit`.
 
 `ValueState<T>`:
 
 - `get(): Promise<T | null>`
 - `set(value: T): Promise<void>`
 - `clear(): Promise<void>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `MapState<V>` (keys are `string`):
 
 - `get(key: string): Promise<V | null>`
 - `getMany(keys: readonly string[]): Promise<(V | null)[]>`
 - `has(key: string): Promise<boolean>`
+- `hasMany(keys: readonly string[]): Promise<boolean[]>`
+- `isEmpty(): Promise<boolean>`
 - `set(key: string, value: V): Promise<void>`
 - `delete(key: string): Promise<void>`
 - `clear(): Promise<void>`
-- `entries(direction?: ScanDirection): AsyncIterableIterator<[string, V]>`
-- `keys(direction?: ScanDirection): AsyncIterableIterator<string>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<V>`
+- `entries(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<[string, V]>`
+- `keys(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<V>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<[string, V]>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
+
+`SetState` (members are `string`):
+
+- `add(member: string): Promise<void>`
+- `has(member: string): Promise<boolean>`
+- `hasMany(members: readonly string[]): Promise<boolean[]>`
+- `delete(member: string): Promise<void>`
+- `clear(): Promise<void>`
+- `isEmpty(): Promise<boolean>`
+- `keys(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
+- `values(options?: ScanDirection | KeyQueryOptions): AsyncIterableIterator<string>`
+- `[Symbol.asyncIterator](): AsyncIterableIterator<string>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `DequeState<T>`:
 
@@ -1234,22 +1332,26 @@ Definition constructors (each returns a frozen definition object used both in `C
 - `isEmpty(): Promise<boolean>`
 - `clear(): Promise<void>`
 - `at(index: number): Promise<T | null>`
-- `values(direction?: ScanDirection): AsyncIterableIterator<T>`
+- `values(options?: ScanDirection | PositionQueryOptions): AsyncIterableIterator<T>`
 - `[Symbol.asyncIterator](): AsyncIterableIterator<T>`
-- `commit(): Promise<void>`
-- `rollback(): Promise<void>`
+- `commit(): Promise<StoreOutcome>`
+- `rollback(): Promise<StoreOutcome>`
 
 `ScanDirection`: `"forward" | "backward"`.
 
-Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `entries`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly.
+`StoreOutcome`: `"applied" | "noOp"`. `commit()` and `rollback()` resolve to it.
 
-`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload`, and the applicable collection options. Use a definition constructor to create this value.
+`KeyQueryOptions`: `{ direction?, prefix?, from? | after?, to? | before?, range?: [start, end], limit? }` with string bounds. A `null` range bound is open. `PositionQueryOptions`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
+
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
+
+`StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload` (except for a set), and the applicable collection options. Use a definition constructor to create this value.
 
 JSON definitions also accept `readCache`. This option applies when the definition opens published state. It is not part of `StateCollectionConfig`.
 
-The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
+The public definition types are `ValueDefinition<T>`, `MapDefinition<V>`, `SetDefinition`, `DequeDefinition<T>`, `MessageValueDefinition<P>`, `MessageMapDefinition<P>`, and `MessageDequeDefinition<P>`.
 
-All definitions expose `name`, `kind`, `payload`, `ttlSeconds`, and `readUncommitted`. JSON definitions also expose `published` and `readCache`. Map definitions expose `keysetLimit`. Deque definitions expose `capacity`.
+All definitions expose `name`, `kind`, `ttlSeconds`, and `readUncommitted`. Every definition except a set exposes `payload`. JSON and set definitions also expose `published` and `readCache`. Map and set definitions expose `keysetLimit`. Deque definitions expose `capacity`.
 
 Errors:
 
@@ -1269,9 +1371,9 @@ Handler error types and decorators:
 
 - `Logger`: Provides `error`, `warn`, `info`, `debug`, and `trace` methods.
 - `initialize()`: Prepare the logging and tracing system during application startup.
-- `loggerIsSet()`: Test whether the application configured a logger.
+- `loggerIsSet()`: Test whether the application set a logger. The default console logger does not count.
 - `setLogger(logger)`: Replaces the logger.
-- `setLoggerIfUnset(logger)`: Sets the logger only when no logger exists.
+- `setLoggerIfUnset(logger)`: Sets the logger only when the application has not set one.
 - `getCurrentLogger()`: Returns the current JavaScript logger.
 - `flushTelemetry()`: Exports pending telemetry.
 - `shutdownTelemetry()`: Exports pending telemetry and stops its providers.

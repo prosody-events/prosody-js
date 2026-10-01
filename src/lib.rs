@@ -1,4 +1,7 @@
-#![allow(clippy::multiple_crate_versions)]
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "the dependency graph of prosody and napi pulls in several versions"
+)]
 #![recursion_limit = "256"]
 
 //! This crate provides Node.js bindings for the Prosody library, offering a
@@ -9,7 +12,12 @@
 //! The crate is organized into several modules, each responsible for a specific
 //! aspect of the library's functionality:
 
-use mimalloc::MiMalloc;
+use napi::bindgen_prelude::create_custom_tokio_runtime;
+use napi_derive::module_init;
+use rustfs_mimalloc::MiMalloc;
+use std::io::{self, Write};
+use std::process;
+use tokio::runtime::Builder;
 
 /// Module for handling administrative operations on a Prosody cluster.
 mod admin;
@@ -27,10 +35,14 @@ mod handler;
 /// Module for managing logging operations and integration with JavaScript
 /// logging.
 mod logging;
-pub use logging::{flush_telemetry, shutdown_telemetry};
+pub use logging::{flush_telemetry, initialize, set_logger, shutdown_telemetry};
 
 /// Module dealing with message-related functionality and structures.
 mod message;
+
+/// Module converting JavaScript numbers into Prosody integer and duration
+/// types.
+mod number;
 
 /// Module exposing read-only published keyed state.
 mod published;
@@ -41,5 +53,32 @@ mod state;
 /// Module dealing with timer-related functionality and structures.
 mod timer;
 
+/// Stack size of each Tokio worker thread.
+///
+/// Core futures are large in debug builds. A timer write that polls through
+/// the Cassandra driver overflows the Tokio default of 2 MiB.
+const WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+/// Replace napi-rs's default Tokio runtime with one built with 8 MiB worker
+/// stacks, before any async binding call can construct the default runtime.
+#[module_init]
+fn init() {
+    let runtime = Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(WORKER_STACK_SIZE)
+        .build();
+
+    match runtime {
+        Ok(runtime) => create_custom_tokio_runtime(runtime),
+        Err(error) => {
+            drop(writeln!(
+                io::stderr().lock(),
+                "failed to create Tokio runtime: {error:#}"
+            ));
+            process::abort();
+        }
+    }
+}

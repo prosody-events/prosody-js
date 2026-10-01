@@ -6,8 +6,9 @@ module.exports = {
   // Set timeout for tests (in milliseconds)
   testTimeout: 180000,
 
-  // Maximum number of workers used to run your tests
-  maxWorkers: "90%",
+  // The live suites share one Kafka broker and one Cassandra keyspace. Run
+  // the test files one at a time so that they do not compete for them.
+  maxWorkers: 1,
 
   // Transform files with Babel
   transform: {

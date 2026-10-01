@@ -1,19 +1,26 @@
 use crate::client::config::{
-    Configuration, build_cassandra_config, build_consumer_builders, build_producer_config,
+    Configuration, ReadCacheOption, build_cassandra_config, build_consumer_builders,
+    build_producer_config, read_cache_policy,
 };
 use crate::handler::JsHandler;
-use crate::published::{NativePublishedDeque, NativePublishedMap, NativePublishedValue};
+use crate::number::milliseconds;
+use crate::published::{
+    NativePublishedDeque, NativePublishedMap, NativePublishedSet, NativePublishedValue,
+};
+use crate::state::state_error;
 use napi::bindgen_prelude::Promise;
 use napi::{Error, Result};
 use napi_derive::napi;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use prosody::codec::BinaryPayload;
+use prosody::high_level::HighLevelClientError;
 use prosody::high_level::erased::{
-    ErasedConsumerState, ErasedReadCache, SharedHighLevelClient, new_erased,
+    ErasedConsumerState, ErasedReaderBuildError, SharedHighLevelClient, new_erased,
 };
 use prosody::propagator::new_propagator;
 use prosody::subsystem::SubsystemName;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,19 +53,18 @@ impl NativeClient {
     ///
     /// @param config - The configuration for the client
     /// @throws Error if the client creation fails
-    #[allow(clippy::needless_pass_by_value)] // required by NAPI
     #[napi(factory, writable = false)]
     pub async fn create(config: Configuration) -> Result<Self> {
-        let mut producer_config = build_producer_config(&config);
+        let mut producer_config = build_producer_config(&config)?;
         let consumer_builders = build_consumer_builders(&config)?;
-        let cassandra = build_cassandra_config(&config);
+        let cassandra = build_cassandra_config(&config)?;
 
-        let client = new_erased(
+        let client = Box::pin(new_erased(
             config.mode.unwrap_or_default().into(),
             &mut producer_config,
             &consumer_builders,
             &cassandra,
-        )
+        ))
         .await
         .map_err(|error| Error::from_reason(error.to_string()))?;
 
@@ -91,14 +97,14 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedValue> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .value_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .value_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedValue {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -111,15 +117,35 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedMap> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .map_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .map_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedMap {
+            inner,
+            propagator: Arc::clone(&self.propagator),
+        })
+    }
+
+    /// Builds a read-only view of a published set collection.
+    #[napi(writable = false)]
+    pub async fn published_set(
+        &self,
+        subsystem: String,
+        name: String,
+        read_cache: Option<ReadCacheOption>,
+    ) -> Result<NativePublishedSet> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
+        let inner = self
+            .client
+            .set_state(subsystem, name, policy)
+            .await
+            .map_err(open_error)?;
+        Ok(NativePublishedSet {
             inner,
             propagator: Arc::clone(&self.propagator),
         })
@@ -131,14 +157,14 @@ impl NativeClient {
         &self,
         subsystem: String,
         name: String,
-        cache_ms: Option<u32>,
-        cache_disabled: Option<bool>,
+        read_cache: Option<ReadCacheOption>,
     ) -> Result<NativePublishedDeque> {
+        let policy = read_cache_policy(read_cache.as_ref(), "readCache")?;
         let inner = self
             .client
-            .deque_state(subsystem, name, read_cache(cache_ms, cache_disabled)?)
+            .deque_state(subsystem, name, policy)
             .await
-            .map_err(|error| Error::from_reason(error.to_string()))?;
+            .map_err(open_error)?;
         Ok(NativePublishedDeque {
             inner,
             propagator: Arc::clone(&self.propagator),
@@ -158,9 +184,9 @@ impl NativeClient {
     /// @param metadata - The event metadata read off the payload object
     /// @param otelContext - The OpenTelemetry context for tracing
     /// @param maybeAbort - Optional promise that resolves when the operation
-    /// should be aborted @returns A promise that resolves when the message
-    /// has been sent @throws Error if the send operation fails or is
-    /// aborted
+    ///   should be aborted
+    /// @returns A promise that resolves when the message has been sent
+    /// @throws Error if the send operation fails or is aborted
     #[napi(writable = false)]
     pub async fn send(
         &self,
@@ -405,6 +431,25 @@ impl NativeClient {
     }
 }
 
+/// Converts a failure to open a published reader into a napi error.
+///
+/// A state reader error keeps the category that Prosody gives it. Any other
+/// failure stays an untyped error.
+///
+/// @param error The failure to open the reader.
+/// @returns The napi error.
+fn open_error<E>(error: ErasedReaderBuildError<E>) -> Error
+where
+    ErasedReaderBuildError<E>: Display,
+{
+    match error {
+        ErasedReaderBuildError::Client(HighLevelClientError::StateReader(error)) => {
+            state_error(&error.into())
+        }
+        error => Error::from_reason(error.to_string()),
+    }
+}
+
 fn request_parameters(
     subsystems: Vec<String>,
     timeout_ms: f64,
@@ -415,8 +460,7 @@ fn request_parameters(
             SubsystemName::try_new(name).map_err(|error| Error::from_reason(error.to_string()))
         })
         .collect::<Result<Vec<_>>>()?;
-    let timeout = Duration::try_from_secs_f64(timeout_ms / 1_000.0)
-        .map_err(|error| Error::from_reason(format!("timeoutMs: {error}")))?;
+    let timeout = milliseconds(timeout_ms, "timeoutMs")?;
     Ok((subsystems, timeout))
 }
 
@@ -445,18 +489,5 @@ where
             span.record("aborted", false);
             result
         }
-    }
-}
-
-fn read_cache(cache_ms: Option<u32>, disabled: Option<bool>) -> Result<ErasedReadCache> {
-    match (cache_ms, disabled.unwrap_or(false)) {
-        (Some(_), true) => Err(Error::from_reason(
-            "read cache cannot set both ttlMs and disabled",
-        )),
-        (None, true) => Ok(ErasedReadCache::Disabled),
-        (Some(milliseconds), false) => Ok(ErasedReadCache::Ttl(Duration::from_millis(u64::from(
-            milliseconds,
-        )))),
-        (None, false) => Ok(ErasedReadCache::Inherit),
     }
 }

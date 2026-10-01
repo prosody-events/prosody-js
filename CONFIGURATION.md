@@ -2,41 +2,41 @@
 
 Configure via constructor options or environment variables. Options fall back to environment variables when unset.
 
-The JavaScript client reports values it cannot convert to Prosody types. Prosody validates configuration semantics when the client is built.
+The JavaScript client rejects a number that has no exact form in the Prosody type, such as a negative, fractional, or non-finite count. Prosody validates the converted values when the client is built.
 
 ## Core
 
-| Option / Environment Variable                    | Description                                                               | Default         |
-| ------------------------------------------------ | ------------------------------------------------------------------------- | --------------- |
-| `bootstrapServers` / `PROSODY_BOOTSTRAP_SERVERS` | Kafka servers to connect to                                               | -               |
-| `groupId` / `PROSODY_GROUP_ID`                   | Consumer group name                                                       | -               |
-| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from                                                       | -               |
-| `allowedEvents` / `PROSODY_ALLOWED_EVENTS`       | Only process events matching these prefixes                               | (all)           |
-| `sourceSystem` / `PROSODY_SOURCE_SYSTEM`         | Tag for outgoing messages (prevents reprocessing)                         | `<groupId>`     |
-| `mock` / `PROSODY_MOCK`                          | Use in-memory Kafka for testing                                           | false           |
-| `mode` / -                                       | Processing mode: `Mode.Pipeline`, `Mode.LowLatency`, or `Mode.BestEffort` | `Mode.Pipeline` |
-| - / `PROSODY_LOG`                                | Rust log filter, such as `info` or `prosody=debug`                        | `info`          |
+| Option / Environment Variable                    | Description                                                                                                                                                                                                                       | Default                                                |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `bootstrapServers` / `PROSODY_BOOTSTRAP_SERVERS` | Kafka servers to connect to                                                                                                                                                                                                       | -                                                      |
+| `groupId` / `PROSODY_GROUP_ID`                   | Consumer group name                                                                                                                                                                                                               | -                                                      |
+| `subscribedTopics` / `PROSODY_SUBSCRIBED_TOPICS` | Topics to read from. Omit it for a client that only reads published state                                                                                                                                                         | -                                                      |
+| `allowedEvents` / `PROSODY_ALLOWED_EVENTS`       | Only process events matching these prefixes                                                                                                                                                                                       | (all)                                                  |
+| `sourceSystem` / `PROSODY_SOURCE_SYSTEM`         | Tag for outgoing messages (prevents reprocessing)                                                                                                                                                                                 | `<groupId>`                                            |
+| `mock` / `PROSODY_MOCK`                          | Use in-memory Kafka for testing                                                                                                                                                                                                   | false                                                  |
+| `mode` / -                                       | Processing mode: `Mode.Pipeline`, `Mode.LowLatency`, or `Mode.BestEffort`                                                                                                                                                         | `Mode.Pipeline`                                        |
+| - / `PROSODY_LOG`                                | Rust log filter, such as `info` or `prosody=debug`. A directive replaces the default for its own target only, so naming one target keeps the rest at their default. Set `opentelemetry=info` to restore OpenTelemetry info events | `info`, except `warn` for `scylla` and `opentelemetry` |
 
 ## Consumer
 
-| Option / Environment Variable                             | Description                                                                                       | Default                |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------- |
-| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                       | 32                     |
-| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                    | 64                     |
-| `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                        | 80% of stall threshold |
-| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                               | 1s                     |
-| `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                        | 100ms                  |
-| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Shutdown budget; handlers run freely until cancellation near the deadline                         | 30s                    |
-| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                     | 5m                     |
-| `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks; use `null` or the environment value `none` to disable                | 8000                   |
-| - / `PROSODY_STATISTICS_INTERVAL`                         | How often librdkafka reports client statistics; must be between 1ms and 24h                       | 5s                     |
-| `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                              | -                      |
-| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Global shared cache capacity across all partitions for message deduplication. Must be at least 1. | 8192                   |
-| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                     | `"1"`                  |
-| `idempotenceTtlS` / `PROSODY_IDEMPOTENCE_TTL`             | TTL for dedup records in Cassandra in seconds                                                     | 604800                 |
-| `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                 | 1h                     |
-| `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                          | `child`                |
-| `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                            | `follows_from`         |
+| Option / Environment Variable                             | Description                                                                                                   | Default                |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                                   | 32                     |
+| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                                | 64                     |
+| `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                                    | 80% of stall threshold |
+| `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                                           | 1s                     |
+| `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                                    | 100ms                  |
+| `shutdownTimeoutMs` / `PROSODY_SHUTDOWN_TIMEOUT`          | Shutdown budget; handlers run freely until cancellation near the deadline                                     | 30s                    |
+| `stallThresholdMs` / `PROSODY_STALL_THRESHOLD`            | Report unhealthy if no progress for this long                                                                 | 5m                     |
+| `probePort` / `PROSODY_PROBE_PORT`                        | HTTP port for health checks; use `null` or the environment value `none` to disable                            | 8000                   |
+| `statisticsIntervalMs` / `PROSODY_STATISTICS_INTERVAL`    | How often librdkafka reports client statistics; must be between 1ms and 24h                                   | 5s                     |
+| `failureTopic` / `PROSODY_FAILURE_TOPIC`                  | Send unprocessable messages here (dead letter queue)                                                          | -                      |
+| `idempotenceCacheSize` / `PROSODY_IDEMPOTENCE_CACHE_SIZE` | Capacity of the producer cache of sent event IDs and of the consumer deduplication cache. Must be at least 1. | 8192                   |
+| `idempotenceVersion` / `PROSODY_IDEMPOTENCE_VERSION`      | Version string for cache-busting dedup hashes                                                                 | `"1"`                  |
+| `idempotenceTtlSeconds` / `PROSODY_IDEMPOTENCE_TTL`       | TTL for dedup records in Cassandra in seconds                                                                 | 604800                 |
+| `slabSizeMs` / `PROSODY_SLAB_SIZE`                        | Timer storage granularity (rarely needs changing)                                                             | 1h                     |
+| `messageSpans` / `PROSODY_MESSAGE_SPANS`                  | Span linking for message execution: `child` (child-of) or `follows_from`                                      | `child`                |
+| `timerSpans` / `PROSODY_TIMER_SPANS`                      | Span linking for timer execution: `child` (child-of) or `follows_from`                                        | `follows_from`         |
 
 ## Producer
 
@@ -138,15 +138,15 @@ Persistent storage for timers, deferral, deduplication, and keyed state. It is n
 
 Register keyed-state collections before you subscribe. Persistence is backed by Cassandra and is not needed when `mock: true`. See [Keyed State](README.md#keyed-state) for handler usage. Where an option and an environment variable are paired, an explicitly set option wins. Otherwise, the environment variable applies, then the default.
 
-| Option / Environment Variable                                | Description                                                                                                                                                                                                                            | Default                                                                             |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `stateCollections` / -                                       | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                                       | (none)                                                                              |
-| `subsystem` / `PROSODY_SUBSYSTEM`                            | Subsystem name used to advertise JSON collections whose definitions set `published: true`                                                                                                                                              | (none)                                                                              |
-| `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`                  | Disk workspace for the local keyed-state cache; each live client needs its own directory. Set a mounted path in production                                                                                                             | per-client temp dir                                                                 |
-| `stateOwnedCacheSize` / `PROSODY_STATE_OWNED_CACHE_SIZE`     | Capacity of the owning keyed-state cache; accepts sizes such as `64 MiB` or `500 MB`                                                                                                                                                   | storage-engine default                                                              |
-| `stateReadCacheSize` / `PROSODY_STATE_READ_CACHE_SIZE`       | Capacity of the published-state read-through cache; accepts sizes such as `1 MiB`                                                                                                                                                      | `stateOwnedCacheSize` or `PROSODY_STATE_OWNED_CACHE_SIZE` when set; otherwise 1 MiB |
-| `stateReadCache` / `PROSODY_STATE_READ_CACHE_TTL`            | Default published-read cache policy. Use `{ ttlMs }` or `{ disabled: true }`; the environment value `none` disables it                                                                                                                 | 5s                                                                                  |
-| `stateRecoveryDelaySeconds` / `PROSODY_STATE_RECOVERY_DELAY` | Delay between staging a provisional cell and the recovery sweep; every collection TTL must strictly exceed this. The option is whole seconds (e.g. `30`); the env var is a duration string (e.g. `30s`), second-granularity, min `1s`. | 30s                                                                                 |
+| Option / Environment Variable                            | Description                                                                                                                                                                                                      | Default                                                                             |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `stateCollections` / -                                   | Keyed-state collections to register before subscribe (array of collection configs; duplicate names are rejected)                                                                                                 | (none)                                                                              |
+| `subsystem` / `PROSODY_SUBSYSTEM`                        | Subsystem name used to advertise JSON and set collections whose definitions set `published: true`                                                                                                                | (none)                                                                              |
+| `stateCacheDir` / `PROSODY_STATE_CACHE_DIR`              | Directory that holds the local keyed-state caches. Each consumer uses a fresh subdirectory and removes it when it drops, so clients can share the directory. Set a mounted path in production                    | `<temp>/prosody/keyed-state`                                                        |
+| `stateOwnedCacheSize` / `PROSODY_STATE_OWNED_CACHE_SIZE` | Capacity of the owning keyed-state cache; accepts sizes such as `64 MiB` or `500 MB`                                                                                                                             | storage-engine default                                                              |
+| `stateMemtableSize` / `PROSODY_STATE_MEMTABLE_SIZE`      | Bytes of in-memory writes the local keyed-state cache holds for each assigned partition before it flushes them to disk. Memory use scales with the number of assigned partitions. Accepts sizes such as `16 MiB` | storage-engine default of 64 MiB                                                    |
+| `stateReadCacheSize` / `PROSODY_STATE_READ_CACHE_SIZE`   | Capacity of the published-state read-through cache; accepts sizes such as `1 MiB`                                                                                                                                | `stateOwnedCacheSize` or `PROSODY_STATE_OWNED_CACHE_SIZE` when set; otherwise 1 MiB |
+| `stateReadCache` / `PROSODY_STATE_READ_CACHE_TTL`        | Default published-read cache policy. Use `{ ttlMs }` to set the duration or `false` to turn the cache off; `{ disabled: true }` still works. The environment value `none` turns it off                           | 5s                                                                                  |
 
 Each `stateCollections` entry (a `StateCollectionConfig`) has these fields. Prefer the definition constructors from the [API reference](README.md#api-reference). They serialize into `stateCollections`, so you can reuse the same object with `context.state()`.
 
@@ -155,11 +155,12 @@ Published collections require `subsystem`. Keep it configured for one deployment
 | Field             | Description                                                                                                      | Default    |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
 | `name`            | Collection name; non-empty and unique within the client                                                          | (required) |
-| `kind`            | `"value"`, `"map"`, or `"deque"`                                                                                 | (required) |
-| `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received)                              | (required) |
-| `ttlSeconds`      | Per-write TTL in whole seconds (at least 1; must exceed the recovery delay)                                      | (none)     |
+| `kind`            | `"value"`, `"map"`, `"set"`, or `"deque"`                                                                        | (required) |
+| `payload`         | `"json"` (JSON values) or `"message"` (the full Kafka message the handler received). Omit it for a set           | (required) |
+| `ttlSeconds`      | Per-write TTL in whole seconds (at least 1)                                                                      | (none)     |
 | `readUncommitted` | Opt out of transactional staging (read-uncommitted)                                                              | false      |
-| `published`       | Allow other clients to read this JSON collection without subscribing                                             | false      |
-| `readCache`       | Published-read cache override: `{ ttlMs }`, `false`, or inherit when omitted                                     | inherit    |
-| `keysetLimit`     | Map-only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)                                  | 128        |
+| `published`       | Allow other clients to read this JSON or set collection without subscribing                                      | false      |
+| `keysetLimit`     | Map and set only; ordered-scan bound in `0..=4096` (`0` disables ordered-scan tracking)                          | 128        |
 | `capacity`        | Deque-only; maximum slot count (at least 1), enforced lazily on push. Runtime-only and may change across deploys | unbounded  |
+
+A JSON or set definition also takes `readCache`. It is not a `StateCollectionConfig` field, and Prosody ignores it in a raw `stateCollections` entry. It applies when `client.state()` opens the published reader of the definition: `{ ttlMs }` sets the cache duration, `false` turns the cache off, and an absent value uses `stateReadCache`.

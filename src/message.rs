@@ -24,6 +24,7 @@ use chrono::{DateTime, Utc};
 use napi::bindgen_prelude::BigInt;
 use napi::{Error, Status};
 use napi_derive::napi;
+use prosody::SourceSystem;
 use prosody::codec::BinaryPayload;
 use prosody::consumer::Keyed;
 use prosody::consumer::message::ConsumerMessage;
@@ -102,6 +103,20 @@ impl Message {
         self.inner.key()
     }
 
+    /// The source system of the producer, or `null` when the message has no
+    /// source system header.
+    #[napi(getter, writable = false)]
+    pub fn source_system(&self) -> Option<&str> {
+        self.inner.source_system().map(SourceSystem::as_str)
+    }
+
+    /// Whether the sender waits for a response from this consumer. The
+    /// handler result becomes the response only when this is `true`.
+    #[napi(getter, writable = false)]
+    pub fn response_requested(&self) -> bool {
+        self.inner.response_requested()
+    }
+
     /// The payload as the raw JSON text read from the wire.
     ///
     /// Borrowed from the wrapped message and copied once into a JavaScript
@@ -151,5 +166,19 @@ impl ExciseMessage {
     #[napi(getter, writable = false)]
     pub fn key(&self) -> &str {
         self.inner.key()
+    }
+
+    /// The source system of the producer, or `null` when the record has no
+    /// source system header.
+    #[napi(getter, writable = false)]
+    pub fn source_system(&self) -> Option<&str> {
+        self.inner.source_system().map(SourceSystem::as_str)
+    }
+
+    /// Whether the sender waits for a response from this consumer. The
+    /// handler result becomes the response only when this is `true`.
+    #[napi(getter, writable = false)]
+    pub fn response_requested(&self) -> bool {
+        self.inner.response_requested()
     }
 }

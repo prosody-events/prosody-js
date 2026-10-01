@@ -20,24 +20,11 @@ pub struct SwappableLogger {
 }
 
 impl SwappableLogger {
-    #[allow(dead_code)]
-    pub fn is_set(&self) -> bool {
-        self.inner.load().is_some()
-    }
-
-    #[allow(dead_code)]
-    pub fn set_logger_if_unset(&self, logger: JsLogger) -> bool {
-        self.inner
-            .compare_and_swap(&None::<Arc<_>>, Some(Arc::new(logger)))
-            .is_none()
-    }
-
     /// Sets the current logger to the provided `JsLogger`.
     ///
     /// # Arguments
     ///
     /// * `logger` - The `JsLogger` to be set as the current logger.
-    #[allow(dead_code)]
     pub fn set_logger(&self, logger: JsLogger) {
         self.inner.store(Some(Arc::new(logger)));
     }

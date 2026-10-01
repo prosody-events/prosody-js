@@ -3,9 +3,21 @@
 //! This module allows for administrative operations on a Prosody cluster,
 //! such as creating and deleting topics, through a JavaScript interface.
 
+use crate::number::{milliseconds, whole};
 use napi::{Either, Error};
 use napi_derive::napi;
 use prosody::admin::{AdminConfiguration, ProsodyAdminClient, TopicConfiguration};
+
+/// Optional settings for a new topic.
+#[napi(object)]
+pub struct TopicOptions {
+    /// The cleanup policy, such as `"delete"`, `"compact"`, or
+    /// `"delete,compact"`.
+    pub cleanup_policy: Option<String>,
+
+    /// How long the topic keeps a message before deletion, in milliseconds.
+    pub retention_ms: Option<f64>,
+}
 
 /// Represents a client for performing administrative operations on a Prosody
 /// cluster.
@@ -42,18 +54,35 @@ impl AdminClient {
     /// @param name - The name of the topic to create.
     /// @param partitionCount - The number of partitions for the topic.
     /// @param replicationFactor - The replication factor for the topic.
-    /// @throws Error if the topic creation fails.
+    /// @param options - The cleanup policy and retention. The cluster default
+    /// applies to each setting you omit.
+    /// @throws Error if a number cannot convert or the topic creation fails.
     #[napi(writable = false)]
     pub async fn create_topic(
         &self,
         name: String,
-        partition_count: u16,
-        replication_factor: u16,
+        partition_count: f64,
+        replication_factor: f64,
+        options: Option<TopicOptions>,
     ) -> napi::Result<()> {
-        let topic_config = TopicConfiguration::builder()
+        let mut builder = TopicConfiguration::builder();
+        builder
             .name(name)
-            .partition_count(partition_count)
-            .replication_factor(replication_factor)
+            .partition_count(whole::<u16>(partition_count, "partitionCount")?)
+            .replication_factor(whole::<u16>(replication_factor, "replicationFactor")?);
+        if let Some(TopicOptions {
+            cleanup_policy,
+            retention_ms,
+        }) = options
+        {
+            if let Some(policy) = cleanup_policy {
+                builder.cleanup_policy(policy);
+            }
+            if let Some(value) = retention_ms {
+                builder.retention(milliseconds(value, "retentionMs")?);
+            }
+        }
+        let topic_config = builder
             .build()
             .map_err(|e| Error::from_reason(e.to_string()))?;
 

@@ -9,6 +9,7 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use serde_json::{Map, Value};
 use std::error::Error;
 use std::fmt::Debug;
+use std::io::{self, Write};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_subscriber::Layer;
@@ -41,10 +42,10 @@ impl JsLogger {
     /// # Errors
     ///
     /// Returns an error if creating thread-safe functions fails.
-    #[allow(dead_code)]
     pub fn new(logger: &Logger) -> napi::Result<Self> {
         // Create thread-safe functions for each log level
-        // Try to create them as weak references to prevent keeping the process alive
+        // Try to create them as weak references to prevent keeping the process
+        // alive
         let error = logger
             .error
             .build_threadsafe_function()
@@ -119,13 +120,10 @@ impl<S: Subscriber> Layer<S> for JsLogger {
         }
         .unwrap_or_default();
 
-        #[allow(
-            clippy::print_stderr,
-            reason = "if logging fails, we have to print to stderr"
-        )]
+        // A failed log call cannot go through the logger, so it goes to stderr.
         match function.call((message, metadata), ThreadsafeFunctionCallMode::NonBlocking) {
             Status::Ok => {}
-            error => eprintln!("Logging failed: {error:?}"),
+            error => drop(writeln!(io::stderr().lock(), "Logging failed: {error:?}")),
         }
     }
 }
