@@ -241,7 +241,7 @@ impl NativePublishedDeque {
 
     /// Returns the committed deque length.
     #[napi(writable = false)]
-    pub async fn length(&self, key: String, otel_context: HashMap<String, String>) -> Result<u32> {
+    pub async fn len(&self, key: String, otel_context: HashMap<String, String>) -> Result<u32> {
         length(run(&self.propagator, &otel_context, self.inner.len(key)).await?)
     }
 
