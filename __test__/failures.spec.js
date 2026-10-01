@@ -1,5 +1,10 @@
 const { EventEmitter } = require("events");
-const { PermanentError, transient } = require("../index.js");
+const {
+  PermanentError,
+  getCurrentLogger,
+  setLogger,
+  transient,
+} = require("../index.js");
 const {
   MESSAGE_TIMEOUT,
   liveSuite,
@@ -92,5 +97,29 @@ describe("ProsodyClient failures", () => {
       ok: false,
       error: { kind: "timeout" },
     });
+  });
+
+  // A failed handler logs a text that names the event type.
+  it("logs a failed handler with the event text", async () => {
+    const previous = getCurrentLogger();
+    const logged = new EventEmitter();
+    setLogger({ ...previous, error: (message) => logged.emit(message) });
+    try {
+      const texts = ["Timer handler error"].map((text) =>
+        waitForEvent(logged, text, MESSAGE_TIMEOUT),
+      );
+      await env.client.subscribe({
+        onMessage: async (context) =>
+          context.schedule(new Date(Date.now() + 2000)),
+        onTimer: async () => {
+          throw new Error("timer failed");
+        },
+      });
+
+      await env.client.send(env.topic, "timer-key", { content: "timer" });
+      await Promise.all(texts);
+    } finally {
+      setLogger(previous);
+    }
   });
 });
