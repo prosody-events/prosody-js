@@ -117,13 +117,12 @@ describe("keyed state (unit)", () => {
 
   // DequeState.at() rejects a non-integer index as a caller mistake
   // (TransientStateError), because the native u32 conversion would truncate a
-  // fraction. It reads an out-of-range position as null. It routes the
-  // endpoints to the peeks and every other index through get. A negative
-  // index other than -1 resolves against the length.
+  // fraction. It reads an out-of-range position as null. It routes -1 to the
+  // back peek and every other index through get. A negative index other than
+  // -1 resolves against the length.
   it("deque at() validates the index and routes each read", async () => {
     const d = new DequeState(
       {
-        peekFront: async () => "F",
         peekBack: async () => "B",
         get: async (i) => i,
         len: async () => 3,
@@ -138,7 +137,7 @@ describe("keyed state (unit)", () => {
     await expect(d.at(Symbol("x"))).rejects.toBeInstanceOf(TransientStateError);
     await expect(d.at(-4)).resolves.toBeNull();
     await expect(d.at(2 ** 32)).resolves.toBeNull();
-    await expect(d.at(0)).resolves.toBe("F");
+    await expect(d.at(0)).resolves.toBe(0);
     await expect(d.at(-1)).resolves.toBe("B");
     await expect(d.at(2)).resolves.toBe(2);
     await expect(d.at(-2)).resolves.toBe(1);

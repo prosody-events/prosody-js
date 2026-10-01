@@ -48,10 +48,9 @@ export declare class DequeState<T = JsonValue> {
    * integer; a fractional, `NaN`, or infinite value is a caller mistake,
    * rejected with a {@link TransientStateError} (it retries and stays visible).
    *
-   * The endpoints `at(0)` and `at(-1)` ride the front/back peeks — a single
-   * read, and `at(-1)` makes no length read. Any other negative `index` is
-   * resolved against the current {@link DequeState#length}, so it makes an
-   * extra boundary crossing that a non-negative one does not.
+   * A non-negative `index` and `at(-1)` make a single read. Any other negative
+   * `index` is resolved against the current {@link DequeState#length}, so it
+   * makes an extra read.
    */
   at(index: number): Promise<T | null>;
   /**
