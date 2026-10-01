@@ -574,7 +574,7 @@ default, all errors are considered transient.
 
 The error classes and decorators apply to `onMessage`, `onExcise`, and `onTimer`.
 
-A handler can read `context.demand` to learn whether it runs for a retry. The retry ordinal is 1 on the first retry. It is an estimate, so keep an exact attempt count in keyed state if you need one:
+A handler can read `context.demand` to learn whether it runs for a retry. The retry count is 1 on the first retry. It is an estimate, so keep an exact attempt count in keyed state if you need one:
 
 ```typescript
 async onMessage(context, message) {
@@ -1225,7 +1225,7 @@ Represents the current event context:
 
 - `onCancel(): Promise<void>`: A method that resolves when the context is cancelled.
 - `shouldCancel: boolean`: A property indicating whether the context has been cancelled.
-- `demand: Demand`: Why the handler runs. `kind` is `"normal"` or `"failure"`. `retry` is the retry ordinal: 0 for normal demand and 1 on the first retry. The ordinal is an estimate. Keep an exact attempt count in keyed state if you need one.
+- `demand: Demand`: Why the handler runs. `kind` is `"normal"` or `"failure"`. `retry` is the retry count: 0 for normal demand and 1 on the first retry. The count is an estimate. Keep an exact attempt count in keyed state if you need one.
 
 Timer scheduling methods:
 

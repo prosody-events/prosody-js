@@ -39,7 +39,7 @@ pub enum DemandKind {
 pub struct NativeDemand {
     /// Whether the handler runs for a normal delivery or a retry.
     pub kind: DemandKind,
-    /// The retry ordinal: 0 for normal demand and 1 on the first retry. It is
+    /// The retry count: 0 for normal demand and 1 on the first retry. It is
     /// an estimate. Keep an exact attempt count in keyed state if needed.
     pub retry: u32,
 }
@@ -74,7 +74,7 @@ impl NativeContext {
 
     /// The demand that started this handler invocation.
     ///
-    /// @returns The demand kind and its retry ordinal.
+    /// @returns The demand kind and its retry count.
     #[napi(getter, writable = false)]
     pub fn demand(&self) -> NativeDemand {
         let kind = match self.demand {

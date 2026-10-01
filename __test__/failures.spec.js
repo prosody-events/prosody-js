@@ -44,7 +44,7 @@ describe("ProsodyClient failures", () => {
     });
 
     await waitForEvent(retryEvent, "retry", MESSAGE_TIMEOUT);
-    // The first attempt is normal demand; the retry carries ordinal 1.
+    // The first attempt is normal demand; the retry has retry count 1.
     expect(demands.slice(0, 2)).toEqual([
       { demand: { kind: "normal", retry: 0 }, frozen: true, stable: true },
       { demand: { kind: "failure", retry: 1 }, frozen: true, stable: true },

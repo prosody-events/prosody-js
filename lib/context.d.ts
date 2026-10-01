@@ -25,7 +25,7 @@ export interface Demand {
   /** `"normal"` for a first attempt, or `"failure"` for a retry. */
   readonly kind: "normal" | "failure";
   /**
-   * The retry ordinal: 0 for normal demand and 1 on the first retry. It is
+   * The retry count: 0 for normal demand and 1 on the first retry. It is
    * an estimate. Keep an exact attempt count in keyed state if you need one.
    */
   readonly retry: number;
