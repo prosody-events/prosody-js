@@ -36,6 +36,12 @@ pub const HANDLE_QUEUE_SIZE: usize = 64;
 /// Maximum number of queued error classification function calls.
 pub const PERM_QUEUE_SIZE: usize = 64;
 
+/// The log text for a failed message or excise callback.
+const RECORD_FAILURE: &str = "record handler error";
+
+/// The log text for a failed timer callback.
+const TIMER_FAILURE: &str = "timer handler error";
+
 /// Type alias for message handler arguments.
 #[napi]
 pub type MessageHandlerArgs = (NativeContext, Message, HashMap<String, String>);
@@ -238,6 +244,7 @@ impl JsHandler {
     /// @param context The event context to hand the callback.
     /// @param demand The demand that started this invocation.
     /// @param span The event span. The callback receives it as a carrier.
+    /// @param failure The log text for a failed callback.
     /// @param call Calls the callback with the native context and the carrier.
     /// @returns The callback's result payload.
     /// @throws `JsHandlerError` if the callback rejects, classified by
@@ -247,6 +254,7 @@ impl JsHandler {
         context: C,
         demand: DemandType,
         span: Span,
+        failure: &'static str,
         call: F,
     ) -> Result<BinaryPayload, JsHandlerError>
     where
@@ -268,7 +276,7 @@ impl JsHandler {
                 None::<String>,
             )),
             Err(error) => {
-                error!(error = %error, "handler error");
+                error!(error = %error, "{failure}");
                 Err(self.categorize_error(error).await?)
             }
         }
@@ -352,11 +360,17 @@ impl FallibleHandler for JsHandler {
     {
         debug!("processing message");
         let result = self
-            .run_callback(context, demand, message.span(), |context, carrier| {
-                self.inner
-                    .on_message
-                    .call_async(Ok((context, Message::new(message), carrier)))
-            })
+            .run_callback(
+                context,
+                demand,
+                message.span(),
+                RECORD_FAILURE,
+                |context, carrier| {
+                    self.inner
+                        .on_message
+                        .call_async(Ok((context, Message::new(message), carrier)))
+                },
+            )
             .await;
         if result.is_ok() {
             debug!("message processed successfully");
@@ -373,11 +387,19 @@ impl FallibleHandler for JsHandler {
     where
         C: EventContext<Payload = Self::Payload>,
     {
-        self.run_callback(context, demand, message.span(), |context, carrier| {
-            self.inner
-                .on_excise
-                .call_async(Ok((context, ExciseMessage::from(message), carrier)))
-        })
+        self.run_callback(
+            context,
+            demand,
+            message.span(),
+            RECORD_FAILURE,
+            |context, carrier| {
+                self.inner.on_excise.call_async(Ok((
+                    context,
+                    ExciseMessage::from(message),
+                    carrier,
+                )))
+            },
+        )
         .await
     }
 
@@ -414,11 +436,17 @@ impl FallibleHandler for JsHandler {
 
         debug!("processing timer");
         let result = self
-            .run_callback(context, demand, trigger.span(), |context, carrier| {
-                self.inner
-                    .on_timer
-                    .call_async(Ok((context, Timer::from(trigger), carrier)))
-            })
+            .run_callback(
+                context,
+                demand,
+                trigger.span(),
+                TIMER_FAILURE,
+                |context, carrier| {
+                    self.inner
+                        .on_timer
+                        .call_async(Ok((context, Timer::from(trigger), carrier)))
+                },
+            )
             .await;
         if result.is_ok() {
             debug!("timer processed successfully");
