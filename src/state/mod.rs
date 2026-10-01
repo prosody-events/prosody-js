@@ -100,17 +100,6 @@ impl From<StoreOutcome> for NativeStoreOutcome {
     }
 }
 
-/// Maps a core error category to its JavaScript-readable token.
-///
-/// @param category The core error category.
-/// @returns The `"permanent"` or `"transient"` token.
-fn category_token(category: ErasedCategory) -> &'static str {
-    match category {
-        ErasedCategory::Permanent => "permanent",
-        ErasedCategory::Transient => "transient",
-    }
-}
-
 /// Builds a napi error whose message is the human text and whose `cause` is an
 /// error whose message is exactly the category token.
 ///
@@ -119,14 +108,18 @@ fn category_token(category: ErasedCategory) -> &'static str {
 /// `TransientStateError` by exact match on `error.cause.message` — never by
 /// parsing the human message.
 ///
-/// @param category The category token (`"permanent"` or `"transient"`).
+/// @param category The core error category.
 /// @param message The human-readable error message.
 /// @returns The structured napi error.
-fn tagged_error(category: &str, message: String) -> Error {
+fn tagged_error(category: ErasedCategory, message: String) -> Error {
+    let token = match category {
+        ErasedCategory::Permanent => "permanent",
+        ErasedCategory::Transient => "transient",
+    };
     let mut error = Error::new(Status::GenericFailure, message);
     error.cause = Some(Box::new(Error::new(
         Status::GenericFailure,
-        category.to_owned(),
+        token.to_owned(),
     )));
     error
 }
@@ -136,21 +129,7 @@ fn tagged_error(category: &str, message: String) -> Error {
 /// @param error The erased state error to convert.
 /// @returns The structured napi error carrying the error's category.
 pub(crate) fn state_error(error: &ErasedStateError) -> Error {
-    tagged_error(category_token(error.category()), error.message().to_owned())
-}
-
-/// Builds a permanent-category napi error for a stored value that cannot be
-/// decoded.
-///
-/// Corruption is not a caller mistake and no retry resolves it, so it is the
-/// one condition this layer raises permanent. It surfaces on the read that
-/// touched the value rather than being swallowed, which is the only place a
-/// caller can see which collection and key went bad.
-///
-/// @param message The human-readable error message.
-/// @returns The structured napi error tagged permanent.
-fn permanent_error(message: String) -> Error {
-    tagged_error("permanent", message)
+    tagged_error(error.category(), error.message().to_owned())
 }
 
 /// Polls a core state operation under the event's trace context.
@@ -183,7 +162,7 @@ where
 pub(crate) fn length(len: usize) -> napi::Result<u32> {
     u32::try_from(len).map_err(|_| {
         tagged_error(
-            "transient",
+            ErasedCategory::Transient,
             format!("deque length {len} exceeds the u32 range representable to JavaScript"),
         )
     })
@@ -204,15 +183,18 @@ fn json_payload(json: String) -> BinaryPayload {
 ///
 /// Takes the payload's bytes; UTF-8 validation is a scan, not a copy. Every
 /// document this layer stores came from `JSON.stringify`, so invalid UTF-8
-/// means a corrupt value — see [`permanent_error`] for why that is the one
-/// permanent condition here.
+/// means a corrupt value. Corruption is not a caller mistake and no retry
+/// resolves it, so it is the one condition this layer raises permanent.
 ///
 /// @param payload The stored document.
 /// @returns The document's JSON text.
 /// @throws Error (permanent) if the stored bytes are not valid UTF-8.
 fn json_text(payload: BinaryPayload) -> napi::Result<String> {
     String::from_utf8(payload.bytes).map_err(|error| {
-        permanent_error(format!("stored JSON document is not valid UTF-8: {error}"))
+        tagged_error(
+            ErasedCategory::Permanent,
+            format!("stored JSON document is not valid UTF-8: {error}"),
+        )
     })
 }
 
