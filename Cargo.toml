@@ -11,6 +11,7 @@ repository = "https://github.com/prosody-events/prosody-js"
 version = "0.0.0"
 
 [lib]
+# cdylib only: the bindings have no Rust doctests; the Node.js tests cover them.
 crate-type = ["cdylib"]
 
 [dependencies]
