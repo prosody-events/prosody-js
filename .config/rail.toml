@@ -1,0 +1,25 @@
+[plan.work.ci]
+paths = [".config/rail.toml", ".github/**", ".taplo.toml"]
+scope = "repository"
+
+[plan.work.node]
+paths = [
+    ".babelrc",
+    ".eslint.json",
+    ".npmignore",
+    ".yarn/**",
+    ".yarnrc.yml",
+    "__test__/**",
+    "examples/**",
+    "index.d.ts",
+    "index.js",
+    "jest.config.js",
+    "jsconfig.json",
+    "lib/**",
+    "npm/**",
+    "package.json",
+    "tsconfig.json",
+    "tsconfig.typecheck.json",
+    "yarn.lock",
+]
+scope = "repository"
