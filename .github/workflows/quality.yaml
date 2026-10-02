@@ -38,6 +38,7 @@ jobs:
         id: rail
         uses: loadingalias/cargo-rail-action@409962f05d90a78aae995ef6b1c8466010c0a460 # v10.1.1
         with:
+          all: ${{ github.event_name == 'workflow_dispatch' }}
           evidence: target/planning-evidence
 
   clippy:
