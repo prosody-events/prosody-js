@@ -1,5 +1,5 @@
 [plan.work.ci]
-paths = [".config/rail.toml", ".github/**", ".taplo.toml"]
+paths = [".config/rail.toml", ".github/workflows/**"]
 scope = "repository"
 
 [plan.work.node]
@@ -22,4 +22,8 @@ paths = [
     "tsconfig.typecheck.json",
     "yarn.lock",
 ]
+scope = "repository"
+
+[plan.work.taplo]
+paths = [".taplo.toml"]
 scope = "repository"
