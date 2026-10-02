@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/prosody-events/prosody-js/compare/prosody-v0.5.1...prosody-v0.6.0) (2026-10-02)
+
+
+### Features
+
+* **deps:** upgrade prosody to 0.7.0 ([#63](https://github.com/prosody-events/prosody-js/issues/63)) ([d560a77](https://github.com/prosody-events/prosody-js/commit/d560a777a5b218e358b9224b0a0f3dfac7aab635))
+
 ## [0.5.1](https://github.com/prosody-events/prosody-js/compare/prosody-v0.5.0...prosody-v0.5.1) (2026-08-20)
 
 
