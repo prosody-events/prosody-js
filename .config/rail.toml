@@ -1,5 +1,5 @@
 [plan.work.ci]
-paths = [".config/rail.toml", ".github/workflows/**"]
+paths = [".config/rail.toml", ".github/**"]
 scope = "repository"
 
 [plan.work.node]
