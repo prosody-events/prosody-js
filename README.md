@@ -431,8 +431,10 @@ This prevents endless loops where a service consumes its own produced messages.
 
 ### Message Deduplication
 
-Prosody automatically deduplicates messages using the `id` field in their JSON payload. Consecutive messages with the
-same ID and key are processed only once.
+Prosody uses the JSON payload's `id` field to detect duplicate messages. For a consumer group and idempotence version,
+messages with the same ID, key, topic, and partition share a deduplication record. Other messages can arrive between duplicates.
+Prosody skips a duplicate while its record remains in the cache or persistent store. Deduplication is best-effort;
+handlers must remain idempotent.
 
 Deduplication uses a two-tier approach:
 
