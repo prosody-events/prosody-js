@@ -104,7 +104,8 @@ jobs:
           --health-timeout 10s
           --health-retries 15
       cassandra:
-        image: cassandra:latest
+        # The Docker official image, from ECR Public: no Docker Hub pull limit.
+        image: public.ecr.aws/docker/library/cassandra:latest
         ports:
           - "9042:9042"
         options: >-

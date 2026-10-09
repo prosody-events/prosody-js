@@ -189,7 +189,7 @@ jobs:
         run: |
           docker run -d --name cassandra --network kafka-test-network \
             -p 9042:9042 \
-            cassandra:latest
+            public.ecr.aws/docker/library/cassandra:latest
 
       - name: Start Kafka container
         run: |
@@ -251,7 +251,7 @@ jobs:
             -e PROSODY_CASSANDRA_NODES=cassandra:9042 \
             -e PROSODY_CASSANDRA_KEYSPACE=prosody_test \
             -v ${{ github.workspace }}:/build -w /build \
-            node:${{ matrix.node }}-bookworm \
+            public.ecr.aws/docker/library/node:${{ matrix.node }}-bookworm \
             sh -c "yarn install && yarn test"
 
   publish:

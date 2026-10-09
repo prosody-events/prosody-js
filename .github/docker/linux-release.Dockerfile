@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm AS chef
+FROM public.ecr.aws/docker/library/node:24-bookworm AS chef
 
 RUN curl --proto '=https' --tlsv1.2 --silent --show-error --fail https://sh.rustup.rs \
       | sh -s -- -y \
