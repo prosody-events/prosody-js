@@ -22,7 +22,7 @@ The JavaScript client rejects a number that has no exact form in the Prosody typ
 | Option / Environment Variable                             | Description                                                                                                   | Default                |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | `maxConcurrency` / `PROSODY_MAX_CONCURRENCY`              | Max messages being processed simultaneously                                                                   | 32                     |
-| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max queued messages before pausing consumption                                                                | 64                     |
+| `maxUncommitted` / `PROSODY_MAX_UNCOMMITTED`              | Max in-flight messages; at the limit, only a partition with a waiting message pauses                          | 64                     |
 | `timeoutMs` / `PROSODY_TIMEOUT`                           | Cancel handler if it runs longer than this                                                                    | 80% of stall threshold |
 | `commitIntervalMs` / `PROSODY_COMMIT_INTERVAL`            | How often to save progress to Kafka                                                                           | 1s                     |
 | `pollIntervalMs` / `PROSODY_POLL_INTERVAL`                | How often to fetch new messages from Kafka                                                                    | 100ms                  |
