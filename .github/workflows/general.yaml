@@ -11,9 +11,6 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # The runner image has cmake. librdkafka needs the libcurl headers. Download
-  # protoc as a release archive.
-  PROTOC_VERSION: "36.2"
 permissions:
   contents: write
   pages: write
@@ -57,14 +54,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install build dependencies
-        run: |
-          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip" &
-          protoc=$!
-          sudo apt-get update -qq
-          sudo apt-get install -qq --yes --no-install-recommends libcurl4-openssl-dev
-          wait "$protoc"
-          sudo unzip -q -o "$RUNNER_TEMP/protoc.zip" 'bin/*' 'include/*' -d /usr/local
+        uses: ./.github/actions/build-dependencies
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: loadingalias/cargo-rail-action/setup@409962f05d90a78aae995ef6b1c8466010c0a460 # v10.1.1
@@ -133,14 +123,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install build dependencies
-        run: |
-          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip" &
-          protoc=$!
-          sudo apt-get update -qq
-          sudo apt-get install -qq --yes --no-install-recommends libcurl4-openssl-dev
-          wait "$protoc"
-          sudo unzip -q -o "$RUNNER_TEMP/protoc.zip" 'bin/*' 'include/*' -d /usr/local
+        uses: ./.github/actions/build-dependencies
       - name: Install dependencies
         run: |
           yarn install
@@ -165,11 +148,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Install taplo from crates.io
-        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
-        with:
-          crate: taplo-cli
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install taplo
+        env:
+          TAPLO_VERSION: 0.10.0
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/taplo.gz" \
+            "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz"
+          gunzip "$RUNNER_TEMP/taplo.gz"
+          sudo install "$RUNNER_TEMP/taplo" /usr/local/bin/taplo
       - name: Enforce Rust formatting
         run: cargo fmt --check
       - name: Enforce TOML formatting
@@ -198,19 +184,16 @@ jobs:
           rustup toolchain install "$nightly" --profile minimal
           echo "RUST_NIGHTLY=$nightly" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: Install udeps from crates.io
-        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
-        with:
-          crate: cargo-udeps
-      - name: Install build dependencies
+      - name: Install cargo-udeps
+        env:
+          UDEPS_VERSION: 0.1.61
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip" &
-          protoc=$!
-          sudo apt-get update -qq
-          sudo apt-get install -qq --yes --no-install-recommends libcurl4-openssl-dev
-          wait "$protoc"
-          sudo unzip -q -o "$RUNNER_TEMP/protoc.zip" 'bin/*' 'include/*' -d /usr/local
+          archive="cargo-udeps-v${UDEPS_VERSION}-x86_64-unknown-linux-musl"
+          curl -sSfL -o "$RUNNER_TEMP/udeps.tar.gz" \
+            "https://github.com/est31/cargo-udeps/releases/download/v${UDEPS_VERSION}/${archive}.tar.gz"
+          sudo tar -xzf "$RUNNER_TEMP/udeps.tar.gz" -C /usr/local/bin --strip-components=2 "./${archive}/cargo-udeps"
+      - name: Install build dependencies
+        uses: ./.github/actions/build-dependencies
       - name: Run cargo udeps
         run: cargo "+$RUST_NIGHTLY" udeps
 
@@ -230,13 +213,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install build dependencies
-        run: |
-          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
-            "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip" &
-          protoc=$!
-          sudo apt-get update -qq
-          sudo apt-get install -qq --yes --no-install-recommends libcurl4-openssl-dev
-          wait "$protoc"
-          sudo unzip -q -o "$RUNNER_TEMP/protoc.zip" 'bin/*' 'include/*' -d /usr/local
+        uses: ./.github/actions/build-dependencies
       - name: Check documentation
-        run: RUSTDOCFLAGS="-D warnings" cargo doc
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
