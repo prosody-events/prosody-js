@@ -25,7 +25,7 @@ jobs:
     outputs:
       required-work: ${{ steps.rail.outputs.required-work }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -53,26 +53,22 @@ jobs:
       contains(fromJSON(needs.plan.outputs.required-work), 'ci')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - name: Install clippy-sarif from crates.io
-        uses: baptiste0928/cargo-install@v3
+        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
         with:
           crate: clippy-sarif
       - name: Install sarif-fmt from crates.io
-        uses: baptiste0928/cargo-install@v3
+        uses: baptiste0928/cargo-install@8195d4f734a149db85385bb4102b42efcd373759 # v3.5.0
         with:
           crate: sarif-fmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install build dependencies
-        if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake libcurl4-openssl-dev protobuf-compiler
-          version: 1.0
+        uses: ./.github/actions/build-dependencies
       - name: Linting
         run: cargo clippy --all-features -- -D warnings
 #          cargo clippy --all-features --message-format=json -- -D warnings

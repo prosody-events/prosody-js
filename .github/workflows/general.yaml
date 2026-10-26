@@ -24,7 +24,7 @@ jobs:
     outputs:
       required-work: ${{ steps.rail.outputs.required-work }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -50,17 +50,13 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install build dependencies
-        if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake libcurl4-openssl-dev protobuf-compiler
-          version: 1.0
+        uses: ./.github/actions/build-dependencies
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: loadingalias/cargo-rail-action/setup@409962f05d90a78aae995ef6b1c8466010c0a460 # v10.1.1
       - name: Record build evidence
         run: >
@@ -113,25 +109,21 @@ jobs:
           --health-timeout 10s
           --health-retries 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install mold
         uses: rui314/setup-mold@10ca16bf91dc22e05ebdc935cad9c75ea248f621 # v1
 
       - name: Setup node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: yarn
       - name: Install
         uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install build dependencies
-        if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake libcurl4-openssl-dev protobuf-compiler
-          version: 1.0
+        uses: ./.github/actions/build-dependencies
       - name: Install dependencies
         run: |
           yarn install
@@ -152,15 +144,18 @@ jobs:
       contains(fromJSON(needs.plan.outputs.required-work), 'ci')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Install taplo from crates.io
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: taplo-cli
-      - uses: Swatinem/rust-cache@v2
+      - name: Install taplo
+        env:
+          TAPLO_VERSION: 0.10.0
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/taplo.gz" \
+            "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz"
+          gunzip "$RUNNER_TEMP/taplo.gz"
+          sudo install "$RUNNER_TEMP/taplo" /usr/local/bin/taplo
       - name: Enforce Rust formatting
         run: cargo fmt --check
       - name: Enforce TOML formatting
@@ -175,26 +170,32 @@ jobs:
       contains(fromJSON(needs.plan.outputs.required-work), 'ci')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install mold
         uses: rui314/setup-mold@10ca16bf91dc22e05ebdc935cad9c75ea248f621 # v1
 
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
-      - name: Install udeps from crates.io
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-udeps
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      # Use the nightly from the stable release date. The Rust cache key hashes
+      # each toolchain, so nightly changes only when stable changes.
+      - name: Install nightly Rust
+        run: |
+          nightly="nightly-$(rustc +stable -vV | sed -n 's/^commit-date: //p')"
+          rustup toolchain install "$nightly" --profile minimal
+          echo "RUST_NIGHTLY=$nightly" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install cargo-udeps
+        env:
+          UDEPS_VERSION: 0.1.61
+        run: |
+          archive="cargo-udeps-v${UDEPS_VERSION}-x86_64-unknown-linux-musl"
+          curl -sSfL -o "$RUNNER_TEMP/udeps.tar.gz" \
+            "https://github.com/est31/cargo-udeps/releases/download/v${UDEPS_VERSION}/${archive}.tar.gz"
+          sudo tar -xzf "$RUNNER_TEMP/udeps.tar.gz" -C /usr/local/bin --strip-components=2 "./${archive}/cargo-udeps"
       - name: Install build dependencies
-        if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake libcurl4-openssl-dev protobuf-compiler
-          version: 1.0
+        uses: ./.github/actions/build-dependencies
       - name: Run cargo udeps
-        run: cargo +nightly udeps
+        run: cargo "+$RUST_NIGHTLY" udeps
 
   docs:
     name: Documentation
@@ -205,17 +206,13 @@ jobs:
       contains(fromJSON(needs.plan.outputs.required-work), 'ci')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up mold
         uses: rui314/setup-mold@10ca16bf91dc22e05ebdc935cad9c75ea248f621 # v1
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install build dependencies
-        if: runner.os == 'Linux'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake libcurl4-openssl-dev protobuf-compiler
-          version: 1.0
+        uses: ./.github/actions/build-dependencies
       - name: Check documentation
-        run: RUSTDOCFLAGS="-D warnings" cargo doc
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
