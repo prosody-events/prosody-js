@@ -24,10 +24,6 @@ on:
         description: "Rebuild and publish the current version without running Release Please"
         required: false
         type: string
-      release_as:
-        description: "Force release version (e.g. 2.2.0-beta.1)"
-        required: false
-        type: string
 
 jobs:
   release-please:
@@ -45,7 +41,6 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          release-as: ${{ github.event.inputs.release_as }}
 
       - name: Resolve release context
         id: release_context
