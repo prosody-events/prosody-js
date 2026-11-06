@@ -23,7 +23,7 @@ export declare class ValueState<T = JsonValue> {
    * Reports whether a value is present. The check does not decode the value.
    * For a message value, it does not fetch the Kafka message.
    */
-  contains(): Promise<boolean>;
+  has(): Promise<boolean>;
   /**
    * Buffers a write of the value. The parameter type excludes `null` and
    * `undefined`, because a top-level `null` is not a storable value. At run

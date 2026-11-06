@@ -142,9 +142,7 @@ export async function checks(): Promise<void> {
   assertTrue<
     Equal<Awaited<ReturnType<typeof publishedCart.get>>, Cart | null>
   >();
-  assertTrue<
-    Equal<Awaited<ReturnType<typeof publishedCart.contains>>, boolean>
-  >();
+  assertTrue<Equal<Awaited<ReturnType<typeof publishedCart.has>>, boolean>>();
   assertTrue<Equal<Awaited<ReturnType<typeof publishedTotals.has>>, boolean>>();
   assertTrue<
     Equal<Awaited<ReturnType<typeof publishedTotals.hasMany>>, boolean[]>
@@ -180,8 +178,8 @@ export async function checks(): Promise<void> {
   // ---- value ----
   const current: Cart | null = await c.get();
   assertTrue<Equal<Awaited<ReturnType<typeof c.get>>, Cart | null>>();
-  assertTrue<Equal<Awaited<ReturnType<typeof c.contains>>, boolean>>();
-  assertTrue<Equal<Awaited<ReturnType<typeof lv.contains>>, boolean>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof c.has>>, boolean>>();
+  assertTrue<Equal<Awaited<ReturnType<typeof lv.has>>, boolean>>();
   await c.set({ items: [...(current?.items ?? []), incoming.payload.orderId] });
   await c.clear();
 

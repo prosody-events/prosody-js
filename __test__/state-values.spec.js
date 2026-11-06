@@ -33,14 +33,14 @@ describe("ProsodyClient", () => {
       const obs = await env.observe(async (ctx, msg) => {
         const c = ctx.state(STATE_DEFS.cart);
         const before = await c.get(); // never written -> null
-        const presentBefore = await c.contains();
+        const presentBefore = await c.has();
         await c.set(rich);
         const after = await c.get(); // read-your-writes -> the marshalled value
         return {
           before,
           after,
           presentBefore,
-          presentAfter: await c.contains(),
+          presentAfter: await c.has(),
         };
       }, K);
       expect(obs.before).toBeNull();
@@ -199,7 +199,7 @@ describe("ProsodyClient", () => {
                 payload: msg.payload,
               });
             } else if (msg.payload.step === 2) {
-              const present = await lm.contains();
+              const present = await lm.has();
               const got = await lm.get();
               env.messageStream.push({
                 tag: "got",
