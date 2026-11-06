@@ -23,6 +23,12 @@ impl NativeJsonValueState {
             .and_then(json_value)
     }
 
+    /// Reports whether a value is present, without decoding it.
+    #[napi(writable = false)]
+    pub async fn contains(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
+        run(&self.propagator, &otel_context, self.state.contains()).await
+    }
+
     /// Buffers a write of a JSON document.
     #[napi(writable = false)]
     pub async fn set(
@@ -63,6 +69,12 @@ impl NativeMessageValueState {
         run(&self.propagator, &otel_context, self.state.get())
             .await
             .map(message_value)
+    }
+
+    /// Reports whether a value is present, without fetching its message.
+    #[napi(writable = false)]
+    pub async fn contains(&self, otel_context: HashMap<String, String>) -> napi::Result<bool> {
+        run(&self.propagator, &otel_context, self.state.contains()).await
     }
 
     /// Buffers a write of a Kafka message.

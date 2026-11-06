@@ -164,6 +164,7 @@ describe("keyed state configuration validation", () => {
       const [valueReader, mapReader, setReader, dequeReader] = readers;
       const reads = [
         valueReader.get("k"),
+        valueReader.has("k"),
         mapReader.get("k", "a"),
         setReader.has("k", "a"),
         dequeReader.length("k"),

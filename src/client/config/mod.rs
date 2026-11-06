@@ -76,13 +76,32 @@ pub struct Configuration {
     /// Time between message polls in milliseconds.
     pub poll_interval_ms: Option<f64>,
 
-    /// Time between offset commits in milliseconds.
+    /// Time between offset commits in milliseconds. Prosody accepts 1 ms to
+    /// 24 hours.
     pub commit_interval_ms: Option<f64>,
 
     /// Time between librdkafka statistics reports in milliseconds. Prosody
     /// accepts 1 ms to 24 hours. Uses `PROSODY_STATISTICS_INTERVAL` when
     /// omitted, then 5 seconds.
     pub statistics_interval_ms: Option<f64>,
+
+    /// Bytes of fetched records that wait for each assigned partition.
+    /// Fetched memory grows with the number of assigned partitions: about two
+    /// times this value, plus one batch, per partition. Accepts a
+    /// human-readable size. Uses `PROSODY_PARTITION_PREFETCH` when omitted,
+    /// then 128 KiB.
+    pub partition_prefetch: Option<String>,
+
+    /// Maximum bytes in one fetch response from one broker. Accepts a
+    /// human-readable size. Uses `PROSODY_FETCH_MAX_BYTES` when omitted, then
+    /// 50 MiB.
+    pub fetch_max_bytes: Option<String>,
+
+    /// How long a broker can hold a fetch request when no new records are
+    /// available, in milliseconds. A shorter wait lowers the delay for a
+    /// partition that is behind, but an idle consumer sends more fetch
+    /// requests. Uses `PROSODY_FETCH_WAIT` when omitted, then 500 ms.
+    pub fetch_wait_ms: Option<f64>,
 
     /// Operating mode.
     pub mode: Option<Mode>,
