@@ -41,6 +41,7 @@ describe("configuration validation", () => {
     "deferBaseMs",
     "deferFailureWindowMs",
     "deferMaxDelayMs",
+    "fetchWaitMs",
     "idempotenceTtlSeconds",
     "loaderSeekTimeoutMs",
     "maxRetryDelayMs",
@@ -56,6 +57,7 @@ describe("configuration validation", () => {
     "statisticsIntervalMs",
     "timeoutMs",
   ];
+  const SIZE_OPTIONS = ["fetchMaxBytes", "partitionPrefetch"];
   const cases = (options, values) =>
     options.flatMap((option) => values.map((value) => [option, value]));
 
@@ -77,36 +79,46 @@ describe("configuration validation", () => {
     },
   );
 
+  it.each(cases(SIZE_OPTIONS, ["-1 MiB", "nonsense"]))(
+    "rejects %s = %p at conversion",
+    async (option, value) => {
+      await expect(
+        ProsodyClient.create(mockConfig({ [option]: value })),
+      ).rejects.toThrow(`${option}: `);
+    },
+  );
+
   it("rejects a probe port above the port range", async () => {
     await expect(
       ProsodyClient.create(mockConfig({ probePort: 70000 })),
     ).rejects.toThrow("probePort: must be a whole number");
   });
 
-  // Prosody accepts a statistics interval from 1 ms to 24 hours. It checks
-  // the consumer options when the consumer starts, so subscribe reports a
-  // zero interval.
+  // Prosody checks the range of these consumer options when the consumer
+  // starts. So subscribe accepts the first value and reports the second, which
+  // proves that the option reaches Prosody.
   it.each([
-    [60000, "resolves"],
-    [0, "rejects"],
-  ])("passes statisticsIntervalMs %p to Prosody", async (value, outcome) => {
-    const configured = await ProsodyClient.create(
-      mockConfig({ statisticsIntervalMs: value }),
-    );
-    try {
-      const subscribed = configured.subscribe({
-        onMessage: () => null,
-        onExcise: () => null,
-        onTimer: () => {},
-      });
-      if (outcome === "resolves") {
-        await expect(subscribed).resolves.toBeUndefined();
-      } else {
-        await expect(subscribed).rejects.toThrow(/statistics_interval/);
+    ["statisticsIntervalMs", 60000, 0, /statistics_interval/],
+    ["partitionPrefetch", "1 MiB", "1 B", /partition_prefetch/],
+    ["fetchMaxBytes", "16 MiB", "1 KiB", /fetch_max_bytes/],
+    ["fetchWaitMs", 100, 60000, /fetch_wait/],
+  ])("passes %s to Prosody", async (option, accepted, rejected, error) => {
+    const subscribe = async (value) => {
+      const configured = await ProsodyClient.create(
+        mockConfig({ [option]: value }),
+      );
+      try {
+        await configured.subscribe({
+          onMessage: () => null,
+          onExcise: () => null,
+          onTimer: () => {},
+        });
+      } finally {
+        await configured.shutdown();
       }
-    } finally {
-      await configured.shutdown();
-    }
+    };
+    await expect(subscribe(accepted)).resolves.toBeUndefined();
+    await expect(subscribe(rejected)).rejects.toThrow(error);
   });
 
   // An await using block shuts the client down when it ends. A later

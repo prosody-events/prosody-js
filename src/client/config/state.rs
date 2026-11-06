@@ -310,7 +310,7 @@ pub(crate) fn read_cache_policy(
 
 /// Parses a byte size option, such as `"64 MiB"`, and names `field` in the
 /// error.
-fn byte_size(option: Option<&str>, field: &str) -> Result<Option<ByteSize>> {
+pub(super) fn byte_size(option: Option<&str>, field: &str) -> Result<Option<ByteSize>> {
     option
         .map(|size| {
             size.parse::<ByteSize>()

@@ -33,11 +33,19 @@ describe("ProsodyClient", () => {
       const obs = await env.observe(async (ctx, msg) => {
         const c = ctx.state(STATE_DEFS.cart);
         const before = await c.get(); // never written -> null
+        const presentBefore = await c.contains();
         await c.set(rich);
         const after = await c.get(); // read-your-writes -> the marshalled value
-        return { before, after };
+        return {
+          before,
+          after,
+          presentBefore,
+          presentAfter: await c.contains(),
+        };
       }, K);
       expect(obs.before).toBeNull();
+      expect(obs.presentBefore).toBe(false);
+      expect(obs.presentAfter).toBe(true);
       // The serde bridge round-trips the whole value, nested null included.
       expect(obs.after).toEqual(rich);
     });
@@ -172,7 +180,7 @@ describe("ProsodyClient", () => {
 
     // Message collection (messageValue): record the handled message in
     // event1, read it back in event2, observing topic/partition/offset/key/
-    // payload equal to the original.
+    // payload equal to the original. The presence check reports the value.
     it("messageValue stores the handled message and reads it back intact", async () => {
       const MK = nonce();
       env.client = await makeStateClient();
@@ -191,9 +199,11 @@ describe("ProsodyClient", () => {
                 payload: msg.payload,
               });
             } else if (msg.payload.step === 2) {
+              const present = await lm.contains();
               const got = await lm.get();
               env.messageStream.push({
                 tag: "got",
+                present,
                 topic: got.topic,
                 partition: got.partition,
                 offset: got.offset.toString(),
@@ -215,8 +225,10 @@ describe("ProsodyClient", () => {
 
       const orig = { ...byTag.orig };
       const got = { ...byTag.got };
+      expect(got.present).toBe(true);
       delete orig.tag;
       delete got.tag;
+      delete got.present;
       // the stored item is event1's original message; its offset differs from
       // event2's, so equality proves the store returned the recorded message.
       expect(got).toEqual(orig);
