@@ -26,7 +26,7 @@ napi = { version = "3.16", features = [
 ] }
 napi-derive = "3.7"
 opentelemetry = "0.33"
-prosody = { version = "0.7.1", features = ["libz-static"] }
+prosody = { version = "0.8", features = ["libz-static"] }
 rustfs-mimalloc = { version = "0.7.3", features = ["local_dynamic_tls"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -88,7 +88,3 @@ verbose_file_reads = "warn"
 [profile.release]
 codegen-units = 1
 lto = "fat"
-
-# Temporary: build against unreleased prosody main. Remove after release.
-[patch.crates-io]
-prosody = { git = "https://github.com/prosody-events/prosody", rev = "656cb911c96df03632025738288998ffbccac0e3" }
