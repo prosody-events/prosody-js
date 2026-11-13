@@ -34,6 +34,16 @@ impl NativePublishedValue {
             .await
             .and_then(json_value)
     }
+
+    /// Reports whether a committed value exists for a partition key.
+    #[napi(writable = false)]
+    pub async fn contains(
+        &self,
+        key: String,
+        otel_context: HashMap<String, String>,
+    ) -> Result<bool> {
+        run(&self.propagator, &otel_context, self.inner.contains(key)).await
+    }
 }
 
 /// A read-only published map collection.

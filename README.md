@@ -11,7 +11,7 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 - **Timer System**: Persistent scheduled execution backed by Cassandra or in-memory store
 - **Quality of Service**: Fair scheduling limits concurrency and prevents failures from starving fresh traffic. Pipeline mode adds deferred retry and monopolization detection
 - **Distributed Tracing**: OpenTelemetry integration for tracing message flow across services
-- **Backpressure**: Pauses partitions when handlers fall behind
+- **Backpressure**: Stops reading a partition when handlers fall behind
 - **Mocking**: In-memory Kafka broker for tests (`mock: true`)
 - **Failure Handling**: Pipeline (retry forever), Low-Latency (dead letter), Best-Effort (log and skip)
 
@@ -118,7 +118,7 @@ Prosody enables efficient, parallel processing of Kafka messages while maintaini
 - **Partition-Level Parallelism**: Separate management of each Kafka partition
 - **Key-Based Queuing**: Ordered processing for each key within a partition
 - **Concurrent Processing**: Simultaneous processing of different keys
-- **Backpressure Management**: Pause consumption from backed-up partitions
+- **Backpressure Management**: Stop reading from backed-up partitions
 
 ## Quality of Service
 
@@ -719,7 +719,7 @@ const handler = {
     const window = context.state(WINDOW);
     const pending = context.state(PENDING);
 
-    if (await window.get()) {
+    if (await window.has()) {
       await pending.push(message);
       return null;
     }
@@ -1297,6 +1297,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 `ValueState<T>`:
 
 - `get(): Promise<T | null>`
+- `has(): Promise<boolean>`
 - `set(value: T): Promise<void>`
 - `clear(): Promise<void>`
 - `commit(): Promise<StoreOutcome>`
@@ -1354,7 +1355,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 
 `KeyQueryOptions`: `{ direction?, prefix?, from? | after?, to? | before?, range?: [start, end], limit? }` with string bounds. A `null` range bound is open. `PositionQueryOptions`: the same without `prefix`, with non-negative integer positions. A `TypeError` reports a wrong option type, an unknown option or direction, both edges of a pair, or a range that is not an array of two bounds. A `RangeError` reports an invalid `limit` or position. See [Query a collection](#query-a-collection).
 
-Published readers take the user key as their first argument. `PublishedValue<T>` provides `get`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
+Published readers take the user key as their first argument. `PublishedValue<T>` provides `get` and `has`. `PublishedMap<V>` provides `get`, `getMany`, `has`, `hasMany`, `isEmpty`, `entries`, `keys`, and `values`. `PublishedSet` provides `has`, `hasMany`, `isEmpty`, `keys`, and `values`. `PublishedDeque<T>` provides `at`, `length`, `isEmpty`, and `values`. The scan methods return `AsyncIterableIterator` directly. They take the same query options as the handler handles.
 
 `StateCollectionConfig` defines one `stateCollections` entry. It contains `name`, `kind`, `payload` (except for a set), and the applicable collection options. Use a definition constructor to create this value.
 

@@ -1,7 +1,7 @@
 //! The consumer and middleware configuration builders.
 
 use super::state::build_keyed_state_config;
-use super::{Configuration, parse_string_or_vec};
+use super::{Configuration, byte_size, parse_string_or_vec};
 use crate::number::{milliseconds, seconds, whole};
 use napi::{Either, Error, Result};
 use prosody::PeerConfiguration;
@@ -72,6 +72,18 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
 
     if let Some(value) = config.statistics_interval_ms {
         builder.statistics_interval(milliseconds(value, "statisticsIntervalMs")?);
+    }
+
+    if let Some(size) = byte_size(config.partition_prefetch.as_deref(), "partitionPrefetch")? {
+        builder.partition_prefetch(size);
+    }
+
+    if let Some(size) = byte_size(config.fetch_max_bytes.as_deref(), "fetchMaxBytes")? {
+        builder.fetch_max_bytes(size);
+    }
+
+    if let Some(value) = config.fetch_wait_ms {
+        builder.fetch_wait(milliseconds(value, "fetchWaitMs")?);
     }
 
     if let Some(probe_port) = config.probe_port {

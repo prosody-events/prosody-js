@@ -13,8 +13,9 @@ pub use state::{ReadCacheOption, StateCollectionConfig};
 
 use crate::number::{milliseconds, seconds, whole};
 use napi::bindgen_prelude::Null;
-use napi::{Either, Result};
+use napi::{Either, Error, Result};
 use napi_derive::napi;
+use prosody::ByteSize;
 use prosody::cassandra::config::CassandraConfigurationBuilder;
 use prosody::high_level::mode::Mode as ProsodyMode;
 use prosody::producer::ProducerConfigurationBuilder;
@@ -73,16 +74,34 @@ pub struct Configuration {
     /// near the deadline.
     pub shutdown_timeout_ms: Option<f64>,
 
-    /// Time between message polls in milliseconds.
+    /// Time between Kafka event polls in milliseconds. Each poll serves
+    /// events, such as rebalances, and stores the offsets of finished
+    /// messages.
     pub poll_interval_ms: Option<f64>,
 
     /// Time between offset commits in milliseconds.
     pub commit_interval_ms: Option<f64>,
 
-    /// Time between librdkafka statistics reports in milliseconds. Prosody
-    /// accepts 1 ms to 24 hours. Uses `PROSODY_STATISTICS_INTERVAL` when
-    /// omitted, then 5 seconds.
+    /// Time between librdkafka statistics reports in milliseconds. Uses
+    /// `PROSODY_STATISTICS_INTERVAL` when omitted, then 5 seconds.
     pub statistics_interval_ms: Option<f64>,
+
+    /// Bytes of fetched records that wait for each assigned partition.
+    /// Fetched memory grows with the number of assigned partitions. Accepts a
+    /// human-readable size. Uses `PROSODY_PARTITION_PREFETCH` when omitted,
+    /// then 128 KiB.
+    pub partition_prefetch: Option<String>,
+
+    /// Maximum bytes in one fetch response from one broker. Accepts a
+    /// human-readable size. Uses `PROSODY_FETCH_MAX_BYTES` when omitted, then
+    /// 50 MiB.
+    pub fetch_max_bytes: Option<String>,
+
+    /// How long a broker can hold a fetch request when no new records are
+    /// available, in milliseconds. A shorter wait lowers the delay for a
+    /// partition that is behind, but an idle consumer sends more fetch
+    /// requests. Uses `PROSODY_FETCH_WAIT` when omitted, then 500 ms.
+    pub fetch_wait_ms: Option<f64>,
 
     /// Operating mode.
     pub mode: Option<Mode>,
@@ -404,4 +423,15 @@ fn parse_string_or_vec(value: &Either<String, Vec<String>>) -> Vec<String> {
         Either::A(s) => vec![s.clone()],
         Either::B(v) => v.clone(),
     }
+}
+
+/// Parses a byte size option, such as `"64 MiB"`, and names `field` in the
+/// error.
+fn byte_size(option: Option<&str>, field: &str) -> Result<Option<ByteSize>> {
+    option
+        .map(|size| {
+            size.parse::<ByteSize>()
+                .map_err(|error| Error::from_reason(format!("{field}: {error}")))
+        })
+        .transpose()
 }

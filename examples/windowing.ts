@@ -29,7 +29,7 @@ const handler = {
     // message.key = userId; message.payload = { actor, action }
     const window = context.state(WINDOW); // bind THIS user's handles for THIS event
     const pending = context.state(PENDING);
-    if (!(await window.get())) {
+    if (!(await window.has())) {
       // no batch open → this is the first event: send it right away
       await notify(message.key, [message]);
       await window.set(true);

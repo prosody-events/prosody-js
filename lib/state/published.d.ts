@@ -30,6 +30,8 @@ export declare class PublishedValue<T = JsonValue> {
 
   /** Reads the committed value for `key`, or null when it is absent. */
   get(key: string): Promise<T | null>;
+  /** Reports whether a committed value exists for `key`. It does not decode the value. */
+  has(key: string): Promise<boolean>;
 }
 
 /** Read-only published map collection. */
