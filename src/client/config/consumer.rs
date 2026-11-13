@@ -1,7 +1,7 @@
 //! The consumer and middleware configuration builders.
 
-use super::state::{build_keyed_state_config, byte_size};
-use super::{Configuration, parse_string_or_vec};
+use super::state::build_keyed_state_config;
+use super::{Configuration, byte_size, parse_string_or_vec};
 use crate::number::{milliseconds, seconds, whole};
 use napi::{Either, Error, Result};
 use prosody::PeerConfiguration;

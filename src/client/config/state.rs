@@ -1,11 +1,10 @@
 //! The `stateCollections` entries and the keyed-state configuration: parsing,
 //! validation, and collection registration.
 
-use super::Configuration;
+use super::{Configuration, byte_size};
 use crate::number::{milliseconds, whole};
 use napi::{Either, Error, Result};
 use napi_derive::napi;
-use prosody::ByteSize;
 use prosody::codec::{JsonBinaryCodec, JsonBinaryMessageCodec};
 use prosody::consumer::KeyedStateConfiguration;
 use prosody::consumer::kafka_state::{message_deque_state, message_map_state, message_state};
@@ -306,17 +305,6 @@ pub(crate) fn read_cache_policy(
             ))),
         },
     }
-}
-
-/// Parses a byte size option, such as `"64 MiB"`, and names `field` in the
-/// error.
-pub(super) fn byte_size(option: Option<&str>, field: &str) -> Result<Option<ByteSize>> {
-    option
-        .map(|size| {
-            size.parse::<ByteSize>()
-                .map_err(|error| Error::from_reason(format!("{field}: {error}")))
-        })
-        .transpose()
 }
 
 /// Builds the real `KeyedStateConfiguration` from the given Configuration.
