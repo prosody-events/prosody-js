@@ -11,7 +11,7 @@ strategies, and integrated OpenTelemetry support for distributed tracing.
 - **Timer System**: Persistent scheduled execution backed by Cassandra or in-memory store
 - **Quality of Service**: Fair scheduling limits concurrency and prevents failures from starving fresh traffic. Pipeline mode adds deferred retry and monopolization detection
 - **Distributed Tracing**: OpenTelemetry integration for tracing message flow across services
-- **Backpressure**: Pauses partitions when handlers fall behind
+- **Backpressure**: Stops reading a partition when handlers fall behind
 - **Mocking**: In-memory Kafka broker for tests (`mock: true`)
 - **Failure Handling**: Pipeline (retry forever), Low-Latency (dead letter), Best-Effort (log and skip)
 
@@ -118,7 +118,7 @@ Prosody enables efficient, parallel processing of Kafka messages while maintaini
 - **Partition-Level Parallelism**: Separate management of each Kafka partition
 - **Key-Based Queuing**: Ordered processing for each key within a partition
 - **Concurrent Processing**: Simultaneous processing of different keys
-- **Backpressure Management**: Pause consumption from backed-up partitions
+- **Backpressure Management**: Stop reading from backed-up partitions
 
 ## Quality of Service
 
@@ -719,7 +719,7 @@ const handler = {
     const window = context.state(WINDOW);
     const pending = context.state(PENDING);
 
-    if (await window.get()) {
+    if (await window.has()) {
       await pending.push(message);
       return null;
     }
@@ -1297,7 +1297,7 @@ Definition constructors (each returns a frozen definition object used both in `C
 `ValueState<T>`:
 
 - `get(): Promise<T | null>`
-- `has(): Promise<boolean>`: Report whether a value is present. The check does not decode the value or fetch a message.
+- `has(): Promise<boolean>`
 - `set(value: T): Promise<void>`
 - `clear(): Promise<void>`
 - `commit(): Promise<StoreOutcome>`
