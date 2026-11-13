@@ -99,9 +99,9 @@ describe("configuration validation", () => {
   // proves that the option reaches Prosody.
   it.each([
     ["statisticsIntervalMs", 60000, 0, /statistics_interval/],
-    ["partitionPrefetch", "1 MiB", "1 B", /partition_prefetch/],
-    ["fetchMaxBytes", "16 MiB", "1 KiB", /fetch_max_bytes/],
-    ["fetchWaitMs", 100, 60000, /fetch_wait/],
+    ["partitionPrefetch", "1 MiB", "1 TiB", /partition_prefetch/],
+    ["fetchMaxBytes", "16 MiB", "1 TiB", /fetch_max_bytes/],
+    ["fetchWaitMs", 100, 0, /fetch_wait/],
   ])("passes %s to Prosody", async (option, accepted, rejected, error) => {
     const subscribe = async (value) => {
       const configured = await ProsodyClient.create(
