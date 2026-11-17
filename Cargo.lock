@@ -2069,8 +2069,7 @@ dependencies = [
 [[package]]
 name = "prosody"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "114161b744ee1bca905f2bd1e4809eb56e68a84d87c0f9a5bf7b156b2b80b75b"
+source = "git+https://github.com/prosody-events/prosody?rev=015e04c2748ad3fe04ec6f7140eea86b62c0cd51#015e04c2748ad3fe04ec6f7140eea86b62c0cd51"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -2163,8 +2162,7 @@ dependencies = [
 [[package]]
 name = "prosody-macros"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec030942c412cf077536eb87b248dfb0ed89ec4f0d86423e5fe01623c13722f1"
+source = "git+https://github.com/prosody-events/prosody?rev=015e04c2748ad3fe04ec6f7140eea86b62c0cd51#015e04c2748ad3fe04ec6f7140eea86b62c0cd51"
 dependencies = [
  "proc-macro2",
  "quote",

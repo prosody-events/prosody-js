@@ -35,6 +35,11 @@ pub struct Configuration {
     /// Consumer group name.
     pub group_id: Option<String>,
 
+    /// Availability zone (rack) of this process, sent to Kafka as
+    /// `client.rack`. The consumer and the deferred-message loader then fetch
+    /// from a replica in the same zone.
+    pub kafka_rack: Option<String>,
+
     /// Capacity of both idempotence caches: the producer cache that skips a
     /// repeated event ID, and the consumer cache that drops a duplicate
     /// message. The consumer cache requires at least 1.
