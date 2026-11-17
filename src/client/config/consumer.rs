@@ -42,6 +42,10 @@ pub fn build_consumer_config(config: &Configuration) -> Result<ConsumerConfigura
         builder.group_id(group_id);
     }
 
+    if let Some(rack) = &config.kafka_rack {
+        builder.rack(Some(rack.clone()));
+    }
+
     if let Some(topics) = &config.subscribed_topics {
         builder.subscribed_topics(parse_string_or_vec(topics));
     }
